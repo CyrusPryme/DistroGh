@@ -1,10 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { Building2, Mail, Phone, FileText, Send, CheckCircle, Menu, X, ArrowRight, Users, TrendingUp, Shield } from 'lucide-react'
 import { vendorApplicationService } from '@/services/vendor-application.service'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
+import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
 
 export default function HomePage() {
   const [formData, setFormData] = useState({
@@ -87,26 +89,22 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 relative overflow-x-hidden">
-      {/* Animated gradient mesh background */}
-      <div className="fixed inset-0 pointer-events-none -z-10">
-        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-emerald-400/20 rounded-full blur-[120px] animate-glow-pulse" />
-        <div className="absolute top-1/3 right-0 w-[500px] h-[500px] bg-teal-400/15 rounded-full blur-[100px] animate-float" />
-        <div className="absolute bottom-1/4 left-0 w-[400px] h-[400px] bg-cyan-400/10 rounded-full blur-[80px] animate-float" style={{ animationDelay: '-2s' }} />
-        <div className="absolute inset-0 bg-dot-grid opacity-60" />
+    <div className="min-h-screen relative overflow-x-hidden">
+      {/* Animated gradient mesh — below hero only */}
+      <div className="fixed inset-0 pointer-events-none -z-10 bg-slate-50">
+        <div className="absolute top-[85vh] left-0 right-0 bottom-0">
+          <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-emerald-400/20 rounded-full blur-[120px] animate-glow-pulse" />
+          <div className="absolute top-1/4 right-0 w-[500px] h-[500px] bg-teal-400/15 rounded-full blur-[100px] animate-float" />
+          <div className="absolute bottom-1/4 left-0 w-[400px] h-[400px] bg-cyan-400/10 rounded-full blur-[80px] animate-float" style={{ animationDelay: '-2s' }} />
+          <div className="absolute inset-0 bg-dot-grid opacity-60" />
+        </div>
       </div>
 
       {/* Navigation Header */}
       <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200/60 shadow-lg shadow-slate-200/20">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 bg-gradient-to-br from-emerald-600 to-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-900/20">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-display font-bold text-slate-900 tracking-tight">DistroGH</span>
-            </div>
+            <DistroGHLogo size="md" priority />
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-4">
@@ -159,25 +157,37 @@ export default function HomePage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden">
-        <div className="container mx-auto px-4 py-24 md:py-36">
+      <section className="relative isolate overflow-hidden min-h-[85vh] flex items-center">
+        <div className="absolute inset-0 z-0">
+          <Image
+            src="/images/supermarket-3.jpg"
+            alt=""
+            fill
+            priority
+            className="object-cover object-center"
+            sizes="100vw"
+          />
+          <div className="absolute inset-0 bg-slate-900/55" />
+          <div className="absolute inset-0 bg-gradient-to-b from-emerald-950/45 via-slate-900/35 to-slate-900/70" />
+        </div>
+        <div className="container relative z-10 mx-auto px-4 py-24 md:py-36 w-full">
           <div className="text-center max-w-4xl mx-auto">
             {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/80 backdrop-blur-sm text-emerald-800 rounded-full text-sm font-semibold mb-10 border border-emerald-200/80 shadow-lg shadow-emerald-900/5 animate-fade-in">
+            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/90 backdrop-blur-sm text-emerald-800 rounded-full text-sm font-semibold mb-10 border border-emerald-200/80 shadow-lg shadow-emerald-900/5 animate-fade-in">
               <Shield className="w-4 h-4 text-emerald-600" />
               Trusted by Ghana&apos;s Leading Distributors
             </div>
 
             {/* Main Headline */}
-            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold text-slate-900 mb-6 leading-[1.08] tracking-tight animate-slide-up">
+            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold text-white mb-6 leading-[1.08] tracking-tight animate-slide-up drop-shadow-sm">
               Empower Your
-              <span className="block bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-600 bg-clip-text text-transparent mt-2">
+              <span className="block bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-200 bg-clip-text text-transparent mt-2">
                 Consignment Business
               </span>
             </h1>
 
             {/* Sub-headline */}
-            <p className="text-lg md:text-xl text-slate-600 mb-14 max-w-2xl mx-auto leading-relaxed animate-slide-up" style={{ animationDelay: '0.1s' }}>
+            <p className="text-lg md:text-xl text-slate-200 mb-14 max-w-2xl mx-auto leading-relaxed animate-slide-up" style={{ animationDelay: '0.1s' }}>
               Streamline your distribution network with real-time analytics, automated commission tracking, and seamless vendor management. Built for Ghana&apos;s growing market.
             </p>
 
@@ -392,11 +402,8 @@ export default function HomePage() {
         <div className="ghana-accent" />
         <div className="container mx-auto px-4 pt-8 relative z-10">
           <div className="text-center">
-            <div className="flex items-center justify-center gap-3 mb-5">
-              <div className="w-11 h-11 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                <TrendingUp className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-2xl font-display font-bold tracking-tight">DistroGH</span>
+            <div className="flex justify-center mb-5">
+              <DistroGHLogo size="lg" href="/" onDark />
             </div>
             <p className="text-slate-400 text-lg max-w-md mx-auto mb-8">
               Empowering Ghana&apos;s consignment distribution network with modern tools
