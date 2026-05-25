@@ -6,11 +6,12 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, Package, ShoppingCart, Upload,
   CreditCard, BarChart3, LogOut, Menu, ChevronRight, ChevronDown,
-  Building2, TrendingUp, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings
+  Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deliveryService } from '@/services/delivery.service'
 import { ServiceChargeBanner } from '@/components/vendors/ServiceChargeBanner'
+import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
 import type { ServiceChargeBanner as ServiceChargeBannerData } from '@/lib/vendor-service-charge'
 
 // Define navigation items with role-based access
@@ -211,15 +212,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col h-full">
       {/* Logo - compact */}
       <div className="px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 bg-gradient-brand rounded-lg flex items-center justify-center shadow-md shadow-emerald-900/20">
-            <TrendingUp className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <h1 className="font-display text-sm font-bold text-slate-900 leading-tight">DistroGH</h1>
-            <p className="text-[9px] text-slate-500 font-medium uppercase tracking-wider">Distribution System</p>
-          </div>
-        </div>
+        <DistroGHLogo size="sm" href="/dashboard" />
       </div>
 
       {/* Ghana accent strip */}

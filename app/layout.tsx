@@ -5,9 +5,15 @@ export const metadata: Metadata = {
   title: 'DistroGH — Consignment Distribution Management',
   description: 'Modern consignment distribution management system for Ghana distributors. Real-time analytics, automated commission tracking, and seamless vendor management.',
   keywords: ['consignment', 'distribution', 'Ghana', 'vendors', 'sales', 'analytics'],
+  icons: {
+    icon: [{ url: '/favicon.png', type: 'image/png' }],
+    apple: '/favicon.png',
+    shortcut: '/favicon.png',
+  },
   openGraph: {
     title: 'DistroGH — Consignment Distribution Management',
     description: 'Modern consignment distribution management system for Ghana distributors.',
+    images: [{ url: '/logo.png' }],
   },
 }
 
