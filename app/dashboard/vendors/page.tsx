@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Plus, Search, Phone, Edit2, Eye, Trash2, AlertCircle, Users, Clock, UserX, Loader2, CheckCircle, ShieldCheck } from 'lucide-react'
 import { canAdminActivateVendor, getVendorVerificationStage } from '@/lib/vendor-verification'
 import { VendorModal } from '@/components/vendors/VendorModal'
+import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
 import { vendorService } from '@/services/vendor.service'
 import { getDeletedPendingAuthCleanup, markVendorAuthCleanupDone, softDeleteVendorCascade, createVendorAdmin, updateVendorAdmin } from '@/app/dashboard/vendors/actions'
 import { formatGHS, formatDate, cn } from '@/lib/utils'
@@ -35,6 +36,7 @@ export default function VendorsPage() {
   const [balances, setBalances] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [accessFilter, setAccessFilter] = useState<'all' | 'self_service' | 'admin_managed'>('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [editVendor, setEditVendor] = useState<Vendor | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -80,29 +82,47 @@ export default function VendorsPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
-  const uploadFdaFile = async (vendorId: string, file: File): Promise<string> => {
+  const uploadFdaFile = async (
+    vendorId: string,
+    file: File,
+    acquiredAt: string,
+    expiryDate: string
+  ): Promise<void> => {
     const form = new FormData()
     form.append('vendor_id', vendorId)
     form.append('file', file)
+    form.append('fda_certificate_acquired_at', acquiredAt)
+    form.append('facility_expiry_date', expiryDate)
     const res = await fetch('/api/vendor-documents/fda/upload', { method: 'POST', body: form })
     const json = await res.json().catch(() => null)
     if (!res.ok || !json?.success) throw new Error(json?.error ?? 'FDA upload failed')
-    return String(json.data?.path ?? '')
   }
 
   const handleSubmit = async (data: VendorFormValues, extras?: { fdaFile?: File }) => {
     setSubmitting(true)
     try {
-      if (editVendor) {
-        let payload: Partial<VendorFormValues> & { fda_certificate_path?: string } = { ...data }
-        if (extras?.fdaFile) {
-          const path = await uploadFdaFile(editVendor.id, extras.fdaFile)
-          payload = { ...data, fda_certificate_path: path } as any
+      if (extras?.fdaFile) {
+        const acquired = data.fda_certificate_acquired_at?.trim()
+        const expiry = data.facility_expiry_date?.trim()
+        if (!acquired || !expiry) {
+          showToast('Date acquired and facility expiry are required when uploading an FDA certificate', 'error')
+          return
         }
-        const result = await updateVendorAdmin(editVendor.id, payload)
+      }
+
+      if (editVendor) {
+        const result = await updateVendorAdmin(editVendor.id, data)
         if ('error' in result) {
           showToast(result.error, 'error')
           return
+        }
+        if (extras?.fdaFile) {
+          await uploadFdaFile(
+            editVendor.id,
+            extras.fdaFile,
+            data.fda_certificate_acquired_at!.trim(),
+            data.facility_expiry_date!.trim()
+          )
         }
         showToast('Vendor updated successfully')
       } else {
@@ -114,9 +134,12 @@ export default function VendorsPage() {
         const vendor = result.vendor
         if (extras?.fdaFile && vendor.id) {
           try {
-            const path = await uploadFdaFile(vendor.id, extras.fdaFile)
-            const updateResult = await updateVendorAdmin(vendor.id, { fda_certificate_path: path } as any)
-            if ('error' in updateResult) showToast('Vendor created but saving FDA path failed', 'error')
+            await uploadFdaFile(
+              vendor.id,
+              extras.fdaFile,
+              data.fda_certificate_acquired_at!.trim(),
+              data.facility_expiry_date!.trim()
+            )
           } catch (e: unknown) {
             showToast(
               'Vendor created but FDA upload failed: ' + (e instanceof Error ? e.message : 'Unknown error'),
@@ -161,14 +184,21 @@ export default function VendorsPage() {
     }
   }
 
-  const filtered = vendors.filter(v =>
-    v.name.toLowerCase().includes(search.toLowerCase()) ||
-    v.momo_number.includes(search)
-  )
+  const filtered = vendors.filter(v => {
+    const matchesSearch =
+      v.name.toLowerCase().includes(search.toLowerCase()) ||
+      v.momo_number.includes(search) ||
+      (v.contact_person_name ?? '').toLowerCase().includes(search.toLowerCase())
+    const matchesAccess =
+      accessFilter === 'all' ||
+      (accessFilter === 'admin_managed' && v.access_mode === 'admin_managed') ||
+      (accessFilter === 'self_service' && v.access_mode !== 'admin_managed')
+    return matchesSearch && matchesAccess
+  })
 
   useEffect(() => {
     setVendorPage(1)
-  }, [search])
+  }, [search, accessFilter])
 
   const paginatedVendors = useMemo(
     () => getPageSlice(filtered, vendorPage, DEFAULT_PAGE_SIZE),
@@ -257,15 +287,38 @@ export default function VendorsPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="form-input pl-10"
-          placeholder="Search vendors..."
-        />
+      {/* Search & filters */}
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="form-input pl-10 w-full"
+            placeholder="Search vendors..."
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {([
+            ['all', 'All'],
+            ['self_service', 'Portal'],
+            ['admin_managed', 'Admin-managed'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setAccessFilter(key)}
+              className={cn(
+                'px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                accessFilter === key
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
@@ -293,6 +346,7 @@ export default function VendorsPage() {
               <thead>
                 <tr>
                   <th>Vendor</th>
+                  <th>Access</th>
                   <th>Network</th>
                   <th>MoMo Number</th>
                   <th>Balance</th>
@@ -313,17 +367,25 @@ export default function VendorsPage() {
                           <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold flex-shrink-0">
                             {vendor.name.slice(0, 2).toUpperCase()}
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 min-w-0">
-                            <span className={cn('font-medium text-slate-800', isDeleted && 'text-slate-500')}>
-                              {vendor.name}
-                            </span>
-                            {isDeleted && (
-                              <span className="status-badge bg-slate-200 text-slate-700 border-slate-300 text-[10px] uppercase tracking-wide shrink-0">
-                                Deleted
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={cn('font-medium text-slate-800', isDeleted && 'text-slate-500')}>
+                                {vendor.name}
                               </span>
+                              {isDeleted && (
+                                <span className="status-badge bg-slate-200 text-slate-700 border-slate-300 text-[10px] uppercase tracking-wide shrink-0">
+                                  Deleted
+                                </span>
+                              )}
+                            </div>
+                            {vendor.contact_person_name && (
+                              <p className="text-xs text-slate-500 mt-0.5">{vendor.contact_person_name}</p>
                             )}
                           </div>
                         </div>
+                      </td>
+                      <td>
+                        <VendorAccessBadge accessMode={vendor.access_mode} />
                       </td>
                       <td>
                         <span className={cn(

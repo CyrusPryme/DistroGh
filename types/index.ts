@@ -6,6 +6,7 @@ export type ReturnReason = 'expired' | 'defective_product' | 'defective_packagin
 // ─── Core Database Models ───────────────────────────────────────────────────
 
 export type VendorStatus = 'pending_verification' | 'active' | 'suspended'
+export type VendorAccessMode = 'self_service' | 'admin_managed'
 export type VendorSuspendedReason = 'manual' | 'service_charge'
 export type ServiceChargePaymentStatus = 'unpaid' | 'paid'
 export type ServiceChargeLifecycle =
@@ -30,9 +31,17 @@ export interface Vendor {
   initial_password?: string | null
   /** Auth email for this vendor */
   login_email?: string | null
-  /** Storage path for FDA certificate file */
+  /** @deprecated Legacy local path; new uploads use Google Drive */
   fda_certificate_path?: string | null
+  /** Date the FDA certificate was issued/acquired */
+  fda_certificate_acquired_at?: string | null
   facility_expiry_date?: string | null
+  /** Google Drive file id for the FDA certificate */
+  fda_drive_file_id?: string | null
+  /** Google Drive webViewLink */
+  fda_drive_view_link?: string | null
+  /** When the certificate was last uploaded to Drive */
+  fda_uploaded_at?: string | null
   verified_at?: string | null
   verified_by?: string | null
   /** Admin message when requesting changes to FDA/facility docs; vendor sees on login */
@@ -53,6 +62,12 @@ export interface Vendor {
   service_charge_grace_notified_at?: string | null
   /** Set when status is suspended */
   suspended_reason?: VendorSuspendedReason | null
+  /** Portal login vs admin-managed (reports only) */
+  access_mode?: VendorAccessMode
+  /** Contact person name (especially admin-managed vendors) */
+  contact_person_name?: string | null
+  /** Notes for delivering printed reports */
+  report_delivery_notes?: string | null
 }
 
 export interface Product {

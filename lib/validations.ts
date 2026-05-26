@@ -18,8 +18,12 @@ export const vendorSchema = z.object({
     .optional()
     .default(0),
   facility_expiry_date: z.string().optional().nullable().or(z.literal('')),
+  fda_certificate_acquired_at: z.string().optional().nullable().or(z.literal('')),
   contact_phone: z.string().max(20).optional().nullable().or(z.literal('')),
   description: z.string().max(500).optional().nullable().or(z.literal('')),
+  access_mode: z.enum(['self_service', 'admin_managed']).optional().default('self_service'),
+  contact_person_name: z.string().max(100).optional().nullable().or(z.literal('')),
+  report_delivery_notes: z.string().max(500).optional().nullable().or(z.literal('')),
 })
 
 export const productSchema = z.object({

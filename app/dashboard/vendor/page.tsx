@@ -14,7 +14,7 @@ import { KPICard } from '@/components/dashboard/KPICard'
 import { salesService } from '@/services/sales.service'
 import { vendorService } from '@/services/vendor.service'
 import { returnsService } from '@/services/returns.service'
-import { submitVendorOnboarding } from '@/app/dashboard/vendor/actions'
+import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
 import {
   formatGHS, formatGHSChartAxis, formatDate, formatWeekRange, formatNumber, cn
 } from '@/lib/utils'
@@ -37,6 +37,7 @@ export default function VendorDashboardPage() {
   const [onboardingError, setOnboardingError] = useState<string | null>(null)
   const [onboardingSuccess, setOnboardingSuccess] = useState(false)
   const [fdaFile, setFdaFile] = useState<File | null>(null)
+  const [fdaAcquired, setFdaAcquired] = useState('')
   const [facilityExpiry, setFacilityExpiry] = useState('')
 
   useEffect(() => {
@@ -135,9 +136,10 @@ export default function VendorDashboardPage() {
 
   const status = (vendor?.status ?? 'pending_verification') as 'pending_verification' | 'active' | 'suspended'
   const hasAdminFeedback = !!(vendor as any)?.verification_feedback?.trim()
-  const needsOnboarding = status === 'pending_verification' && (!vendor?.fda_certificate_path || !vendor?.facility_expiry_date)
-  const needsResubmission = status === 'pending_verification' && vendor?.fda_certificate_path && vendor?.facility_expiry_date && hasAdminFeedback
-  const pendingVerification = status === 'pending_verification' && vendor?.fda_certificate_path && vendor?.facility_expiry_date && !hasAdminFeedback
+  const hasFdaOnFile = vendor ? vendorHasFdaCertificate(vendor) : false
+  const needsOnboarding = status === 'pending_verification' && !hasFdaOnFile
+  const needsResubmission = status === 'pending_verification' && hasFdaOnFile && hasAdminFeedback
+  const pendingVerification = status === 'pending_verification' && hasFdaOnFile && !hasAdminFeedback
 
   if (status === 'suspended') {
     const serviceChargeSuspended =
@@ -181,8 +183,8 @@ export default function VendorDashboardPage() {
   if (needsOnboarding || needsResubmission) {
     const handleOnboardingSubmit = async (e: React.FormEvent) => {
       e.preventDefault()
-      if (!vendorId || !fdaFile || !facilityExpiry.trim()) {
-        setOnboardingError('Please upload FDA certificate and enter facility expiry date.')
+      if (!vendorId || !fdaFile || !fdaAcquired.trim() || !facilityExpiry.trim()) {
+        setOnboardingError('Please upload your FDA certificate and enter both dates.')
         return
       }
       setOnboardingError(null)
@@ -191,12 +193,11 @@ export default function VendorDashboardPage() {
         const form = new FormData()
         form.append('vendor_id', vendorId)
         form.append('file', fdaFile)
+        form.append('fda_certificate_acquired_at', fdaAcquired.trim())
+        form.append('facility_expiry_date', facilityExpiry.trim())
         const upRes = await fetch('/api/vendor-documents/fda/upload', { method: 'POST', body: form })
         const upJson = await upRes.json().catch(() => null)
         if (!upRes.ok || !upJson?.success) throw new Error(upJson?.error ?? 'Upload failed')
-        const storedPath = upJson.data?.path as string | undefined
-        if (!storedPath) throw new Error('Upload failed (no path)')
-        await submitVendorOnboarding(vendorId, { facility_expiry_date: facilityExpiry.trim(), fda_certificate_path: storedPath })
         setOnboardingSuccess(true)
         const v = await vendorService.getById(vendorId)
         setVendor(v ?? null)
@@ -221,13 +222,13 @@ export default function VendorDashboardPage() {
             <p className="text-slate-600 text-sm mt-1">
               {needsResubmission
                 ? 'The administrator has requested changes to your FDA certificate or facility details. Please correct and resubmit below.'
-                : 'To activate your vendor account, provide your FDA (Food and Drugs Authority, Ghana) certificate and facility expiry date. An administrator will verify and activate your account.'}
+                : 'To activate your vendor account, provide your FDA (Food and Drugs Authority, Ghana) certificate with the date acquired and facility expiry date. An administrator will verify and activate your account.'}
             </p>
           </div>
           <div className="p-4 rounded-xl bg-white/80 border border-amber-200">
             <p className="font-semibold text-slate-800 text-sm mb-1">Next step</p>
             <p className="text-slate-600 text-sm">
-              {needsResubmission ? 'Resubmit your FDA certificate and facility expiry date per the administrator feedback below.' : 'Upload FDA certificate and enter facility expiry date.'}
+              {needsResubmission ? 'Resubmit your FDA certificate and dates per the administrator feedback below.' : 'Upload FDA certificate and enter the date acquired and facility expiry date.'}
             </p>
           </div>
           {hasAdminFeedback && (
@@ -259,6 +260,21 @@ export default function VendorDashboardPage() {
                     accept=".pdf,image/jpeg,image/png,image/webp"
                     onChange={(e) => setFdaFile(e.target.files?.[0] ?? null)}
                     className="form-input pl-10"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Date acquired <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="date"
+                    value={fdaAcquired}
+                    onChange={(e) => setFdaAcquired(e.target.value)}
+                    className="form-input pl-10"
+                    required
                   />
                 </div>
               </div>

@@ -26,6 +26,9 @@ export async function createVendorAdmin(
   const default_commission = payload.default_commission ?? 0
   if (default_commission < 0 || default_commission > 100) return { error: 'Commission must be 0–100' }
   const facility_expiry_date = payload.facility_expiry_date?.trim() || null
+  const access_mode = payload.access_mode === 'admin_managed' ? 'admin_managed' : 'self_service'
+  const contact_person_name = payload.contact_person_name?.trim() || null
+  const report_delivery_notes = payload.report_delivery_notes?.trim() || null
 
   const pool = getDbPool()
   const byName = await pool.query(
@@ -44,9 +47,10 @@ export async function createVendorAdmin(
     `
     insert into public.vendors (
       name, momo_number, momo_network, default_commission, facility_expiry_date,
-      contact_phone, description, login_email, initial_password, status
+      contact_phone, description, login_email, initial_password, status,
+      access_mode, contact_person_name, report_delivery_notes
     )
-    values ($1, $2, $3, $4, $5, $6, $7, null, null, 'active')
+    values ($1, $2, $3, $4, $5, $6, $7, null, null, 'active', $8, $9, $10)
     returning *
     `,
     [
@@ -57,6 +61,9 @@ export async function createVendorAdmin(
       facility_expiry_date,
       payload.contact_phone?.trim() || null,
       payload.description?.trim() || null,
+      access_mode,
+      contact_person_name,
+      report_delivery_notes,
     ]
   )
   return { vendor: rows[0] as Vendor }
@@ -114,6 +121,19 @@ export async function updateVendorAdmin(
   if (payload.description !== undefined) {
     fields.push(`description = $${i++}`)
     values.push(payload.description?.trim() || null)
+  }
+  if (payload.access_mode !== undefined) {
+    const mode = payload.access_mode === 'admin_managed' ? 'admin_managed' : 'self_service'
+    fields.push(`access_mode = $${i++}`)
+    values.push(mode)
+  }
+  if (payload.contact_person_name !== undefined) {
+    fields.push(`contact_person_name = $${i++}`)
+    values.push(payload.contact_person_name?.trim() || null)
+  }
+  if (payload.report_delivery_notes !== undefined) {
+    fields.push(`report_delivery_notes = $${i++}`)
+    values.push(payload.report_delivery_notes?.trim() || null)
   }
   if (fields.length === 0) return { error: 'No fields to update' }
 
@@ -250,11 +270,20 @@ export async function requestVerificationChanges(vendorId: string, message: stri
   return { success: true }
 }
 
-export async function getVendorDocumentUrl(path: string): Promise<{ url: string }> {
+export async function getVendorDocumentUrl(vendorId: string): Promise<{ url: string }> {
   await requireAdmin()
-  if (!path?.trim()) throw new Error('No document path')
-  const trimmed = path.trim()
-  return { url: `/api/vendor-documents/file?path=${encodeURIComponent(trimmed)}` }
+  if (!vendorId?.trim()) throw new Error('Vendor ID required')
+  const pool = getDbPool()
+  const { rows } = await pool.query<{ fda_drive_view_link: string | null; fda_certificate_path: string | null }>(
+    `select fda_drive_view_link, fda_certificate_path from public.vendors where id = $1::uuid`,
+    [vendorId]
+  )
+  const row = rows[0]
+  if (row?.fda_drive_view_link?.trim()) return { url: row.fda_drive_view_link.trim() }
+  if (row?.fda_certificate_path?.trim()) {
+    return { url: `/api/vendor-documents/file?path=${encodeURIComponent(row.fda_certificate_path.trim())}` }
+  }
+  throw new Error('No FDA document on file')
 }
 
 export async function resetVendorPassword(vendorId: string, newPassword: string): Promise<{ success: true }> {

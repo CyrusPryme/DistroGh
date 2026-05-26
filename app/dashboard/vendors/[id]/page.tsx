@@ -76,13 +76,17 @@ import {
   type ServiceChargeExtendMode,
 } from '@/lib/vendor-service-charge'
 import { FdaCertificateViewer } from '@/components/vendors/FdaCertificateViewer'
+import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
+import { VendorPortalReport } from '@/components/vendors/VendorPortalReport'
+import { isAdminManagedVendor } from '@/lib/vendor-access'
 import { formatGHS, formatGHSChartAxis, formatDate, cn, MOMO_NETWORK_COLORS } from '@/lib/utils'
 import { printReport } from '@/lib/print'
 import { canAdminActivateVendor, getVendorStatus } from '@/lib/vendor-verification'
+import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
 import type { Vendor } from '@/types'
 
 type DatePresetKey = 'this_week' | 'this_month' | 'last_7' | 'last_30' | 'custom'
-type TabKey = 'overview' | 'sales' | 'products' | 'deductions'
+type TabKey = 'overview' | 'vendor-portal' | 'sales' | 'products' | 'deductions'
 
 const DATE_PRESETS: { key: DatePresetKey; label: string; getRange: () => { start: string; end: string } }[] = [
   {
@@ -330,7 +334,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
   }
 
   const status = vendor ? getVendorStatus(vendor) : 'pending_verification'
-  const hasFdaAndFacility = !!(vendor?.fda_certificate_path && vendor?.facility_expiry_date)
+  const hasFdaAndFacility = vendor ? vendorHasFdaCertificate(vendor) : false
   const canVerify = vendor ? canAdminActivateVendor(vendor) : false
   const awaitingVendorDocs = status === 'pending_verification' && !hasFdaAndFacility
   const facilityExpired = !!(
@@ -581,7 +585,11 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                           Deleted
                         </span>
                       )}
+                      <VendorAccessBadge accessMode={vendor.access_mode} />
                     </div>
+                    {vendor.contact_person_name && (
+                      <p className="text-slate-600 text-sm mt-0.5">Contact: {vendor.contact_person_name}</p>
+                    )}
                     <p className="text-slate-500 text-sm mt-0.5">Vendor profile</p>
                   </div>
                 </div>
@@ -632,6 +640,24 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                 </div>
               </div>
             </div>
+
+            {/* Admin-managed vendor notice */}
+            {isAdminManagedVendor(vendor) && (
+              <div className="no-print flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                <FileText className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-amber-900">Admin-managed vendor</p>
+                  <p className="text-sm text-amber-800 mt-1">
+                    No portal login. Use the <strong>Vendor report</strong> tab to print the same statement and analytics they would receive.
+                  </p>
+                  {vendor.report_delivery_notes && (
+                    <p className="text-sm text-amber-700 mt-2">
+                      Delivery notes: {vendor.report_delivery_notes}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Annual service charge */}
             <div className="no-print data-card space-y-4">
@@ -860,7 +886,8 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                   <span>Facility expiry date ({vendor?.facility_expiry_date && formatDate(vendor.facility_expiry_date)}) has passed. Consider suspending the account until the vendor renews.</span>
                 </div>
               )}
-              {(vendor?.login_email != null || vendor?.initial_password != null) && (
+              {(vendor?.login_email != null || vendor?.initial_password != null) &&
+                vendor.access_mode !== 'admin_managed' && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {vendor?.login_email && (
                     <div>
@@ -887,7 +914,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                   )}
                 </div>
               )}
-              {vendor?.login_email && (
+              {vendor?.login_email && vendor.access_mode !== 'admin_managed' && (
                 <div className="border-t border-slate-100 pt-4">
                   {!showResetPassword ? (
                     <button
@@ -947,8 +974,10 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                 <div className="sm:col-span-2">
                   <p className="text-xs font-medium text-slate-500 mb-2">FDA certificate</p>
                   <FdaCertificateViewer
+                    driveViewLink={vendor?.fda_drive_view_link}
                     certificatePath={vendor?.fda_certificate_path}
-                    defaultExpanded
+                    acquiredAt={vendor?.fda_certificate_acquired_at}
+                    expiresAt={vendor?.facility_expiry_date}
                   />
                 </div>
                 <div>
@@ -1093,6 +1122,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
             <div className="no-print flex flex-wrap gap-2 border-b border-slate-200 pb-4">
               {[
                 { key: 'overview' as TabKey, label: 'Overview', icon: User },
+                { key: 'vendor-portal' as TabKey, label: 'Vendor report', icon: FileText },
                 { key: 'sales' as TabKey, label: 'Sales report', icon: TrendingUp },
                 { key: 'products' as TabKey, label: 'Products report', icon: Package },
                 { key: 'deductions' as TabKey, label: 'Deductions', icon: MinusCircle },
@@ -1172,6 +1202,21 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Vendor portal report — vendor-safe printable view */}
+            {activeTab === 'vendor-portal' && id && (
+              <VendorPortalReport
+                vendorId={id}
+                vendorName={vendor.name}
+                contactPersonName={vendor.contact_person_name}
+                accessMode={vendor.access_mode}
+                previewLabel={
+                  isAdminManagedVendor(vendor)
+                    ? 'Printable report for this admin-managed vendor — hand over in person or via WhatsApp.'
+                    : 'Preview what this vendor sees on their portal statement (agreed price only, no markup).'
+                }
+              />
             )}
 
             {/* Sales report tab */}

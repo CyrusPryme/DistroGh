@@ -159,7 +159,7 @@ scripts/            # migrate, seed, utilities
 1. Use a managed Postgres (Neon, Railway, RDS, etc.) and set `DATABASE_URL`
 2. Set a strong `AUTH_SECRET` and `NEXT_PUBLIC_APP_URL`
 3. Run migrations on deploy (`npm run db:migrate`)
-4. Store uploaded vendor documents on persistent disk or object storage (local `uploads/` does not work on ephemeral hosts like Vercel alone)
+4. **FDA certificates** — stored in Google Drive (not local disk). Set `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_DRIVE_FDA_FOLDER_ID`; share the folder with the service account email. Uploads update Postgres with dates + a Drive view link (no in-app preview — opens in Drive for speed).
 5. Run `npm run build` before deploy
 
 Deploy targets: Vercel/Railway/Fly for the Next app + separate Postgres; or a VPS with Docker.

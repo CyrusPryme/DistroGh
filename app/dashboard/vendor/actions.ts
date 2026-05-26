@@ -5,12 +5,11 @@ import { requireSession } from '@/lib/auth/require'
 import { getVendorBalanceAmount } from '@/lib/auth/require'
 
 /**
- * Save FDA certificate path and facility expiry date for a vendor (vendor can only update own).
- * Called after vendor uploads file to storage and submits the onboarding form.
+ * @deprecated Upload API now saves FDA metadata directly. Kept for compatibility.
  */
 export async function submitVendorOnboarding(
   vendorId: string,
-  payload: { facility_expiry_date: string; fda_certificate_path: string }
+  payload: { facility_expiry_date: string; fda_certificate_path?: string }
 ): Promise<{ success: true }> {
   const session = await requireSession()
   if (session.role !== 'vendor' || session.vendor_id !== vendorId) {
@@ -23,13 +22,12 @@ export async function submitVendorOnboarding(
     update public.vendors
     set
       facility_expiry_date = $2,
-      fda_certificate_path = $3,
       verification_feedback = null,
       status = 'pending_verification',
       updated_at = now()
     where id = $1::uuid
     `,
-    [vendorId, payload.facility_expiry_date || null, payload.fda_certificate_path || null]
+    [vendorId, payload.facility_expiry_date || null]
   )
   return { success: true }
 }

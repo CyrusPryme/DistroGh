@@ -32,6 +32,7 @@ export function VendorModal({
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
     setError,
     clearErrors,
@@ -43,10 +44,16 @@ export function VendorModal({
       momo_network: 'MTN',
       default_commission: 0,
       facility_expiry_date: '',
+      fda_certificate_acquired_at: '',
       contact_phone: '',
       description: '',
+      access_mode: 'self_service',
+      contact_person_name: '',
+      report_delivery_notes: '',
     },
   })
+
+  const accessMode = watch('access_mode')
 
   // Check if vendor name already exists
   const checkVendorNameExists = async (name: string, excludeId?: string): Promise<boolean> => {
@@ -94,6 +101,14 @@ export function VendorModal({
 
   const handleFormSubmit = async (data: VendorFormValues) => {
     setFormError(null)
+    if (fdaFile) {
+      const acquired = data.fda_certificate_acquired_at?.trim()
+      const expiry = data.facility_expiry_date?.trim()
+      if (!acquired || !expiry) {
+        setFormError('Date acquired and facility expiry are required when uploading an FDA certificate.')
+        return
+      }
+    }
     const nameOk = await checkVendorNameExists(data.name, initialData?.id)
     if (!nameOk) return
     await onSubmit(data, { fdaFile: fdaFile ?? undefined })
@@ -113,12 +128,28 @@ export function VendorModal({
         momo_network: initialData.momo_network,
         default_commission: initialData.default_commission,
         facility_expiry_date: (initialData as any).facility_expiry_date ?? '',
+        fda_certificate_acquired_at: (initialData as any).fda_certificate_acquired_at ?? '',
         contact_phone: (initialData as any).contact_phone ?? '',
         description: (initialData as any).description ?? '',
+        access_mode: initialData.access_mode ?? 'self_service',
+        contact_person_name: initialData.contact_person_name ?? '',
+        report_delivery_notes: initialData.report_delivery_notes ?? '',
       })
       setFdaFile(null)
     } else {
-      reset({ name: '', momo_number: '', momo_network: 'MTN', default_commission: 0, facility_expiry_date: '', contact_phone: '', description: '' })
+      reset({
+        name: '',
+        momo_number: '',
+        momo_network: 'MTN',
+        default_commission: 0,
+        facility_expiry_date: '',
+      fda_certificate_acquired_at: '',
+        contact_phone: '',
+        description: '',
+        access_mode: 'self_service',
+        contact_person_name: '',
+        report_delivery_notes: '',
+      })
       setFdaFile(null)
     }
   }, [initialData, reset])
@@ -189,6 +220,49 @@ export function VendorModal({
               </div>
             )}
           </div>
+
+          {/* Portal access mode */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Account type</label>
+            <div className="grid grid-cols-1 gap-2">
+              <label className="cursor-pointer">
+                <input type="radio" value="self_service" {...register('access_mode')} className="sr-only peer" />
+                <div className="rounded-xl border-2 border-slate-200 p-3 peer-checked:border-emerald-500 peer-checked:bg-emerald-50 transition-all">
+                  <p className="text-sm font-semibold text-slate-800">Portal — vendor logs in</p>
+                  <p className="text-xs text-slate-500 mt-0.5">For tech-savvy partners with email access</p>
+                </div>
+              </label>
+              <label className="cursor-pointer">
+                <input type="radio" value="admin_managed" {...register('access_mode')} className="sr-only peer" />
+                <div className="rounded-xl border-2 border-slate-200 p-3 peer-checked:border-amber-500 peer-checked:bg-amber-50 transition-all">
+                  <p className="text-sm font-semibold text-slate-800">Admin-managed — reports only</p>
+                  <p className="text-xs text-slate-500 mt-0.5">No login; you print statements and analytics for them</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {accessMode === 'admin_managed' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Contact person name</label>
+                <input
+                  {...register('contact_person_name')}
+                  className="form-input"
+                  placeholder="e.g., Auntie Akosua"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Report delivery notes</label>
+                <textarea
+                  {...register('report_delivery_notes')}
+                  className="form-input min-h-[56px] resize-y"
+                  placeholder="e.g., Collect printed report at Makola every Friday"
+                  rows={2}
+                />
+              </div>
+            </>
+          )}
 
           {/* MoMo Network */}
           <div>
@@ -271,6 +345,24 @@ export function VendorModal({
           {/* Facility expiry date */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
+              Date acquired (FDA certificate)
+            </label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                {...register('fda_certificate_acquired_at')}
+                type="date"
+                className="form-input pl-10"
+              />
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">Required when uploading a certificate</p>
+            {errors.fda_certificate_acquired_at && (
+              <p className="mt-1 text-xs text-red-500">{errors.fda_certificate_acquired_at.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               Facility expiry date
             </label>
             <div className="relative">
@@ -300,7 +392,7 @@ export function VendorModal({
               />
             </div>
             <p className="mt-0.5 text-xs text-slate-400">
-              {initialData ? 'Choose a file to replace existing certificate' : 'PDF or image; can be added later'}
+              {initialData ? 'Choose a file to replace existing certificate (stored in Google Drive)' : 'PDF or image; uploaded to Google Drive'}
             </p>
           </div>
 

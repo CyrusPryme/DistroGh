@@ -15,6 +15,7 @@ import {
 } from '@/lib/vendor-service-charge'
 import { DISTROGH_CONTACT } from '@/lib/constants'
 import type { Vendor } from '@/types'
+import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
 
 const MOMO_NETWORKS = ['MTN', 'Vodafone', 'AirtelTigo'] as const
 
@@ -134,7 +135,7 @@ export default function VendorProfilePage() {
 
   const status = (vendor as any).status ?? 'active'
   const hasAdminFeedback = !!(vendor as any)?.verification_feedback?.trim()
-  const hasFdaAndFacility = !!(vendor as any)?.fda_certificate_path && !!(vendor as any)?.facility_expiry_date
+  const hasFdaAndFacility = vendorHasFdaCertificate(vendor)
 
   const displayStatus =
     status === 'suspended' ? 'Suspended' :
@@ -146,7 +147,7 @@ export default function VendorProfilePage() {
     status === 'suspended' ? 'Contact admin to resolve.' :
     status === 'active' ? null :
     hasAdminFeedback ? 'Resubmit documents per admin feedback.' :
-    hasFdaAndFacility ? 'Awaiting admin verification.' : 'Upload FDA certificate and facility expiry date.'
+    hasFdaAndFacility ? 'Awaiting admin verification.' : 'Upload FDA certificate with date acquired and facility expiry.'
 
   return (
     <div className="page-container space-y-6">

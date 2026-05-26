@@ -12,6 +12,8 @@ const DATABASE_URL =
 
 const DEMO_BATCH = 'demo-gorce'
 const DEMO_SKU_PREFIX = 'GORCE-DEMO-'
+const DEMO_AKOSUA_BATCH = 'demo-akosua'
+const DEMO_AKOSUA_PREFIX = 'AKOSUA-DEMO-'
 
 const demoUsers = [
   { email: 'admin@example.com', password: 'password123', role: 'admin' },
@@ -113,6 +115,7 @@ async function seedGorceDemoData(client, vendorId, adminUserId) {
   await clearGorceDemoData(client, vendorId)
 
   const expiry = formatDate(addDays(new Date(), 365))
+  const acquired = formatDate(addDays(new Date(), -730))
   await client.query(
     `
     update public.vendors
@@ -120,12 +123,15 @@ async function seedGorceDemoData(client, vendorId, adminUserId) {
       status = 'active',
       verified_at = coalesce(verified_at, now()),
       facility_expiry_date = $2::date,
-      fda_certificate_path = coalesce(fda_certificate_path, 'demo/gorce-fda-certificate.pdf'),
+      fda_certificate_acquired_at = coalesce(fda_certificate_acquired_at, $3::date),
+      fda_certificate_path = null,
+      fda_drive_file_id = null,
+      fda_drive_view_link = null,
       description = 'Demo vendor — sample products, sales, deliveries, payouts, and returns for showcasing every module.',
       updated_at = now()
     where id = $1::uuid
     `,
-    [vendorId, expiry]
+    [vendorId, expiry, acquired]
   )
 
   const smRes = await client.query(
@@ -353,6 +359,168 @@ async function seedGorceDemoData(client, vendorId, adminUserId) {
   console.log('  Gorce demo data: 6 products, intakes, 4 deliveries, 25 sales, 3 returns, 3 payouts, 1 deduction')
 }
 
+const akosuaDemoProducts = [
+  { sku: '001', name: 'Akosua Palm Oil 1L', category: 'Household', vendor_price: 18, markup: 4, packaging: '1L' },
+  { sku: '002', name: 'Akosua Groundnut Paste 400g', category: 'Snacks', vendor_price: 12, markup: 3, packaging: '400g' },
+  { sku: '003', name: 'Akosua Spice Mix 200g', category: 'Snacks', vendor_price: 7, markup: 2, packaging: '200g' },
+]
+
+async function clearAkosuaDemoData(client, vendorId) {
+  await client.query(
+    `
+    delete from public.sales s
+    using public.products p
+    where s.product_id = p.id and p.vendor_id = $1::uuid and p.sku like $2
+    `,
+    [vendorId, `${DEMO_AKOSUA_PREFIX}%`]
+  )
+  await client.query(
+    `
+    delete from public.product_returns r
+    using public.products p
+    where r.product_id = p.id and p.vendor_id = $1::uuid and p.sku like $2
+    `,
+    [vendorId, `${DEMO_AKOSUA_PREFIX}%`]
+  )
+  await client.query(
+    `delete from public.payouts where vendor_id = $1::uuid and momo_txn_id like 'AKOSUA-DEMO-%'`,
+    [vendorId]
+  )
+  await client.query(
+    `delete from public.products where vendor_id = $1::uuid and sku like $2`,
+    [vendorId, `${DEMO_AKOSUA_PREFIX}%`]
+  )
+}
+
+async function seedAkosuaDemoData(client, vendorId) {
+  await clearAkosuaDemoData(client, vendorId)
+
+  const expiry = formatDate(addDays(new Date(), 365))
+  const acquired = formatDate(addDays(new Date(), -730))
+  await client.query(
+    `
+    update public.vendors
+    set
+      status = 'active',
+      access_mode = 'admin_managed',
+      contact_person_name = 'Auntie Akosua',
+      report_delivery_notes = 'Collect printed report at Makola Market every Friday morning.',
+      verified_at = coalesce(verified_at, now()),
+      facility_expiry_date = $2::date,
+      fda_certificate_acquired_at = coalesce(fda_certificate_acquired_at, $3::date),
+      fda_certificate_path = null,
+      fda_drive_file_id = null,
+      fda_drive_view_link = null,
+      description = 'Demo admin-managed vendor — no portal login; admin delivers printable reports.',
+      service_charge_paid_at = coalesce(service_charge_paid_at, now()),
+      service_charge_expires_at = coalesce(service_charge_expires_at, $2::date),
+      updated_at = now()
+    where id = $1::uuid
+    `,
+    [vendorId, expiry, acquired]
+  )
+
+  const { rows: supermarkets } = await client.query(
+    `select id, name from public.supermarkets where deleted_at is null order by name limit 3`
+  )
+  if (!supermarkets.length) throw new Error('No supermarkets for Akosua demo')
+
+  const productIds = []
+  for (const dp of akosuaDemoProducts) {
+    const selling = dp.vendor_price + dp.markup
+    const res = await client.query(
+      `
+      insert into public.products (
+        name, vendor_id, selling_price, commission_percent,
+        vendor_price, distrogh_markup, sku, category, packaging_size, moq
+      )
+      values ($1, $2::uuid, $3, 0, $4, $5, $6, $7, $8, 1)
+      returning id
+      `,
+      [
+        dp.name,
+        vendorId,
+        selling,
+        dp.vendor_price,
+        dp.markup,
+        `${DEMO_AKOSUA_PREFIX}${dp.sku}`,
+        dp.category,
+        dp.packaging,
+      ]
+    )
+    productIds.push({ id: res.rows[0].id, ...dp, selling })
+  }
+
+  const salesPatterns = [
+    { weeksAgo: 4, sm: 0, pi: 0, qty: 24 },
+    { weeksAgo: 4, sm: 1, pi: 1, qty: 18 },
+    { weeksAgo: 3, sm: 0, pi: 2, qty: 30 },
+    { weeksAgo: 3, sm: 2, pi: 0, qty: 15 },
+    { weeksAgo: 2, sm: 1, pi: 1, qty: 22 },
+    { weeksAgo: 2, sm: 0, pi: 2, qty: 12 },
+    { weeksAgo: 1, sm: 2, pi: 0, qty: 20 },
+    { weeksAgo: 0, sm: 0, pi: 1, qty: 16 },
+    { weeksAgo: 0, sm: 1, pi: 2, qty: 14 },
+  ]
+
+  for (const sp of salesPatterns) {
+    const p = productIds[sp.pi]
+    const sm = supermarkets[sp.sm % supermarkets.length]
+    const { week_start, week_end } = weekRange(sp.weeksAgo)
+    const qty = sp.qty
+    const unit = p.selling
+    await client.query(
+      `
+      insert into public.sales (
+        product_id, supermarket_id, qty_sold, unit_price,
+        total_sales, commission_amount, vendor_due,
+        week_start, week_end, import_batch_id
+      )
+      values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8::date, $9::date, $10)
+      `,
+      [
+        p.id,
+        sm.id,
+        qty,
+        unit,
+        Math.round(qty * unit * 100) / 100,
+        Math.round(qty * p.markup * 100) / 100,
+        Math.round(qty * p.vendor_price * 100) / 100,
+        week_start,
+        week_end,
+        DEMO_AKOSUA_BATCH,
+      ]
+    )
+  }
+
+  const p0 = productIds[0]
+  const sm0 = supermarkets[0]
+  await client.query(
+    `
+    insert into public.product_returns (
+      product_id, supermarket_id, quantity_returned, unit_price,
+      reason, reason_notes, return_date
+    )
+    values ($1::uuid, $2::uuid, $3, $4, 'expired', 'Demo return — admin-managed vendor', $5::date)
+    `,
+    [p0.id, sm0.id, 2, p0.selling, formatDate(addDays(new Date(), -10))]
+  )
+
+  const w2 = weekRange(2)
+  await client.query(
+    `
+    insert into public.payouts (
+      vendor_id, amount_due, amount_paid, momo_txn_id, status,
+      payout_date, week_start, week_end
+    )
+    values ($1::uuid, 520.00, 520.00, 'AKOSUA-DEMO-TXN-001', 'completed', now() - interval '14 days', $2::date, $3::date)
+    `,
+    [vendorId, w2.week_start, w2.week_end]
+  )
+
+  console.log('  Akosua demo data: 3 products, 9 sales, 1 return, 1 payout (admin-managed)')
+}
+
 async function run() {
   const pool = new Pool({ connectionString: DATABASE_URL })
   const client = await pool.connect()
@@ -429,6 +597,7 @@ async function run() {
         `
         update public.vendors
         set
+          access_mode = 'self_service',
           service_charge_paid_at = now(),
           service_charge_expires_at = $2::date,
           updated_at = now()
@@ -436,6 +605,40 @@ async function run() {
         `,
         [vendorId, formatDate(expires)]
       )
+    }
+
+    let akosuaVendorId = null
+    const existingAkosua = await client.query(
+      `select id from public.vendors where deleted_at is null and lower(name) = lower($1) limit 1`,
+      ['Akosua Market Foods']
+    )
+    akosuaVendorId = existingAkosua.rows[0]?.id
+    if (!akosuaVendorId) {
+      const akosuaRes = await client.query(
+        `
+        insert into public.vendors (
+          name, momo_number, momo_network, default_commission, status,
+          login_email, contact_phone, description,
+          access_mode, contact_person_name, report_delivery_notes
+        )
+        values (
+          'Akosua Market Foods', '0244987654', 'MTN', 0, 'active',
+          null, '0244987654',
+          'Traditional market supplier — admin-managed demo account',
+          'admin_managed', 'Auntie Akosua',
+          'Collect printed report at Makola Market every Friday morning.'
+        )
+        returning id
+        `
+      )
+      akosuaVendorId = akosuaRes.rows[0]?.id
+    }
+
+    if (vendorId && adminUserId) {
+      await seedGorceDemoData(client, vendorId, adminUserId)
+    }
+    if (akosuaVendorId) {
+      await seedAkosuaDemoData(client, akosuaVendorId)
     }
 
     for (let i = 0; i < defaultCategories.length; i++) {
@@ -468,15 +671,13 @@ async function run() {
       ]
     )
 
-    if (vendorId && adminUserId) {
-      await seedGorceDemoData(client, vendorId, adminUserId)
-    }
-
     await client.query('COMMIT')
     console.log('Seed complete.')
     console.log('  Admin:  admin@example.com / password123')
-    console.log('  Vendor: gorce@vendor.com / password123')
-    if (vendorId) console.log(`  Vendor id: ${vendorId}`)
+    console.log('  Vendor (portal): gorce@vendor.com / password123')
+    console.log('  Admin-managed demo: Akosua Market Foods (Auntie Akosua) — no login')
+    if (vendorId) console.log(`  Gorce vendor id: ${vendorId}`)
+    if (akosuaVendorId) console.log(`  Akosua vendor id: ${akosuaVendorId}`)
   } catch (e) {
     await client.query('ROLLBACK')
     throw e

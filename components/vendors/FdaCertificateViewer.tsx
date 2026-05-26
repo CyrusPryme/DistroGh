@@ -1,19 +1,15 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { FileText, AlertCircle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ExternalLink, FileText } from 'lucide-react'
+import { formatDate, cn } from '@/lib/utils'
 
 type Props = {
-  certificatePath: string | null | undefined
+  driveViewLink?: string | null
+  /** Legacy local path only (pre-Drive uploads) */
+  certificatePath?: string | null
+  acquiredAt?: string | null
+  expiresAt?: string | null
   className?: string
-  /** When true, preview is shown immediately (for admin review). */
-  defaultExpanded?: boolean
-}
-
-function extensionFromPath(storedPath: string): string {
-  const i = storedPath.lastIndexOf('.')
-  return i >= 0 ? storedPath.slice(i).toLowerCase() : ''
 }
 
 export function buildVendorDocumentUrl(storedPath: string): string {
@@ -21,85 +17,62 @@ export function buildVendorDocumentUrl(storedPath: string): string {
 }
 
 export function FdaCertificateViewer({
+  driveViewLink,
   certificatePath,
+  acquiredAt,
+  expiresAt,
   className,
-  defaultExpanded = true,
 }: Props) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-  const [loadError, setLoadError] = useState(false)
+  const driveUrl = driveViewLink?.trim() || null
+  const legacyUrl = !driveUrl && certificatePath?.trim()
+    ? buildVendorDocumentUrl(certificatePath)
+    : null
+  const openUrl = driveUrl || legacyUrl
 
-  const preview = useMemo(() => {
-    if (!certificatePath?.trim()) return null
-    const url = buildVendorDocumentUrl(certificatePath)
-    const ext = extensionFromPath(certificatePath)
-    const isPdf = ext === '.pdf'
-    const isImage = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)
-    return { url, isPdf, isImage }
-  }, [certificatePath])
-
-  if (!preview) {
+  if (!openUrl && !acquiredAt && !expiresAt) {
     return <p className={cn('text-sm text-slate-500', className)}>Not submitted yet</p>
   }
 
   return (
-    <div className={cn('space-y-2', className)}>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setLoadError(false)
-            setExpanded((v) => !v)
-          }}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800"
-        >
-          <FileText className="w-4 h-4" />
-          {expanded ? 'Hide preview' : 'View certificate'}
-        </button>
-        <a
-          href={preview.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-slate-500 hover:text-slate-700 underline"
-        >
-          Open in new tab
-        </a>
-      </div>
-
-      {expanded && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
-          {loadError ? (
-            <div className="flex items-start gap-2 p-4 text-amber-800 text-sm">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <p>
-                Could not load this file for preview. It may be missing on the server (e.g. demo placeholder path).
-                Try opening in a new tab or ask the vendor to re-upload.
-              </p>
-            </div>
-          ) : preview.isPdf ? (
-            <iframe
-              src={preview.url}
-              title="FDA certificate"
-              className="w-full h-[min(70vh,560px)] bg-white"
-            />
-          ) : preview.isImage ? (
-            <div className="flex justify-center p-3 bg-white">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={preview.url}
-                alt="FDA certificate"
-                className="max-w-full max-h-[min(70vh,560px)] object-contain"
-                onError={() => setLoadError(true)}
-              />
-            </div>
-          ) : (
-            <div className="p-4 text-sm text-slate-600">
-              Inline preview is not available for this file type.{' '}
-              <a href={preview.url} target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline">
-                Open file
-              </a>
+    <div className={cn('space-y-3', className)}>
+      {(acquiredAt || expiresAt) && (
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          {acquiredAt && (
+            <div>
+              <dt className="text-xs font-medium text-slate-500 mb-0.5">Date acquired</dt>
+              <dd className="font-medium text-slate-800">{formatDate(acquiredAt)}</dd>
             </div>
           )}
-        </div>
+          {expiresAt && (
+            <div>
+              <dt className="text-xs font-medium text-slate-500 mb-0.5">Facility expiry</dt>
+              <dd className="font-medium text-slate-800">{formatDate(expiresAt)}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+
+      {openUrl ? (
+        <a
+          href={openUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800"
+        >
+          {driveUrl ? (
+            <>
+              <ExternalLink className="w-4 h-4" />
+              Open in Google Drive
+            </>
+          ) : (
+            <>
+              <FileText className="w-4 h-4" />
+              Open certificate
+            </>
+          )}
+        </a>
+      ) : (
+        <p className="text-sm text-amber-700">Dates on file; certificate link unavailable.</p>
       )}
     </div>
   )
