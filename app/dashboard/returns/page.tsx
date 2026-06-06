@@ -19,6 +19,7 @@ import { createReturnAdmin } from './actions'
 import { productService } from '@/services/product.service'
 import { supermarketService } from '@/services/supermarket.service'
 import { formatGHS, formatDate, downloadBlob, cn } from '@/lib/utils'
+import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
@@ -240,7 +241,7 @@ function ReturnsContent() {
         >
           <option value="">All supermarkets</option>
           {supermarkets.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
+            <option key={s.id} value={s.id}>{formatSupermarketLabel(s)}</option>
           ))}
         </select>
         <input
@@ -326,7 +327,11 @@ function ReturnsContent() {
                           <span className="font-medium text-slate-800">{(r.product as any)?.name ?? '—'}</span>
                         </div>
                       </td>
-                      <td className="text-slate-600">{(r.supermarket as any)?.name ?? '—'}</td>
+                      <td className="text-slate-600">
+                        {(r.supermarket as Supermarket | undefined)
+                          ? formatSupermarketLabel(r.supermarket as Supermarket)
+                          : '—'}
+                      </td>
                       <td className="text-right font-mono">{r.quantity_returned}</td>
                       <td className="text-right font-mono">{formatGHS(Number(r.unit_price))}</td>
                       <td className="text-right font-mono font-semibold text-red-600">−{formatGHS(amount)}</td>
@@ -389,7 +394,7 @@ function ReturnsContent() {
                 >
                   <option value="">Select supermarket...</option>
                   {supermarkets.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.id} value={s.id}>{formatSupermarketLabel(s)}</option>
                   ))}
                 </select>
               </div>

@@ -45,7 +45,7 @@ export async function GET() {
         group by supermarket_id
       ) dr on dr.supermarket_id = s.id
       where s.deleted_at is null
-      order by s.name asc
+      order by s.name asc, coalesce(s.branch, '') asc
       `
     )
 

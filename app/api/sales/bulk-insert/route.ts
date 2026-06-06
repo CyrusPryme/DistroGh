@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
 import { roundMoney } from '@/lib/utils'
+import { resolveProductPricing } from '@/lib/product-pricing'
 
 type SaleInsert = {
   product_id: string
@@ -10,6 +11,11 @@ type SaleInsert = {
   week_start: string
   week_end: string
   import_batch_id: string
+  /** Snapshot from import preview — stored on the sale row; does not rewrite past sales. */
+  unit_price?: number
+  commission_amount?: number
+  vendor_due?: number
+  total_sales?: number
 }
 
 export async function POST(req: Request) {
@@ -93,12 +99,38 @@ export async function POST(req: Request) {
       const qty = Number(s.qty_sold ?? 0)
       const product = productMap.get(pid)!
 
-      const vendorPrice = Number(product.vendor_price ?? 0)
-      const distroghMarkup = Number(product.distrogh_markup ?? 0)
-      const unitPrice = roundMoney(vendorPrice + distroghMarkup)
-      const vendorDue = roundMoney(qty * vendorPrice)
-      const commissionAmount = roundMoney(qty * distroghMarkup)
-      const totalSales = roundMoney(qty * unitPrice)
+      const hasSnapshot =
+        s.unit_price != null &&
+        s.vendor_due != null &&
+        s.commission_amount != null &&
+        Number.isFinite(Number(s.unit_price)) &&
+        Number.isFinite(Number(s.vendor_due)) &&
+        Number.isFinite(Number(s.commission_amount))
+
+      let unitPrice: number
+      let vendorDue: number
+      let commissionAmount: number
+      let totalSales: number
+
+      if (hasSnapshot) {
+        unitPrice = roundMoney(Number(s.unit_price))
+        vendorDue = roundMoney(Number(s.vendor_due))
+        commissionAmount = roundMoney(Number(s.commission_amount))
+        totalSales = roundMoney(
+          s.total_sales != null && Number.isFinite(Number(s.total_sales))
+            ? Number(s.total_sales)
+            : qty * unitPrice
+        )
+      } else {
+        const pricing = resolveProductPricing({
+          vendor_price: product.vendor_price,
+          distrogh_markup: product.distrogh_markup,
+        })
+        unitPrice = roundMoney(pricing.shopPrice)
+        vendorDue = roundMoney(qty * pricing.vendorPrice)
+        commissionAmount = roundMoney(qty * (pricing.markup + pricing.addOnTotal))
+        totalSales = roundMoney(qty * unitPrice)
+      }
 
       await client.query(
         `

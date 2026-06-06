@@ -1,16 +1,15 @@
 import type { Sale } from '@/types'
 import { resolveProductPricing, type ProductPricingFields } from '@/lib/product-pricing'
+import { getVendorLineTotal as getVendorLineTotalFromSale } from '@/lib/sale-amounts'
 
-/** Agreed unit price between vendor and admin (stored on product). */
+/** Agreed unit price on the product catalog (current pricing, not historical sales). */
 export function getAgreedUnitPrice(product: ProductPricingFields | null | undefined): number {
   return resolveProductPricing(product).vendorPrice
 }
 
-/** Line total owed to vendor: qty × agreed price (ignores DistroGH markup). */
+/** Line total owed to vendor from the sale row recorded at import. */
 export function getVendorLineTotal(sale: Sale): number {
-  const vp = getAgreedUnitPrice(sale.product as { vendor_price?: number; selling_price?: number })
-  const qty = Number(sale.qty_sold ?? 0)
-  return Math.round(qty * vp * 100) / 100
+  return getVendorLineTotalFromSale(sale)
 }
 
 export type VendorBalanceOptions = {

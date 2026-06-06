@@ -95,8 +95,8 @@ export interface Product {
   packaging_size?: string | null
   /** Wholesale price per unit (GHS) */
   wholesale_price?: number | null
-  /** Mall retail price (GHS) */
-  mall_retail_price?: number | null
+  /** Optional public shelf price at partner supermarkets (GHS); manually entered. */
+  supermarket_selling_price?: number | null
   /** Minimum order quantity */
   moq?: number | null
   /** Storage paths for product images */
@@ -109,6 +109,10 @@ export interface Supermarket {
   id: string
   name: string
   location: string
+  /** Outlet branch when the retailer has multiple locations (e.g. ADENTA) */
+  branch?: string | null
+  /** Store code from retailer sales exports (e.g. 1050) */
+  store_code?: string | null
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -279,7 +283,7 @@ export interface ProductFormData {
   category?: string | null
   packaging_size?: string | null
   wholesale_price?: number | null
-  mall_retail_price?: number | null
+  supermarket_selling_price?: number | null
   moq?: number | null
   product_image_paths?: string[] | null
 }
@@ -312,11 +316,48 @@ export interface ParsedSaleRow {
   commission_percent: number
   matched: boolean
   error?: string
+  /** Palace / supermarket export: product code (barcode) */
+  product_code?: string | null
+  /** Creditor name from spreadsheet (vendor) */
+  spreadsheet_vendor_name?: string | null
+  spreadsheet_creditor?: string | null
+  vendor_matched?: boolean
+  vendor_error?: string
+  /** Spreadsheet BRANCH column */
+  branch?: string | null
+  /** Spreadsheet store column */
+  store_code?: string | null
+  /** Resolved supermarket for this row (Palace / multi-branch imports) */
+  import_supermarket_id?: string | null
+  supermarket_matched?: boolean
+  supermarket_error?: string
+  /** TCostEx (line total) from spreadsheet */
+  sheet_line_total?: number | null
+  /** TCostEx ÷ Qty — supermarket unit price from spreadsheet */
+  sheet_unit_price?: number | null
+  /** Catalog shop price (vendor + markup) at import time */
+  catalog_shop_price?: number | null
+  /** Sheet unit differs from catalog shop price; sale imports at sheet price */
+  price_mismatch?: boolean
+  price_note?: string
+  price_warning?: string
+  price_error?: string
+  /** User-selected product when spreadsheet name/code does not auto-match */
+  manual_product_id?: string | null
+  /** Database product name after match or manual link */
+  matched_product_name?: string | null
+  product_link_source?: 'manual' | 'auto' | null
 }
 
 export interface ImportPreview {
   rows: ParsedSaleRow[]
   unmatched: string[]
+  /** Branch names from spreadsheet not found in supermarkets module */
+  unmatched_branches?: string[]
+  /** Matched rows where spreadsheet unit price differs from catalog shop price */
+  price_mismatch_count?: number
+  /** When true, each row is matched to a supermarket by branch (no single dropdown) */
+  uses_branch_matching?: boolean
   totalSales: number
   totalCommission: number
   totalVendorDue: number

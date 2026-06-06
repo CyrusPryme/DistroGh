@@ -30,17 +30,30 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     const body = await req.json().catch(() => null)
 
     const fields: string[] = []
-    const values: any[] = []
+    const values: unknown[] = []
     let i = 1
-    for (const key of ['name', 'location'] as const) {
-      if (body && Object.prototype.hasOwnProperty.call(body, key)) {
-        const v = (body[key] ?? '').toString().trim()
-        if (!v) {
-          return NextResponse.json({ success: false, error: `${key} cannot be empty.` }, { status: 400 })
-        }
-        fields.push(`${key} = $${i++}`)
-        values.push(v)
-      }
+
+    if (body && Object.prototype.hasOwnProperty.call(body, 'name')) {
+      const v = (body.name ?? '').toString().trim()
+      if (!v) return NextResponse.json({ success: false, error: 'name cannot be empty.' }, { status: 400 })
+      fields.push(`name = $${i++}`)
+      values.push(v)
+    }
+    if (body && Object.prototype.hasOwnProperty.call(body, 'location')) {
+      const v = (body.location ?? '').toString().trim()
+      if (!v) return NextResponse.json({ success: false, error: 'location cannot be empty.' }, { status: 400 })
+      fields.push(`location = $${i++}`)
+      values.push(v)
+    }
+    if (body && Object.prototype.hasOwnProperty.call(body, 'branch')) {
+      const v = (body.branch ?? '').toString().trim() || null
+      fields.push(`branch = $${i++}`)
+      values.push(v)
+    }
+    if (body && Object.prototype.hasOwnProperty.call(body, 'store_code')) {
+      const v = (body.store_code ?? '').toString().trim() || null
+      fields.push(`store_code = $${i++}`)
+      values.push(v)
     }
 
     if (fields.length === 0) {
@@ -84,4 +97,3 @@ export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> 
     return errorResponse(err)
   }
 }
-

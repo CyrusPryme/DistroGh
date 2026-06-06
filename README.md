@@ -107,7 +107,7 @@ Vendor-facing screens show **agreed price / vendor due only**, not markup or adm
 
 Expected columns (case-insensitive): product name, quantity, price.
 
-Products must already exist in the catalog. Import runs from **Dashboard → Sales → Import Excel** (admin only).
+Import runs from **Dashboard → Sales → Import Excel** (admin only). Supports the Palace supermarket export format (`Code`, `description`, `Qty`, `TCostEx`, `NAME`, etc.). Products are matched by **code/barcode** first, then description. Missing products show a warning with an **Add product** action (pre-filled from the spreadsheet; vendor is required).
 
 ---
 

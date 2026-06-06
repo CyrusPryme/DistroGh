@@ -4,6 +4,7 @@ import { getDbPool } from '@/lib/db'
 import { requireAdmin } from '@/lib/auth/require'
 import type { ProductFormValues } from '@/lib/validations'
 import type { Product } from '@/types'
+import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
 
 function toNum(v: unknown): number | null {
   if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) return null
@@ -35,7 +36,7 @@ export async function createProductAdmin(
     `
     insert into public.products (
       name, vendor_id, vendor_price, distrogh_markup, selling_price, commission_percent,
-      expiry_date, sku, barcode, category, packaging_size, wholesale_price, mall_retail_price, moq, product_image_paths
+      expiry_date, sku, barcode, category, packaging_size, wholesale_price, supermarket_selling_price, moq, product_image_paths
     )
     values ($1, $2::uuid, $3, $4, $5, 0, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     returning *
@@ -45,14 +46,17 @@ export async function createProductAdmin(
       payload.vendor_id,
       payload.vendor_price,
       payload.distrogh_markup,
-      payload.vendor_price + payload.distrogh_markup,
+      computeShopUnitPrice({
+        vendor_price: payload.vendor_price,
+        distrogh_markup: payload.distrogh_markup,
+      }),
       payload.expiry_date && String(payload.expiry_date).trim() ? String(payload.expiry_date).trim() : null,
       payload.sku?.trim() || null,
       payload.barcode?.trim() || null,
       payload.category?.trim() || null,
       payload.packaging_size?.trim() || null,
-      toNum(payload.wholesale_price),
-      toNum(payload.mall_retail_price),
+      resolveWholesalePrice(payload.vendor_price, payload.wholesale_price),
+      toNum(payload.supermarket_selling_price),
       payload.moq != null && payload.moq >= 1 ? Math.floor(payload.moq) : 1,
       Array.isArray(productImagePaths) && productImagePaths.length > 0 ? productImagePaths : [],
     ]

@@ -1,17 +1,23 @@
 ﻿'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Loader2, Package, User, Calendar, Barcode, Layers, Image } from 'lucide-react'
+import { Loader2, Package, User, Calendar, Barcode, Layers, AlertTriangle, AlertCircle } from 'lucide-react'
 import { productSchema, type ProductFormValues } from '@/lib/validations'
 import type { Product, Vendor } from '@/types'
 import { formatGHS } from '@/lib/utils'
-import { resolveProductPricing } from '@/lib/product-pricing'
+import {
+  computeShopUnitPrice,
+  isWholesalePriceSpecified,
+  resolveProductPricing,
+  resolveWholesalePrice,
+} from '@/lib/product-pricing'
 import { CurrencyInputPrefix } from '@/components/shared/CurrencyInputPrefix'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 
 const ADD_NEW_CATEGORY = '__new__'
+const EMPTY_CATEGORIES: string[] = []
 
 interface ProductModalProps {
   open: boolean
@@ -24,14 +30,32 @@ interface ProductModalProps {
   defaultVendorId?: string
   /** When true, vendor is fixed (e.g. vendor user); show name only, no dropdown */
   vendorOnly?: boolean
+  /** Pre-fill fields when adding from sales import (no edit mode) */
+  prefillValues?: Partial<ProductFormValues> | null
+  /** Shown when spreadsheet vendor could not be matched */
+  vendorHint?: string | null
+  /** TCostEx ÷ Qty hint when adding from sales import */
+  importPriceHint?: string | null
 }
 
 export function ProductModal({
-  open, onClose, onSubmit, initialData, vendors, categories = [], isSubmitting, defaultVendorId, vendorOnly
+  open,
+  onClose,
+  onSubmit,
+  initialData,
+  vendors,
+  categories = EMPTY_CATEGORIES,
+  isSubmitting,
+  defaultVendorId,
+  vendorOnly,
+  prefillValues,
+  vendorHint,
+  importPriceHint,
 }: ProductModalProps) {
-  const [imageFiles, setImageFiles] = useState<File[]>([])
   const [hasExpiry, setHasExpiry] = useState(false)
   const [categorySelect, setCategorySelect] = useState<string>('') // '' or existing category or ADD_NEW_CATEGORY
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const initKeyRef = useRef<string | null>(null)
 
   const {
     register,
@@ -53,16 +77,31 @@ export function ProductModal({
       category: '',
       packaging_size: '',
       wholesale_price: undefined,
-      mall_retail_price: undefined,
+      supermarket_selling_price: undefined,
       moq: 1,
     },
   })
 
   const vendorPrice = watch('vendor_price') ?? 0
   const distroghMarkup = watch('distrogh_markup') ?? 0
-  const basePrice = vendorPrice + distroghMarkup
+  const basePrice = computeShopUnitPrice({
+    vendor_price: vendorPrice,
+    distrogh_markup: distroghMarkup,
+  })
+
+  const prefillKey = prefillValues ? JSON.stringify(prefillValues) : ''
 
   useEffect(() => {
+    if (!open) {
+      initKeyRef.current = null
+      setSubmitError(null)
+      return
+    }
+
+    const sessionKey = `${initialData?.id ?? 'new'}:${prefillKey}`
+    if (initKeyRef.current === sessionKey) return
+    initKeyRef.current = sessionKey
+
     const vendorId = vendorOnly && defaultVendorId ? defaultVendorId : (initialData?.vendor_id ?? defaultVendorId ?? '')
     if (initialData) {
       const p = initialData as Product
@@ -79,24 +118,44 @@ export function ProductModal({
         barcode: p.barcode ?? '',
         category: p.category ?? '',
         packaging_size: p.packaging_size ?? '',
-        wholesale_price: p.wholesale_price ?? undefined,
-        mall_retail_price: p.mall_retail_price ?? undefined,
+        wholesale_price:
+          isWholesalePriceSpecified(p.wholesale_price) &&
+          Number(p.wholesale_price) !== pricing.vendorPrice
+            ? Number(p.wholesale_price)
+            : undefined,
+        supermarket_selling_price: p.supermarket_selling_price ?? undefined,
         moq: p.moq ?? 1,
       })
-      setImageFiles([])
       const cat = p.category?.trim() ?? ''
       setCategorySelect(cat && categories.includes(cat) ? cat : (cat ? ADD_NEW_CATEGORY : ''))
     } else {
       setHasExpiry(false)
       setCategorySelect('')
+      const prefill = prefillValues ?? {}
+      const prefillCategory = prefill.category?.trim() ?? ''
+      setCategorySelect(
+        prefillCategory && categories.includes(prefillCategory)
+          ? prefillCategory
+          : prefillCategory
+            ? ADD_NEW_CATEGORY
+            : ''
+      )
       reset({
-        name: '', vendor_id: vendorId, vendor_price: 0, distrogh_markup: 0, expiry_date: '',
-        sku: '', barcode: '', category: '', packaging_size: '',
-        wholesale_price: undefined, mall_retail_price: undefined, moq: 1,
+        name: prefill.name ?? '',
+        vendor_price: prefill.vendor_price ?? 0,
+        distrogh_markup: prefill.distrogh_markup ?? 0,
+        expiry_date: prefill.expiry_date ?? '',
+        sku: prefill.sku ?? '',
+        barcode: prefill.barcode ?? '',
+        category: prefill.category ?? '',
+        packaging_size: prefill.packaging_size ?? '',
+        wholesale_price: prefill.wholesale_price,
+        supermarket_selling_price: prefill.supermarket_selling_price,
+        moq: prefill.moq ?? 1,
+        vendor_id: prefill.vendor_id || vendorId,
       })
-      setImageFiles([])
     }
-  }, [initialData, reset, defaultVendorId, vendorOnly])
+  }, [open, initialData, prefillValues, prefillKey, defaultVendorId, vendorOnly, categories, reset])
 
   return (
     <FormModal
@@ -108,14 +167,35 @@ export function ProductModal({
       disableBackdropClose={isSubmitting}
     >
       <form
-        onSubmit={handleSubmit((data) => {
-          const payload = { ...data }
-          if (!hasExpiry) payload.expiry_date = ''
-          return onSubmit(payload, { imageFiles: imageFiles.length > 0 ? imageFiles : undefined })
-        })}
+        onSubmit={handleSubmit(
+          async (data) => {
+            setSubmitError(null)
+            const payload = { ...data }
+            if (!hasExpiry) payload.expiry_date = ''
+            payload.wholesale_price = resolveWholesalePrice(
+              payload.vendor_price,
+              isWholesalePriceSpecified(payload.wholesale_price) ? payload.wholesale_price : null
+            )
+            try {
+              await onSubmit(payload)
+            } catch (e: unknown) {
+              setSubmitError(e instanceof Error ? e.message : 'Failed to save product')
+            }
+          },
+          () => {
+            setSubmitError('Please fix the highlighted fields above. Vendor, product name, and distro price are required.')
+          }
+        )}
         className="flex min-h-0 flex-1 flex-col"
       >
         <FormModalBody className="space-y-4">
+          {submitError && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <p>{submitError}</p>
+            </div>
+          )}
+
           {/* Product Name */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -131,9 +211,23 @@ export function ProductModal({
             </div>
             {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
             <p className="mt-1 text-xs text-slate-400">
-              Must match Excel column name exactly for import matching
+              Matches spreadsheet description or product code on import
             </p>
           </div>
+
+          {importPriceHint && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-sm">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
+              <p>{importPriceHint}</p>
+            </div>
+          )}
+
+          {vendorHint && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <p>{vendorHint}</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -254,7 +348,7 @@ export function ProductModal({
                     placeholder="0.00"
                   />
                 </div>
-                <p className="mt-0.5 text-xs text-slate-400">Fixed markup per unit (DistroGH profit on shop price)</p>
+                <p className="mt-0.5 text-xs text-slate-400">Fixed markup per unit added to vendor price for supermarkets</p>
                 {errors.distrogh_markup && <p className="mt-1 text-xs text-red-500">{errors.distrogh_markup.message}</p>}
               </div>
             )}
@@ -265,19 +359,40 @@ export function ProductModal({
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Wholesale price (GHS)</label>
               <div className="relative">
                 <CurrencyInputPrefix />
-                <input {...register('wholesale_price', { valueAsNumber: true })} type="number" step="0.01" min="0" className="form-input pl-11" placeholder="0.00" />
+                <input
+                  {...register('wholesale_price', { valueAsNumber: true })}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="form-input pl-11"
+                  placeholder="Same as vendor price"
+                />
               </div>
+              <p className="mt-0.5 text-xs text-slate-400">Leave blank when wholesale is the same as vendor price</p>
             </div>
-            {!vendorOnly && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Mall retail price (GHS)</label>
-                <div className="relative">
-                  <CurrencyInputPrefix />
-                  <input {...register('mall_retail_price', { valueAsNumber: true })} type="number" step="0.01" min="0" className="form-input pl-11" placeholder="0.00" />
-                </div>
-              </div>
-            )}
           </div>
+
+          {!vendorOnly && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Supermarket selling price (GHS)
+              </label>
+              <div className="relative max-w-xs">
+                <CurrencyInputPrefix />
+                <input
+                  {...register('supermarket_selling_price', { valueAsNumber: true })}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="form-input pl-11"
+                  placeholder="Leave blank if unknown"
+                />
+              </div>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Optional shelf price supermarkets charge the public. Enter manually when known — not used for vendor payouts or sales import.
+              </p>
+            </div>
+          )}
 
           {/* Product expiry â€“ has expiry vs non-perishable */}
           <div>
@@ -338,24 +453,7 @@ export function ProductModal({
             {errors.moq && <p className="mt-1 text-xs text-red-500">{errors.moq.message}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Product images
-            </label>
-            <div className="relative">
-              <Image className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                onChange={(e) => setImageFiles(Array.from(e.target.files ?? []))}
-                className="form-input pl-10 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-              />
-            </div>
-            <p className="mt-1 text-xs text-slate-400">{imageFiles.length > 0 ? `${imageFiles.length} file(s) selected` : 'JPG, PNG or WebP. Optional.'}</p>
-          </div>
-
-          {/* Preview calculation â€“ vendors only see their price; admins see full breakdown */}
+          {/* Preview calculation — vendors only see their price; admins see full breakdown */}
           {vendorOnly ? (
             vendorPrice > 0 && (
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
@@ -379,7 +477,7 @@ export function ProductModal({
                   <span className="font-semibold text-violet-600">{formatGHS(distroghMarkup)}</span>
                 </div>
                 <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm">
-                  <span className="font-semibold text-slate-700">Shop price (vendor + markup)</span>
+                  <span className="font-semibold text-slate-700">Distro price to supermarket</span>
                   <span className="font-bold text-slate-800">{formatGHS(basePrice)}</span>
                 </div>
               </div>

@@ -40,9 +40,18 @@ export const productSchema = z.object({
   barcode: z.string().max(50).optional().nullable().or(z.literal('')),
   category: z.string().max(100).optional().nullable().or(z.literal('')),
   packaging_size: z.string().max(50).optional().nullable().or(z.literal('')),
-  wholesale_price: z.number().min(0).optional().nullable(),
-  mall_retail_price: z.number().min(0).optional().nullable(),
+  wholesale_price: z.preprocess(
+    (a) => (a === '' || a == null || (typeof a === 'number' && Number.isNaN(a)) ? undefined : a),
+    z.number().min(0).optional().nullable()
+  ),
+  supermarket_selling_price: z.preprocess(
+    (a) => (a === '' || a == null || (typeof a === 'number' && Number.isNaN(a)) ? undefined : a),
+    z.number().min(0).optional().nullable()
+  ),
   moq: z.preprocess((a) => (a === '' || a == null || (typeof a === 'number' && Number.isNaN(a)) ? undefined : a), z.number().int().min(1).optional()),
+}).refine((d) => d.vendor_price > 0 || d.distrogh_markup > 0, {
+  message: 'Vendor price or DistroGH markup must be greater than 0',
+  path: ['vendor_price'],
 })
 
 export const deductionSchema = z.object({
@@ -61,8 +70,15 @@ export const payoutSchema = z.object({
   week_end: z.string().min(1, 'Week end date is required'),
 })
 
+export const supermarketSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100),
+  location: z.string().min(2, 'Location is required').max(200),
+  branch: z.string().max(100).optional().nullable().or(z.literal('')),
+  store_code: z.string().max(50).optional().nullable().or(z.literal('')),
+})
+
 export const importSettingsSchema = z.object({
-  supermarket_id: z.string().uuid('Please select a supermarket'),
+  supermarket_id: z.string().optional().nullable().or(z.literal('')),
   week_start: z.string().min(1, 'Week start date is required'),
   week_end: z.string().min(1, 'Week end date is required'),
 })
@@ -71,4 +87,5 @@ export type VendorFormValues = z.infer<typeof vendorSchema>
 export type ProductFormValues = z.infer<typeof productSchema>
 export type DeductionFormValues = z.infer<typeof deductionSchema>
 export type PayoutFormValues = z.infer<typeof payoutSchema>
+export type SupermarketFormValues = z.infer<typeof supermarketSchema>
 export type ImportSettingsValues = z.infer<typeof importSettingsSchema>

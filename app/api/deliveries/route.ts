@@ -5,7 +5,7 @@ import { apiError } from '@/lib/api/respond'
 
 const RUN_SELECT = `
   dr.*,
-  json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location) as supermarket,
+  json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location, 'branch', sm.branch, 'store_code', sm.store_code) as supermarket,
   coalesce(
     (
       select json_agg(

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { computeShopUnitPrice } from '@/lib/product-pricing'
 
 export async function GET(req: Request) {
   const session = await requireSession()
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: 'At least one of vendor price or DistroGH markup must be greater than 0' }, { status: 400 })
   }
 
-  const selling_price = vendor_price + distrogh_markup
+  const selling_price = computeShopUnitPrice({ vendor_price, distrogh_markup })
 
   const pool = getDbPool()
   const { rows } = await pool.query(

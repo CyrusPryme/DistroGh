@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchNullable } from '@/lib/api/client'
+import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
 import { Product, ProductFormData } from '@/types'
 
 export const productService = {
@@ -35,7 +36,10 @@ export const productService = {
       vendor_id: payload.vendor_id,
       vendor_price: payload.vendor_price,
       distrogh_markup: payload.distrogh_markup,
-      selling_price: payload.vendor_price + payload.distrogh_markup,
+      selling_price: computeShopUnitPrice({
+        vendor_price: payload.vendor_price,
+        distrogh_markup: payload.distrogh_markup,
+      }),
       commission_percent: 0,
       expiry_date:
         payload.expiry_date && String(payload.expiry_date).trim()
@@ -68,12 +72,18 @@ export const productService = {
     const vp = payload.vendor_price ?? (payload as ProductFormData).vendor_price
     const dm = payload.distrogh_markup ?? (payload as ProductFormData).distrogh_markup
     if (vp !== undefined && dm !== undefined) {
-      updatePayload.selling_price = vp + dm
+      updatePayload.selling_price = computeShopUnitPrice({
+        vendor_price: vp,
+        distrogh_markup: dm,
+      })
     } else if (vp !== undefined || dm !== undefined) {
       const existing = await this.getById(id)
       const evp = vp ?? existing?.vendor_price ?? 0
       const edm = dm ?? existing?.distrogh_markup ?? 0
-      updatePayload.selling_price = evp + edm
+      updatePayload.selling_price = computeShopUnitPrice({
+        vendor_price: evp,
+        distrogh_markup: edm,
+      })
     }
     if ('expiry_date' in updatePayload) {
       updatePayload.expiry_date =
@@ -89,12 +99,27 @@ export const productService = {
     }
     if ('wholesale_price' in updatePayload) {
       const v = updatePayload.wholesale_price
-      updatePayload.wholesale_price =
+      const evp =
+        vp ??
+        (await this.getById(id))?.vendor_price ??
+        0
+      updatePayload.wholesale_price = resolveWholesalePrice(
+        Number(evp),
         v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : null
+      )
+    } else if (vp !== undefined) {
+      const existing = await this.getById(id)
+      if (existing) {
+        const prevVendor = Number(existing.vendor_price ?? 0)
+        const prevWholesale = Number(existing.wholesale_price ?? prevVendor)
+        if (prevWholesale === prevVendor) {
+          updatePayload.wholesale_price = resolveWholesalePrice(Number(vp), null)
+        }
+      }
     }
-    if ('mall_retail_price' in updatePayload) {
-      const v = updatePayload.mall_retail_price
-      updatePayload.mall_retail_price =
+    if ('supermarket_selling_price' in updatePayload) {
+      const v = updatePayload.supermarket_selling_price
+      updatePayload.supermarket_selling_price =
         v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : null
     }
     if ('moq' in updatePayload) {
@@ -126,7 +151,12 @@ export const productService = {
 
   async getAllForMatching(
     vendorId?: string
-  ): Promise<Pick<Product, 'id' | 'name' | 'vendor_id' | 'vendor_price' | 'distrogh_markup' | 'selling_price'>[]> {
+  ): Promise<
+    Pick<
+      Product,
+      'id' | 'name' | 'vendor_id' | 'vendor_price' | 'distrogh_markup' | 'selling_price' | 'barcode' | 'sku'
+    >[]
+  > {
     const url = vendorId ? `/api/products?vendor_id=${encodeURIComponent(vendorId)}` : '/api/products'
     const rows = await apiFetch<Product[]>(url, { fallbackError: 'Failed to load products' })
     return rows.map((row) => ({
@@ -136,6 +166,8 @@ export const productService = {
       vendor_price: row.vendor_price ?? 0,
       distrogh_markup: row.distrogh_markup ?? 0,
       selling_price: row.selling_price,
+      barcode: row.barcode ?? null,
+      sku: row.sku ?? null,
     }))
   },
 }

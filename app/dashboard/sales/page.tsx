@@ -9,24 +9,18 @@ import { vendorService } from '@/services/vendor.service'
 import { supermarketService } from '@/services/supermarket.service'
 import { productService } from '@/services/product.service'
 import { formatGHS, formatDate, formatWeekRange, formatNumber, downloadBlob, cn } from '@/lib/utils'
+import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { useSession } from '@/hooks/useSession'
 import type { Sale, Vendor, Supermarket, Product } from '@/types'
-import { getAgreedUnitPrice, getVendorLineTotal } from '@/lib/vendor-earnings'
+import {
+  getSaleRecordedAmounts,
+  getSaleShopUnitPrice,
+  getSaleVendorUnitPrice,
+} from '@/lib/sale-amounts'
+import { getVendorLineTotal } from '@/lib/vendor-earnings'
 
 type SortKey = 'product' | 'supermarket' | 'week' | 'qty' | 'unit_price' | 'total_sales' | 'markup' | 'vendor_due' | 'vendor'
-
-// Shop price = vendor_price + distrogh_markup; vendor due = qty × vendor_price; markup = qty × distrogh_markup
-function getEffectiveAmounts(sale: Sale): { totalSales: number; vendorDue: number; markupAmount: number } {
-  const vp = Number((sale.product as { vendor_price?: number })?.vendor_price ?? 0)
-  const dm = Number((sale.product as { distrogh_markup?: number })?.distrogh_markup ?? 0)
-  const unit = vp + dm
-  const qty = sale.qty_sold ?? 0
-  const totalSales = Math.round(qty * unit * 100) / 100
-  const vendorDue = Math.round(qty * vp * 100) / 100
-  const markupAmount = Math.round(qty * dm * 100) / 100
-  return { totalSales, vendorDue, markupAmount }
-}
 
 function SalesContent() {
   const searchParams = useSearchParams()
@@ -107,20 +101,20 @@ function SalesContent() {
         case 'qty': cmp = (a.qty_sold ?? 0) - (b.qty_sold ?? 0); break
         case 'unit_price': cmp = Number(a.unit_price ?? 0) - Number(b.unit_price ?? 0); break
         case 'total_sales': {
-          const ea = getEffectiveAmounts(a)
-          const eb = getEffectiveAmounts(b)
+          const ea = getSaleRecordedAmounts(a)
+          const eb = getSaleRecordedAmounts(b)
           cmp = ea.totalSales - eb.totalSales
           break
         }
         case 'markup': {
-          const ea = getEffectiveAmounts(a)
-          const eb = getEffectiveAmounts(b)
+          const ea = getSaleRecordedAmounts(a)
+          const eb = getSaleRecordedAmounts(b)
           cmp = ea.markupAmount - eb.markupAmount
           break
         }
         case 'vendor_due': {
-          const ea = getEffectiveAmounts(a)
-          const eb = getEffectiveAmounts(b)
+          const ea = getSaleRecordedAmounts(a)
+          const eb = getSaleRecordedAmounts(b)
           cmp = ea.vendorDue - eb.vendorDue
           break
         }
@@ -161,7 +155,7 @@ function SalesContent() {
           vendorDueLabel,
         ]
       const rows = filtered.map(s => {
-      const e = getEffectiveAmounts(s)
+      const e = getSaleRecordedAmounts(s)
       if (isVendor) {
         return [
           (s.product as { name?: string })?.name ?? '',
@@ -169,7 +163,7 @@ function SalesContent() {
           s.week_start ?? '',
           s.week_end ?? '',
           s.qty_sold ?? 0,
-          getAgreedUnitPrice(s.product as { vendor_price?: number; selling_price?: number }).toFixed(2),
+          getSaleVendorUnitPrice(s).toFixed(2),
           getVendorLineTotal(s).toFixed(2),
         ]
       }
@@ -193,7 +187,7 @@ function SalesContent() {
   const totals = filtered.reduce(
     (acc: { qty: number; sales: number; markup: number; vendorDue: number }, 
     s: Sale) => {
-      const e = getEffectiveAmounts(s)
+      const e = getSaleRecordedAmounts(s)
       return {
         qty: acc.qty + s.qty_sold,
         sales: acc.sales + e.totalSales,
@@ -313,7 +307,7 @@ function SalesContent() {
                 className="form-input text-sm appearance-none"
               >
                 <option value="">All Supermarkets</option>
-                {supermarkets.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {supermarkets.map(s => <option key={s.id} value={s.id}>{formatSupermarketLabel(s)}</option>)}
               </select>
             </div>
           </div>
@@ -453,23 +447,21 @@ function SalesContent() {
                     <td className="text-right text-slate-600">{formatNumber(sale.qty_sold)}</td>
                     <td className="text-right font-mono text-sm text-slate-600">
                       {formatGHS(
-                        isVendor
-                          ? getAgreedUnitPrice(sale.product as { vendor_price?: number; selling_price?: number })
-                          : Number(sale.unit_price)
+                        isVendor ? getSaleVendorUnitPrice(sale) : getSaleShopUnitPrice(sale)
                       )}
                     </td>
                     {!isVendor && (
                       <>
                         <td className="text-right font-semibold text-slate-800 font-mono">
-                          {formatGHS(getEffectiveAmounts(sale).totalSales)}
+                          {formatGHS(getSaleRecordedAmounts(sale).totalSales)}
                         </td>
                         <td className="text-right text-violet-600 font-mono text-sm">
-                          {formatGHS(getEffectiveAmounts(sale).markupAmount)}
+                          {formatGHS(getSaleRecordedAmounts(sale).markupAmount)}
                         </td>
                       </>
                     )}
                     <td className="text-right text-emerald-600 font-semibold font-mono">
-                      {formatGHS(isVendor ? getVendorLineTotal(sale) : getEffectiveAmounts(sale).vendorDue)}
+                      {formatGHS(isVendor ? getVendorLineTotal(sale) : getSaleRecordedAmounts(sale).vendorDue)}
                     </td>
                   </tr>
                 ))}

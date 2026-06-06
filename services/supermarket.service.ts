@@ -21,12 +21,34 @@ export const supermarketService = {
     return apiFetch<Supermarket[]>('/api/supermarkets', { fallbackError: 'Failed to load supermarkets' })
   },
 
-  async create(payload: { name: string; location: string }): Promise<Supermarket> {
+  async create(payload: {
+    name: string
+    location: string
+    branch?: string | null
+    store_code?: string | null
+  }): Promise<Supermarket> {
     return apiFetch<Supermarket>('/api/supermarkets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        name: payload.name,
+        location: payload.location,
+        branch: payload.branch?.trim() || null,
+        store_code: payload.store_code?.trim() || null,
+      }),
       fallbackError: 'Failed to create supermarket',
+    })
+  },
+
+  async update(
+    id: string,
+    payload: Partial<{ name: string; location: string; branch: string | null; store_code: string | null }>
+  ): Promise<Supermarket> {
+    return apiFetch<Supermarket>(`/api/supermarkets/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      fallbackError: 'Failed to update supermarket',
     })
   },
 

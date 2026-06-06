@@ -13,7 +13,11 @@ export async function GET() {
     await requireSession()
     const pool = getDbPool()
     const { rows } = await pool.query(
-      `select * from public.supermarkets where deleted_at is null order by name asc`
+      `
+      select * from public.supermarkets
+      where deleted_at is null
+      order by name asc, coalesce(branch, '') asc
+      `
     )
     return NextResponse.json({ success: true, data: rows })
   } catch (err) {
@@ -27,6 +31,8 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => null)
     const name = (body?.name ?? '').toString().trim()
     const location = (body?.location ?? '').toString().trim()
+    const branch = (body?.branch ?? '').toString().trim() || null
+    const store_code = (body?.store_code ?? '').toString().trim() || null
 
     if (!name) {
       return NextResponse.json({ success: false, error: 'Supermarket name is required' }, { status: 400 })
@@ -36,25 +42,33 @@ export async function POST(req: Request) {
     }
 
     const pool = getDbPool()
-    const byName = await pool.query(
-      `select id from public.supermarkets where deleted_at is null and lower(name) = lower($1) limit 1`,
-      [name]
+    const byNameBranch = await pool.query(
+      `
+      select id from public.supermarkets
+      where deleted_at is null
+        and lower(name) = lower($1)
+        and lower(coalesce(branch, '')) = lower(coalesce($2::text, ''))
+      limit 1
+      `,
+      [name, branch]
     )
-    if (byName.rowCount) {
-      return NextResponse.json({ success: false, error: 'A supermarket with this name already exists.' }, { status: 409 })
+    if (byNameBranch.rowCount) {
+      return NextResponse.json(
+        { success: false, error: branch ? 'A supermarket with this name and branch already exists.' : 'A supermarket with this name already exists.' },
+        { status: 409 }
+      )
     }
 
     const { rows } = await pool.query(
       `
-      insert into public.supermarkets (name, location)
-      values ($1, $2)
+      insert into public.supermarkets (name, location, branch, store_code)
+      values ($1, $2, $3, $4)
       returning *
       `,
-      [name, location]
+      [name, location, branch, store_code]
     )
     return NextResponse.json({ success: true, data: rows[0] }, { status: 201 })
   } catch (err) {
     return errorResponse(err)
   }
 }
-

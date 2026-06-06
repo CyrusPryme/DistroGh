@@ -11,7 +11,7 @@ import { vendorService } from '@/services/vendor.service'
 import { returnsService } from '@/services/returns.service'
 import { settingsService } from '@/services/settings.service'
 import { formatGHS, formatDate, cn } from '@/lib/utils'
-import { resolveProductPricing } from '@/lib/product-pricing'
+import { resolveProductPriceTiers } from '@/lib/product-pricing'
 import type { Product, Vendor, ProductReturn } from '@/types'
 
 const RETURN_REASON_LABELS: Record<string, string> = {
@@ -110,7 +110,7 @@ function ProductsContent() {
         const mergedPaths = [...existingPaths, ...productImagePaths]
         const isVendor = role === 'vendor'
         const updatePayload = isVendor
-          ? (() => { const { distrogh_markup, mall_retail_price, ...rest } = data; return rest })()
+          ? (() => { const { distrogh_markup, supermarket_selling_price, ...rest } = data; return rest })()
           : data
         await productService.update(editProduct.id, { ...updatePayload, product_image_paths: mergedPaths.length ? mergedPaths : undefined })
         showToast('Product updated successfully')
@@ -266,7 +266,8 @@ function ProductsContent() {
                     <>
                       <th className="text-right">Vendor price</th>
                       <th className="text-right">Markup</th>
-                      <th className="text-right">Shop price</th>
+                      <th className="text-right">Distro price</th>
+                      <th className="text-right">Supermarket retail</th>
                     </>
                   ) : (
                     <th className="text-right">Your agreed price</th>
@@ -279,7 +280,8 @@ function ProductsContent() {
               <tbody>
                 {paginatedProducts.map(product => {
                   const vendor = product.vendor as any
-                  const { vendorPrice, markup, shopPrice } = resolveProductPricing(product)
+                  const { vendorPrice, distroMarkup, distroPrice, supermarketSellingPrice } =
+                    resolveProductPriceTiers(product)
                   return (
                     <tr key={product.id}>
                       <td className="font-medium text-slate-800">{product.name}</td>
@@ -300,11 +302,14 @@ function ProductsContent() {
                           <td className="text-right font-mono text-slate-800">{formatGHS(vendorPrice)}</td>
                           <td className="text-right">
                             <span className="status-badge bg-violet-50 text-violet-700 border-violet-200 font-mono">
-                              {formatGHS(markup)}
+                              {formatGHS(distroMarkup)}
                             </span>
                           </td>
                           <td className="text-right font-semibold font-mono text-slate-800">
-                            {formatGHS(shopPrice)}
+                            {formatGHS(distroPrice)}
+                          </td>
+                          <td className="text-right font-mono text-slate-600">
+                            {supermarketSellingPrice != null ? formatGHS(supermarketSellingPrice) : '—'}
                           </td>
                         </>
                       ) : (

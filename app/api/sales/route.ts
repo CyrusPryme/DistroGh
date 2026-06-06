@@ -47,6 +47,8 @@ export async function GET(req: Request) {
       json_build_object(
         'id', sm.id,
         'name', sm.name,
+        'branch', sm.branch,
+        'store_code', sm.store_code,
         'location', sm.location
       ) as supermarket
     from public.sales s
