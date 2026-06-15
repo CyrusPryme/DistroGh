@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/auth/require'
 import type { ProductFormValues } from '@/lib/validations'
 import type { Product } from '@/types'
 import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
+import { checkProductIntegrity, productIntegritySaveError } from '@/lib/product-integrity'
 
 function toNum(v: unknown): number | null {
   if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) return null
@@ -32,6 +33,14 @@ export async function createProductAdmin(
   if (!payload.vendor_id?.trim()) return { error: 'Vendor ID is required' }
 
   const pool = getDbPool()
+  const integrity = await checkProductIntegrity(pool, {
+    name: payload.name,
+    sku: payload.sku ?? '',
+    barcode: payload.barcode ?? '',
+  })
+  const saveErr = productIntegritySaveError(integrity)
+  if (saveErr) return { error: saveErr }
+
   const { rows } = await pool.query(
     `
     insert into public.products (

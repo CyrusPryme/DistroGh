@@ -72,7 +72,16 @@ export async function GET() {
       )
       rows = result.rows
     }
-    return NextResponse.json({ success: true, data: rows })
+    const data = rows.map((row) => ({
+      vendor_id: String(row.vendor_id),
+      vendor_name: String(row.vendor_name ?? ''),
+      momo_number: String(row.momo_number ?? ''),
+      momo_network: row.momo_network,
+      total_due: Number(row.total_due ?? 0),
+      total_paid: Number(row.total_paid ?? 0),
+      balance: Number(row.balance ?? 0),
+    }))
+    return NextResponse.json({ success: true, data })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to load vendor balances'
     const status = msg === 'Unauthorized' ? 401 : msg === 'Forbidden' ? 403 : 500

@@ -27,8 +27,9 @@ import { createProductAdmin } from '@/app/dashboard/products/actions'
 import { ProductModal } from '@/components/products/ProductModal'
 import { SupermarketModal } from '@/components/supermarkets/SupermarketModal'
 import { importSettingsSchema, type ImportSettingsValues, type ProductFormValues, type SupermarketFormValues } from '@/lib/validations'
-import { formatGHS, formatNumber, cn, downloadBlob, getWeekRange } from '@/lib/utils'
+import { formatGHS, formatNumber, cn, downloadBlob, getDefaultReportMonth, reportMonthToRange, weekStartToReportMonth, formatReportMonth } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
+import { getSupermarketChainNames, supermarketsInChain } from '@/lib/supermarket-chains'
 import {
   saveSalesImportDraft,
   loadSalesImportDraft,
@@ -77,27 +78,33 @@ export default function SalesImportPage() {
   const [matchProducts, setMatchProducts] = useState<ProductLookup[]>([])
   const [changeLinkKeys, setChangeLinkKeys] = useState<Set<string>>(new Set())
 
-  const weekRange = getWeekRange()
+  const defaultReportMonth = getDefaultReportMonth()
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 4000)
   }
 
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<ImportSettingsValues>({
+  const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<ImportSettingsValues>({
     resolver: zodResolver(importSettingsSchema),
     defaultValues: {
+      reporting_supermarket_name: '',
       supermarket_id: '',
-      week_start: weekRange.week_start,
-      week_end: weekRange.week_end,
+      report_month: defaultReportMonth,
     },
   })
 
+  const reportingChain = watch('reporting_supermarket_name')
   const supermarketId = watch('supermarket_id')
-  const weekStart = watch('week_start')
-  const weekEnd = watch('week_end')
+  const reportMonth = watch('report_month')
 
   const [supermarkets, setSupermarkets] = useState<Supermarket[]>([])
+
+  const chainNames = useMemo(() => getSupermarketChainNames(supermarkets), [supermarkets])
+  const outletsInChain = useMemo(
+    () => (reportingChain ? supermarketsInChain(supermarkets, reportingChain) : []),
+    [supermarkets, reportingChain]
+  )
 
   useEffect(() => {
     supermarketService.getAll().then(setSupermarkets)
@@ -126,7 +133,15 @@ export default function SalesImportPage() {
         setPreviewPage(draft.previewPage)
         setShowUnmatched(draft.showUnmatched)
         setManualProductLinks(draft.manualProductLinks ?? {})
-        reset(draft.settings)
+        const legacy = draft.settings as ImportSettingsValues & { week_start?: string }
+        const restoredMonth =
+          legacy.report_month ??
+          (legacy.week_start ? weekStartToReportMonth(legacy.week_start) : defaultReportMonth)
+        reset({
+          reporting_supermarket_name: legacy.reporting_supermarket_name ?? '',
+          supermarket_id: legacy.supermarket_id ?? '',
+          report_month: restoredMonth,
+        })
 
         const [products, vendorList, supermarketList] = await Promise.all([
           productService.getAllForMatching(role === 'vendor' && vendorId ? vendorId : undefined),
@@ -137,13 +152,18 @@ export default function SalesImportPage() {
         setSupermarkets(supermarketList)
         const vendorLookup = vendorList.map((v) => ({ id: v.id, name: v.name }))
         setMatchProducts(products)
+        const chainForRematch = legacy.reporting_supermarket_name?.trim() ?? ''
+        const chainOutlets = chainForRematch
+          ? toSupermarketLookup(supermarketsInChain(supermarketList, chainForRematch))
+          : []
         const rematched = rematchImportRows(
           draft.preview.rows,
           products,
           vendorLookup,
-          toSupermarketLookup(supermarketList),
+          chainForRematch ? chainOutlets : toSupermarketLookup(supermarketList),
           !!draft.preview.uses_branch_matching,
-          draft.manualProductLinks ?? {}
+          draft.manualProductLinks ?? {},
+          chainForRematch || undefined
         )
         setPreview(rematched)
         setStep('preview')
@@ -166,9 +186,9 @@ export default function SalesImportPage() {
       preview,
       fileName,
       settings: {
+        reporting_supermarket_name: reportingChain,
         supermarket_id: supermarketId,
-        week_start: weekStart,
-        week_end: weekEnd,
+        report_month: reportMonth,
       },
       previewPage,
       showUnmatched,
@@ -180,9 +200,9 @@ export default function SalesImportPage() {
     step,
     preview,
     fileName,
+    reportingChain,
     supermarketId,
-    weekStart,
-    weekEnd,
+    reportMonth,
     previewPage,
     showUnmatched,
     manualProductLinks,
@@ -233,8 +253,12 @@ export default function SalesImportPage() {
   const handleImport = async (data: ImportSettingsValues) => {
     if (!preview) return
     const usesBranch = !!preview.uses_branch_matching
+    if (!data.reporting_supermarket_name?.trim()) {
+      setError('Select the supermarket that sent this report')
+      return
+    }
     if (!usesBranch && !data.supermarket_id?.trim()) {
-      setError('Please select a supermarket')
+      setError('Select the outlet for this report')
       return
     }
 
@@ -250,6 +274,7 @@ export default function SalesImportPage() {
     setImporting(true)
     setError(null)
     try {
+      const { week_start, week_end } = reportMonthToRange(data.report_month)
       const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
       const inserts = importableRows.map(row => ({
         product_id: row.product_id!,
@@ -259,8 +284,8 @@ export default function SalesImportPage() {
         total_sales: row.total_sales,
         commission_amount: row.commission_amount,
         vendor_due: row.vendor_due,
-        week_start: data.week_start,
-        week_end: data.week_end,
+        week_start,
+        week_end,
         import_batch_id: batchId,
       }))
       await salesService.bulkInsert(inserts)
@@ -293,9 +318,17 @@ export default function SalesImportPage() {
     setManualProductLinks({})
     setChangeLinkKeys(new Set())
     setMatchProducts([])
+    reset({
+      reporting_supermarket_name: '',
+      supermarket_id: '',
+      report_month: defaultReportMonth,
+    })
   }
 
-  const rematchPreview = async (links: Record<string, string> = manualProductLinks) => {
+  const rematchPreview = async (
+    links: Record<string, string> = manualProductLinks,
+    chainName: string = reportingChain ?? ''
+  ) => {
     if (!preview) return
     const [products, supermarketList] = await Promise.all([
       productService.getAllForMatching(),
@@ -304,17 +337,34 @@ export default function SalesImportPage() {
     setMatchProducts(products)
     setSupermarkets(supermarketList)
     const vendorLookup = vendors.map((v) => ({ id: v.id, name: v.name }))
+    const chain = chainName.trim()
+    const lookup = chain
+      ? toSupermarketLookup(supermarketsInChain(supermarketList, chain))
+      : toSupermarketLookup(supermarketList)
     setPreview(
       rematchImportRows(
         preview.rows,
         products,
         vendorLookup,
-        toSupermarketLookup(supermarketList),
+        lookup,
         !!preview.uses_branch_matching,
-        links
+        links,
+        chain || undefined
       )
     )
   }
+
+  useEffect(() => {
+    if (!preview || !reportingChain?.trim()) return
+    if (!preview.uses_branch_matching) {
+      if (outletsInChain.length === 1) {
+        setValue('supermarket_id', outletsInChain[0].id)
+      }
+      return
+    }
+    void rematchPreview(manualProductLinks, reportingChain)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rematch outlets when reporting chain changes
+  }, [reportingChain])
 
   const handleLinkProduct = async (row: ParsedSaleRow, productId: string) => {
     const linkKey = getImportRowLinkKey(row)
@@ -398,7 +448,7 @@ export default function SalesImportPage() {
 
   const openAddSupermarket = (row: ParsedSaleRow) => {
     setSupermarketPrefill({
-      name: '',
+      name: reportingChain?.trim() || '',
       location: row.branch?.trim() || '',
       branch: row.branch?.trim() || '',
       store_code: row.store_code?.trim() || '',
@@ -475,7 +525,7 @@ export default function SalesImportPage() {
       {/* Header */}
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Import Sales</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Upload weekly supermarket sales from Excel</p>
+        <p className="text-slate-500 text-sm mt-0.5">Upload monthly supermarket sales reports from Excel</p>
       </div>
 
       {step === 'preview' && fileName && (
@@ -614,40 +664,76 @@ export default function SalesImportPage() {
           {/* Import settings */}
           <div className="data-card">
             <h3 className="font-display font-semibold text-slate-900 mb-4">Import Settings</h3>
-            {preview.uses_branch_matching ? (
-              <p className="text-sm text-slate-600 mb-4">
-                This file includes a <strong>BRANCH</strong> column — each row is matched to a supermarket outlet by branch and store code.
-              </p>
-            ) : null}
-            <div className={cn('grid gap-4', preview.uses_branch_matching ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
+            <p className="text-sm text-slate-600 mb-4">
+              Select the <strong>supermarket that sent this report</strong> and the{' '}
+              <strong>calendar month</strong> it covers. Branch columns in the spreadsheet are matched to
+              outlets under that retailer.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1.5 block">
+                  Reporting supermarket <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register('reporting_supermarket_name')}
+                  className="form-input text-sm appearance-none"
+                >
+                  <option value="">Select supermarket chain...</option>
+                  {chainNames.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                {errors.reporting_supermarket_name && (
+                  <p className="mt-1 text-xs text-red-500">{errors.reporting_supermarket_name.message}</p>
+                )}
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 mb-1.5 block">
+                  Report month <span className="text-red-500">*</span>
+                </label>
+                <input type="month" {...register('report_month')} className="form-input text-sm" />
+                {errors.report_month && (
+                  <p className="mt-1 text-xs text-red-500">{errors.report_month.message}</p>
+                )}
+                {reportMonth && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Period: {formatReportMonth(reportMonth)} (
+                    {reportMonthToRange(reportMonth).week_start} – {reportMonthToRange(reportMonth).week_end})
+                  </p>
+                )}
+              </div>
               {!preview.uses_branch_matching && (
                 <div>
                   <label className="text-xs font-medium text-slate-600 mb-1.5 block">
-                    Supermarket <span className="text-red-500">*</span>
+                    Outlet <span className="text-red-500">*</span>
                   </label>
-                  <select {...register('supermarket_id')} className="form-input text-sm appearance-none">
-                    <option value="">Select supermarket...</option>
-                    {supermarkets.map((s) => (
+                  <select
+                    {...register('supermarket_id')}
+                    className="form-input text-sm appearance-none"
+                    disabled={!reportingChain}
+                  >
+                    <option value="">
+                      {reportingChain ? 'Select outlet...' : 'Select reporting supermarket first'}
+                    </option>
+                    {outletsInChain.map((s) => (
                       <option key={s.id} value={s.id}>{formatSupermarketLabel(s)}</option>
                     ))}
                   </select>
+                  {reportingChain && outletsInChain.length === 0 && (
+                    <p className="mt-1 text-xs text-amber-600">No outlets for this chain — add under Supermarkets.</p>
+                  )}
                 </div>
               )}
-              <div>
-                <label className="text-xs font-medium text-slate-600 mb-1.5 block">
-                  Week Start <span className="text-red-500">*</span>
-                </label>
-                <input type="date" {...register('week_start')} className="form-input text-sm" />
-                {errors.week_start && <p className="mt-1 text-xs text-red-500">{errors.week_start.message}</p>}
-              </div>
-              <div>
-                <label className="text-xs font-medium text-slate-600 mb-1.5 block">
-                  Week End <span className="text-red-500">*</span>
-                </label>
-                <input type="date" {...register('week_end')} className="form-input text-sm" />
-                {errors.week_end && <p className="mt-1 text-xs text-red-500">{errors.week_end.message}</p>}
-              </div>
             </div>
+            {preview.uses_branch_matching && (
+              <p className="mt-4 text-sm text-slate-600">
+                This file includes a <strong>BRANCH</strong> column — each row is matched to an outlet under{' '}
+                <strong>{reportingChain || 'the selected supermarket'}</strong> by branch and store code.
+                {!reportingChain && (
+                  <span className="text-amber-700 font-medium"> Select the reporting supermarket above to match branches.</span>
+                )}
+              </p>
+            )}
           </div>
 
           {(preview.price_mismatch_count ?? 0) > 0 && (

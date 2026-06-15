@@ -79,7 +79,7 @@ import { FdaCertificateViewer } from '@/components/vendors/FdaCertificateViewer'
 import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
 import { VendorPortalReport } from '@/components/vendors/VendorPortalReport'
 import { isAdminManagedVendor } from '@/lib/vendor-access'
-import { formatGHS, formatGHSChartAxis, formatDate, cn, MOMO_NETWORK_COLORS } from '@/lib/utils'
+import { formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, salesPeriodMonthKey, normalizeSaleMonthPeriod, cn, MOMO_NETWORK_COLORS } from '@/lib/utils'
 import { printReport } from '@/lib/print'
 import { canAdminActivateVendor, getVendorStatus } from '@/lib/vendor-verification'
 import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
@@ -152,19 +152,22 @@ function filterSalesByDateRange(sales: VendorSaleRow[], start: string, end: stri
   )
 }
 
-function aggregateVendorSalesByWeek(sales: VendorSaleRow[]): { week_start: string; total_sales: number; total_commission: number; total_vendor_due: number }[] {
+function aggregateVendorSalesByMonth(sales: VendorSaleRow[]): { week_start: string; week_end: string; total_sales: number; total_commission: number; total_vendor_due: number }[] {
   const map = new Map<string, { total_sales: number; total_commission: number; total_vendor_due: number }>()
   for (const s of sales) {
-    const w = s.week_start ?? ''
-    if (!w) continue
-    const cur = map.get(w) ?? { total_sales: 0, total_commission: 0, total_vendor_due: 0 }
+    const monthKey = s.week_start ? salesPeriodMonthKey(s.week_start) : ''
+    if (!monthKey) continue
+    const cur = map.get(monthKey) ?? { total_sales: 0, total_commission: 0, total_vendor_due: 0 }
     cur.total_sales += Number(s.total_sales ?? 0)
     cur.total_commission += Number(s.commission_amount ?? 0)
     cur.total_vendor_due += Number(s.vendor_due ?? 0)
-    map.set(w, cur)
+    map.set(monthKey, cur)
   }
   return Array.from(map.entries())
-    .map(([week_start, v]) => ({ week_start, ...v }))
+    .map(([monthKey, v]) => {
+      const { week_start, week_end } = normalizeSaleMonthPeriod(`${monthKey}-01`)
+      return { week_start, week_end, ...v }
+    })
     .sort((a, b) => a.week_start.localeCompare(b.week_start))
 }
 
@@ -285,7 +288,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
 
   const { start: rangeStart, end: rangeEnd } = getStartEnd()
   const filteredSales = rangeStart && rangeEnd ? filterSalesByDateRange(allSales, rangeStart, rangeEnd) : allSales
-  const weeklyAgg = aggregateVendorSalesByWeek(filteredSales)
+  const weeklyAgg = aggregateVendorSalesByMonth(filteredSales)
   const productAgg = aggregateVendorSalesByProduct(filteredSales)
   const rangeLabel = rangeStart && rangeEnd ? `${formatDate(rangeStart)} – ${formatDate(rangeEnd)}` : 'All time'
   const totalSalesInRange = filteredSales.reduce((s, r) => s + Number(r.total_sales ?? 0), 0)
@@ -293,7 +296,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
   const totalVendorDueInRange = filteredSales.reduce((s, r) => s + Number(r.vendor_due ?? 0), 0)
 
   const weeklyChartData = weeklyAgg.map((w) => ({
-    week: formatDate(w.week_start).slice(0, 6),
+    week: formatSalesPeriod(w.week_start, w.week_end),
     'Total Sales': Number(w.total_sales),
     Markup: Number(w.total_commission),
     'Vendor Due': Number(w.total_vendor_due),
@@ -1307,7 +1310,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                           <tbody>
                             {weeklyAgg.map((w) => (
                               <tr key={w.week_start}>
-                                <td className="font-medium">Week of {formatDate(w.week_start)}</td>
+                                <td className="font-medium">{formatSalesPeriod(w.week_start, w.week_end)}</td>
                                 <td className="text-right font-mono">{formatGHS(Number(w.total_sales))}</td>
                                 <td className="text-right font-mono text-violet-600">{formatGHS(Number(w.total_commission))}</td>
                                 <td className="text-right font-mono text-emerald-600">{formatGHS(Number(w.total_vendor_due))}</td>

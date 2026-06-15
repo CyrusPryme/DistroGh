@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireSession, requireAdminSession } from '@/lib/auth/require'
 import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
+import { checkProductIntegrity, productIntegritySaveError } from '@/lib/product-integrity'
+
+function normalizeSkuValue(s: unknown): string {
+  return s != null ? String(s).trim() : ''
+}
 
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   await requireSession()
@@ -109,6 +114,55 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   if (fields.length === 0) {
     return NextResponse.json({ success: false, error: 'No fields to update.' }, { status: 400 })
+  }
+
+  const integrityInput: {
+    name?: string
+    sku?: string
+    barcode?: string
+    excludeProductId: string
+  } = { excludeProductId: id }
+  if (body && Object.prototype.hasOwnProperty.call(body, 'name')) {
+    integrityInput.name = String(body.name ?? '').trim()
+  }
+  if (body && Object.prototype.hasOwnProperty.call(body, 'sku')) {
+    integrityInput.sku = body.sku != null && String(body.sku).trim() ? String(body.sku).trim() : ''
+  }
+  if (body && Object.prototype.hasOwnProperty.call(body, 'barcode')) {
+    integrityInput.barcode =
+      body.barcode != null && String(body.barcode).trim() ? String(body.barcode).trim() : ''
+  }
+  if (
+    integrityInput.name !== undefined ||
+    integrityInput.sku !== undefined ||
+    integrityInput.barcode !== undefined
+  ) {
+    const currentProduct = await pool.query(
+      `select name, sku, barcode from public.products where id = $1::uuid and deleted_at is null`,
+      [id]
+    )
+    const cur = currentProduct.rows[0]
+    const checkName =
+      integrityInput.name !== undefined ? integrityInput.name : String(cur?.name ?? '').trim()
+    const checkSku =
+      integrityInput.sku !== undefined ? integrityInput.sku : normalizeSkuValue(cur?.sku)
+    const checkBarcode =
+      integrityInput.barcode !== undefined
+        ? integrityInput.barcode
+        : cur?.barcode != null
+          ? String(cur.barcode).trim()
+          : ''
+
+    const integrity = await checkProductIntegrity(pool, {
+      name: checkName,
+      sku: checkSku,
+      barcode: checkBarcode,
+      excludeProductId: id,
+    })
+    const saveErr = productIntegritySaveError(integrity)
+    if (saveErr) {
+      return NextResponse.json({ success: false, error: saveErr }, { status: 409 })
+    }
   }
 
   setField('selling_price', computeShopUnitPrice({ vendor_price: nextVp, distrogh_markup: nextDm }))

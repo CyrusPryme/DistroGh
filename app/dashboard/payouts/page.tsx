@@ -66,7 +66,16 @@ export default function PayoutsPage() {
         payoutService.getPendingSummary(),
       ])
       setPayouts(po)
-      setBalances(bs.filter((b) => b.balance > 0))
+      setBalances(
+        bs
+          .map((b) => ({
+            ...b,
+            total_due: Number(b.total_due),
+            total_paid: Number(b.total_paid),
+            balance: Number(b.balance),
+          }))
+          .filter((b) => b.balance > 0)
+      )
       setSummary(sm)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load payouts')
@@ -259,7 +268,7 @@ export default function PayoutsPage() {
     return map
   }, [allOpenPending])
 
-  const totalPending = balances.reduce((s, b) => s + b.balance, 0)
+  const totalOutstanding = balances.reduce((s, b) => s + b.balance, 0)
   const dialogRemaining = dialog
     ? Math.max(0, dialog.amountDue - dialog.amountPaid - (Number(paymentAmount) || 0))
     : 0
@@ -597,7 +606,7 @@ export default function PayoutsPage() {
                 <tfoot>
                   <tr>
                     <td colSpan={5}>Total Outstanding</td>
-                    <td className="text-right font-mono text-amber-600">{formatGHS(totalPending)}</td>
+                    <td className="text-right font-mono text-amber-600">{formatGHS(totalOutstanding)}</td>
                     <td></td>
                   </tr>
                 </tfoot>

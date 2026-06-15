@@ -1,4 +1,4 @@
-import { format, parseISO, startOfWeek, endOfWeek } from 'date-fns'
+import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 
 // ─── Currency (always "GHS" — avoids ₵ encoding issues on Windows/editors) ───
 
@@ -57,6 +57,76 @@ export function getWeekRange(date: Date = new Date()) {
   return {
     week_start: format(start, 'yyyy-MM-dd'),
     week_end: format(end, 'yyyy-MM-dd'),
+  }
+}
+
+/** Default report month for imports — previous calendar month. */
+export function getDefaultReportMonth(date: Date = new Date()): string {
+  return format(subMonths(date, 1), 'yyyy-MM')
+}
+
+/** Convert YYYY-MM to inclusive period bounds stored on sales rows. */
+export function reportMonthToRange(monthValue: string): { week_start: string; week_end: string } {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthValue.trim())
+  if (!match) {
+    return reportMonthToRange(getDefaultReportMonth())
+  }
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (month < 1 || month > 12) {
+    return reportMonthToRange(getDefaultReportMonth())
+  }
+  const start = startOfMonth(new Date(year, month - 1, 1))
+  const end = endOfMonth(start)
+  return {
+    week_start: format(start, 'yyyy-MM-dd'),
+    week_end: format(end, 'yyyy-MM-dd'),
+  }
+}
+
+export function weekStartToReportMonth(weekStart: string): string {
+  try {
+    return format(parseISO(weekStart), 'yyyy-MM')
+  } catch {
+    return getDefaultReportMonth()
+  }
+}
+
+export function formatReportMonth(monthValue: string): string {
+  try {
+    const { week_start } = reportMonthToRange(monthValue)
+    return format(parseISO(week_start), 'MMMM yyyy')
+  } catch {
+    return monthValue
+  }
+}
+
+/** YYYY-MM key for grouping sales into calendar months. */
+export function salesPeriodMonthKey(weekStart: string): string {
+  return weekStartToReportMonth(weekStart)
+}
+
+/** Normalize any sale period to full calendar month bounds (stored in week_start / week_end columns). */
+export function normalizeSaleMonthPeriod(weekStart: string): { week_start: string; week_end: string } {
+  return reportMonthToRange(salesPeriodMonthKey(weekStart))
+}
+
+/** Display label for a sale period — shows month name when bounds are a full calendar month. */
+export function formatSalesPeriod(weekStart: string, weekEnd?: string): string {
+  try {
+    const start = parseISO(weekStart)
+    const end = weekEnd ? parseISO(weekEnd) : start
+    const monthStart = startOfMonth(start)
+    const monthEnd = endOfMonth(start)
+    if (
+      format(start, 'yyyy-MM-dd') === format(monthStart, 'yyyy-MM-dd') &&
+      format(end, 'yyyy-MM-dd') === format(monthEnd, 'yyyy-MM-dd')
+    ) {
+      return format(start, 'MMMM yyyy')
+    }
+    return formatWeekRange(weekStart, weekEnd ?? weekStart)
+  } catch {
+    return weekStart
   }
 }
 

@@ -13,7 +13,7 @@ import {
 } from 'recharts'
 import { FileText, Loader2, Download, Printer, TrendingUp, Package } from 'lucide-react'
 import { vendorService } from '@/services/vendor.service'
-import { formatGHS, formatGHSChartAxis, formatDate, downloadBlob } from '@/lib/utils'
+import { formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, salesPeriodMonthKey, normalizeSaleMonthPeriod, downloadBlob } from '@/lib/utils'
 import { printReport } from '@/lib/print'
 import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
 import type { VendorAccessMode } from '@/types'
@@ -91,12 +91,15 @@ export function VendorPortalReport({
   const weeklyChart = useMemo(() => {
     const map = new Map<string, number>()
     for (const s of filteredSales) {
-      const w = s.week_start ?? ''
-      if (!w) continue
-      map.set(w, (map.get(w) ?? 0) + Number(s.vendor_due ?? 0))
+      const monthKey = s.week_start ? salesPeriodMonthKey(s.week_start) : ''
+      if (!monthKey) continue
+      map.set(monthKey, (map.get(monthKey) ?? 0) + Number(s.vendor_due ?? 0))
     }
     return Array.from(map.entries())
-      .map(([week, earnings]) => ({ week: formatDate(week).slice(0, 6), earnings }))
+      .map(([monthKey, earnings]) => {
+        const { week_start, week_end } = normalizeSaleMonthPeriod(`${monthKey}-01`)
+        return { week: formatSalesPeriod(week_start, week_end), earnings }
+      })
       .sort((a, b) => a.week.localeCompare(b.week))
   }, [filteredSales])
 

@@ -8,7 +8,7 @@ import { salesService } from '@/services/sales.service'
 import { vendorService } from '@/services/vendor.service'
 import { supermarketService } from '@/services/supermarket.service'
 import { productService } from '@/services/product.service'
-import { formatGHS, formatDate, formatWeekRange, formatNumber, downloadBlob, cn } from '@/lib/utils'
+import { formatGHS, formatDate, formatSalesPeriod, reportMonthToRange, formatNumber, downloadBlob, cn } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { useSession } from '@/hooks/useSession'
@@ -20,7 +20,7 @@ import {
 } from '@/lib/sale-amounts'
 import { getVendorLineTotal } from '@/lib/vendor-earnings'
 
-type SortKey = 'product' | 'supermarket' | 'week' | 'qty' | 'unit_price' | 'total_sales' | 'markup' | 'vendor_due' | 'vendor'
+type SortKey = 'product' | 'supermarket' | 'month' | 'qty' | 'unit_price' | 'total_sales' | 'markup' | 'vendor_due' | 'vendor'
 
 function SalesContent() {
   const searchParams = useSearchParams()
@@ -33,10 +33,9 @@ function SalesContent() {
   const [filterVendor, setFilterVendor] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterSupermarket, setFilterSupermarket] = useState(searchParams?.get('supermarket_id') ?? '')
-  const [filterWeekStart, setFilterWeekStart] = useState('')
-  const [filterWeekEnd, setFilterWeekEnd] = useState('')
+  const [filterMonth, setFilterMonth] = useState('')
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('week')
+  const [sortKey, setSortKey] = useState<SortKey>('month')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
   const [salesPage, setSalesPage] = useState(1)
@@ -48,10 +47,11 @@ function SalesContent() {
     setLoading(true)
     try {
       const isVendor = role === 'vendor' && vendorId
+      const monthRange = filterMonth ? reportMonthToRange(filterMonth) : null
       const [s, v, sm, pr] = await Promise.all([
         salesService.getAll({
-          week_start: filterWeekStart || undefined,
-          week_end: filterWeekEnd || undefined,
+          week_start: monthRange?.week_start,
+          week_end: monthRange?.week_end,
           supermarket_id: filterSupermarket || undefined,
           product_id: filterProduct || undefined,
           vendor_id: isVendor ? vendorId! : filterVendor || undefined,
@@ -77,7 +77,7 @@ function SalesContent() {
   useEffect(() => {
     if (!canLoad) return
     load()
-  }, [canLoad, sessionLoading, filterWeekStart, filterWeekEnd, filterSupermarket, filterProduct, filterVendor, role, vendorId])
+  }, [canLoad, sessionLoading, filterMonth, filterSupermarket, filterProduct, filterVendor, role, vendorId])
 
   // Client-side filtering (vendor/product/supermarket/week already applied in load; search is client-side)
   const filtered = useMemo(() => {
@@ -97,7 +97,7 @@ function SalesContent() {
         case 'product': cmp = ((a.product as any)?.name ?? '').localeCompare((b.product as any)?.name ?? ''); break
         case 'vendor': cmp = ((a.product as any)?.vendor?.name ?? '').localeCompare((b.product as any)?.vendor?.name ?? ''); break
         case 'supermarket': cmp = ((a.supermarket as any)?.name ?? '').localeCompare((b.supermarket as any)?.name ?? ''); break
-        case 'week': cmp = (a.week_start ?? '').localeCompare(b.week_start ?? ''); break
+        case 'month': cmp = (a.week_start ?? '').localeCompare(b.week_start ?? ''); break
         case 'qty': cmp = (a.qty_sold ?? 0) - (b.qty_sold ?? 0); break
         case 'unit_price': cmp = Number(a.unit_price ?? 0) - Number(b.unit_price ?? 0); break
         case 'total_sales': {
@@ -127,7 +127,7 @@ function SalesContent() {
 
   useEffect(() => {
     setSalesPage(1)
-  }, [search, filterVendor, filterProduct, filterSupermarket, filterWeekStart, filterWeekEnd, sortKey, sortDir])
+  }, [search, filterVendor, filterProduct, filterSupermarket, filterMonth, sortKey, sortDir])
 
   const paginatedSales = useMemo(
     () => getPageSlice(filtered, salesPage, DEFAULT_PAGE_SIZE),
@@ -141,13 +141,12 @@ function SalesContent() {
 
   const handleExportCSV = () => {
     const headers = isVendor
-      ? ['Product', 'Supermarket', 'Week Start', 'Week End', 'Qty', 'Agreed unit price', vendorDueLabel]
+      ? ['Product', 'Supermarket', 'Report Month', 'Qty', 'Agreed unit price', vendorDueLabel]
       : [
           'Product',
           'Vendor',
           'Supermarket',
-          'Week Start',
-          'Week End',
+          'Report Month',
           'Qty',
           'Unit Price',
           'Total Sales',
@@ -156,12 +155,12 @@ function SalesContent() {
         ]
       const rows = filtered.map(s => {
       const e = getSaleRecordedAmounts(s)
+      const periodLabel = formatSalesPeriod(s.week_start, s.week_end)
       if (isVendor) {
         return [
           (s.product as { name?: string })?.name ?? '',
           (s.supermarket as { name?: string })?.name ?? '',
-          s.week_start ?? '',
-          s.week_end ?? '',
+          periodLabel,
           s.qty_sold ?? 0,
           getSaleVendorUnitPrice(s).toFixed(2),
           getVendorLineTotal(s).toFixed(2),
@@ -171,8 +170,7 @@ function SalesContent() {
         (s.product as { name?: string })?.name ?? '',
         (s.product as { vendor?: { name?: string } })?.vendor?.name ?? '',
         (s.supermarket as { name?: string })?.name ?? '',
-        s.week_start ?? '',
-        s.week_end ?? '',
+        periodLabel,
         s.qty_sold ?? 0,
         Number(s.unit_price ?? 0).toFixed(2),
         e.totalSales.toFixed(2),
@@ -181,7 +179,7 @@ function SalesContent() {
       ]
     })
     const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n')
-    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `sales_${filterWeekStart || 'all'}_${filterWeekEnd || 'all'}.csv`)
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `sales_${filterMonth || 'all'}.csv`)
   }
 
   const totals = filtered.reduce(
@@ -214,7 +212,7 @@ function SalesContent() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-bold text-slate-900">Sales Records</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{filtered.length} sale records</p>
+          <p className="text-slate-500 text-sm mt-0.5">{filtered.length} monthly sale records</p>
         </div>
         <div className="flex items-center gap-2">
           {filtered.length > 0 && (
@@ -258,20 +256,11 @@ function SalesContent() {
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <div>
-              <label className="text-xs text-slate-500 mb-1 block">Week Start</label>
+              <label className="text-xs text-slate-500 mb-1 block">Report month</label>
               <input
-                type="date"
-                value={filterWeekStart}
-                onChange={e => setFilterWeekStart(e.target.value)}
-                className="form-input text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">Week End</label>
-              <input
-                type="date"
-                value={filterWeekEnd}
-                onChange={e => setFilterWeekEnd(e.target.value)}
+                type="month"
+                value={filterMonth}
+                onChange={e => setFilterMonth(e.target.value)}
                 className="form-input text-sm"
               />
             </div>
@@ -312,9 +301,9 @@ function SalesContent() {
             </div>
           </div>
         </div>
-        {(filterWeekStart || filterWeekEnd || filterVendor || filterSupermarket || filterProduct || search) && (
+        {(filterMonth || filterVendor || filterSupermarket || filterProduct || search) && (
           <button
-            onClick={() => { setFilterWeekStart(''); setFilterWeekEnd(''); setFilterVendor(''); setFilterSupermarket(''); setFilterProduct(''); setSearch('') }}
+            onClick={() => { setFilterMonth(''); setFilterVendor(''); setFilterSupermarket(''); setFilterProduct(''); setSearch('') }}
             className="mt-3 text-xs text-brand-600 hover:underline font-medium"
           >
             Clear all filters
@@ -390,8 +379,8 @@ function SalesContent() {
                     </button>
                   </th>
                   <th>
-                    <button type="button" onClick={() => handleSort('week')} className="flex items-center gap-1 hover:text-slate-900 font-medium">
-                      Week {sortKey === 'week' ? (sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />) : <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />}
+                    <button type="button" onClick={() => handleSort('month')} className="flex items-center gap-1 hover:text-slate-900 font-medium">
+                      Month {sortKey === 'month' ? (sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />) : <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />}
                     </button>
                   </th>
                   <th className="text-right">
@@ -442,7 +431,7 @@ function SalesContent() {
                       {(sale.supermarket as any)?.name ?? '—'}
                     </td>
                     <td className="text-xs text-slate-400">
-                      {formatWeekRange(sale.week_start, sale.week_end)}
+                      {formatSalesPeriod(sale.week_start, sale.week_end)}
                     </td>
                     <td className="text-right text-slate-600">{formatNumber(sale.qty_sold)}</td>
                     <td className="text-right font-mono text-sm text-slate-600">

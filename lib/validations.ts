@@ -78,9 +78,12 @@ export const supermarketSchema = z.object({
 })
 
 export const importSettingsSchema = z.object({
+  /** Retailer chain that sent the monthly sales report */
+  reporting_supermarket_name: z.string().min(1, 'Select the supermarket that sent this report'),
+  /** Outlet when the spreadsheet has no BRANCH column */
   supermarket_id: z.string().optional().nullable().or(z.literal('')),
-  week_start: z.string().min(1, 'Week start date is required'),
-  week_end: z.string().min(1, 'Week end date is required'),
+  /** Report calendar month (YYYY-MM) */
+  report_month: z.string().regex(/^\d{4}-\d{2}$/, 'Select the report month'),
 })
 
 export type VendorFormValues = z.infer<typeof vendorSchema>

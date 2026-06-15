@@ -16,7 +16,7 @@ import { vendorService } from '@/services/vendor.service'
 import { intakeService } from '@/services/intake.service'
 import { returnsService } from '@/services/returns.service'
 import {
-  formatGHS, formatGHSChartAxis, formatDate, formatWeekRange, formatNumber, cn
+  formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, formatNumber, cn
 } from '@/lib/utils'
 import type { DashboardKPIs, VendorBalance, WeeklyRevenue, ProductPerformance } from '@/types'
 
@@ -91,7 +91,7 @@ export default function DashboardPage() {
   }, [sessionLoading, role])
 
   const chartData = weeklyRevenue.map(w => ({
-    week: w.week_start ? formatDate(w.week_start).slice(0, 6) : '',
+    week: w.week_start ? formatSalesPeriod(w.week_start, w.week_end) : '',
     Sales: Number(w.total_sales),
     Markup: Number(w.total_commission),
   }))
@@ -202,11 +202,11 @@ export default function DashboardPage() {
 
       {/* Charts Row */}
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Weekly Revenue Chart */}
+        {/* Monthly sales chart */}
         <div className="data-card">
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h3 className="font-display font-semibold text-slate-900">Weekly Revenue</h3>
+              <h3 className="font-display font-semibold text-slate-900">Monthly Sales</h3>
               <p className="text-xs text-slate-400 mt-0.5">Last 8 weeks</p>
             </div>
             <Link href="/dashboard/reports" className="text-xs text-brand-600 font-medium flex items-center gap-1 hover:gap-2 transition-all">

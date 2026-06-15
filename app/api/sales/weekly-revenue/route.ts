@@ -23,18 +23,18 @@ export async function GET(req: Request) {
     const { rows } = await pool.query(
       `
       select
-        s.week_start,
-        max(s.week_end) as week_end,
-        coalesce(sum(s.vendor_due), 0) as total_sales,
-        0::numeric as total_commission,
+        date_trunc('month', s.week_start::timestamp)::date as week_start,
+        (date_trunc('month', s.week_start::timestamp) + interval '1 month' - interval '1 day')::date as week_end,
+        coalesce(sum(s.total_sales), 0) as total_sales,
+        coalesce(sum(s.commission_amount), 0) as total_commission,
         coalesce(sum(s.vendor_due), 0) as total_vendor_due
       from public.sales s
       join public.products p on p.id = s.product_id
       where s.deleted_at is null
         and p.deleted_at is null
         and p.vendor_id = $1::uuid
-      group by s.week_start
-      order by s.week_start desc
+      group by date_trunc('month', s.week_start::timestamp)
+      order by week_start desc
       limit $2
       `,
       [vendor_id, limit]

@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Loader2, Package, User, Calendar, Barcode, Layers, AlertTriangle, AlertCircle } from 'lucide-react'
+import { Loader2, Package, User, Calendar, Barcode, Layers, AlertTriangle, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { productSchema, type ProductFormValues } from '@/lib/validations'
 import type { Product, Vendor } from '@/types'
-import { formatGHS } from '@/lib/utils'
+import { formatGHS, cn } from '@/lib/utils'
 import {
   computeShopUnitPrice,
   isWholesalePriceSpecified,
@@ -17,6 +17,7 @@ import { mergeCategoryOptions, resolveCategoryOption } from '@/lib/product-categ
 import { settingsService } from '@/services/settings.service'
 import { CurrencyInputPrefix } from '@/components/shared/CurrencyInputPrefix'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
+import { useProductIntegrityCheck } from '@/hooks/useProductIntegrityCheck'
 
 const ADD_NEW_CATEGORY = '__new__'
 const EMPTY_CATEGORIES: string[] = []
@@ -90,10 +91,25 @@ export function ProductModal({
 
   const vendorPrice = watch('vendor_price') ?? 0
   const distroghMarkup = watch('distrogh_markup') ?? 0
+  const watchedName = watch('name') ?? ''
+  const watchedSku = watch('sku') ?? ''
+  const watchedBarcode = watch('barcode') ?? ''
   const basePrice = computeShopUnitPrice({
     vendor_price: vendorPrice,
     distrogh_markup: distroghMarkup,
   })
+
+  const { result: integrity, checking: integrityChecking } = useProductIntegrityCheck(
+    { name: watchedName, sku: watchedSku, barcode: watchedBarcode },
+    initialData?.id ?? null,
+    open
+  )
+
+  const saveBlocked = Boolean(integrity && !integrity.canSave)
+  const sameProductMatch = integrity?.sameProduct.duplicate ? integrity.sameProduct.product : null
+  const sameNameOtherSku = integrity?.sameNameOtherSku.duplicate
+    ? integrity.sameNameOtherSku.product
+    : null
 
   const prefillKey = prefillValues ? JSON.stringify(prefillValues) : ''
 
@@ -214,6 +230,16 @@ export function ProductModal({
         onSubmit={handleSubmit(
           async (data) => {
             setSubmitError(null)
+            if (saveBlocked) {
+              setSubmitError(
+                sameProductMatch
+                  ? `A product named “${sameProductMatch.name}”${
+                      sameProductMatch.sku ? ` (SKU: ${sameProductMatch.sku})` : ''
+                    } already exists.`
+                  : 'This barcode is already assigned to another product.'
+              )
+              return
+            }
             const payload = { ...data }
             if (!hasExpiry) payload.expiry_date = ''
             payload.wholesale_price = resolveWholesalePrice(
@@ -249,11 +275,31 @@ export function ProductModal({
               <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 {...register('name')}
-                className="form-input pl-10"
+                className={cn(
+                  'form-input pl-10',
+                  sameProductMatch && 'border-red-500 focus:border-red-500 focus:ring-red-200',
+                  sameNameOtherSku &&
+                    !sameProductMatch &&
+                    'border-amber-400 focus:border-amber-500 focus:ring-amber-200'
+                )}
                 placeholder="e.g., Milo 400g"
               />
             </div>
             {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
+            {sameProductMatch && (
+              <p className="mt-1 text-xs text-red-600 flex items-start gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                This name and SKU already exist as “{sameProductMatch.name}”
+                {sameProductMatch.sku ? ` (SKU: ${sameProductMatch.sku})` : ''}.
+              </p>
+            )}
+            {sameNameOtherSku && !sameProductMatch && (
+              <p className="mt-1 text-xs text-amber-700 flex items-start gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                “{sameNameOtherSku.name}” also uses this name with SKU “{sameNameOtherSku.sku ?? '—'}” —
+                different SKU is fine.
+              </p>
+            )}
             <p className="mt-1 text-xs text-slate-400">
               Matches spreadsheet description or product code on import
             </p>
@@ -276,7 +322,17 @@ export function ProductModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">SKU</label>
-              <input {...register('sku')} className="form-input" placeholder="e.g. ML-400" />
+              <input
+                {...register('sku')}
+                className={cn(
+                  'form-input',
+                  sameProductMatch && 'border-red-500 focus:border-red-500 focus:ring-red-200'
+                )}
+                placeholder="e.g. ML-400"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Same SKU on a different product name is allowed. Name + SKU together must be unique.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -284,10 +340,43 @@ export function ProductModal({
               </label>
               <div className="relative">
                 <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input {...register('barcode')} className="form-input pl-10 font-mono" placeholder="For barcode scanner" />
+                <input
+                  {...register('barcode')}
+                  className={cn(
+                    'form-input pl-10 font-mono',
+                    integrity?.barcode.duplicate &&
+                      'border-red-500 focus:border-red-500 focus:ring-red-200',
+                    !saveBlocked &&
+                      watchedBarcode.trim() &&
+                      integrity &&
+                      !integrity.barcode.duplicate &&
+                      !integrityChecking &&
+                      'border-emerald-500 focus:border-emerald-500 focus:ring-emerald-200'
+                  )}
+                  placeholder="For barcode scanner"
+                />
               </div>
+              {integrity?.barcode.duplicate && integrity.barcode.product && (
+                <p className="mt-1 text-xs text-red-600 flex items-start gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  Barcode already used by “{integrity.barcode.product.name}”
+                  {integrity.barcode.product.sku ? ` (SKU: ${integrity.barcode.product.sku})` : ''}.
+                </p>
+              )}
+              {!integrity?.barcode.duplicate && watchedBarcode.trim() && integrity && !integrityChecking && (
+                <p className="mt-1 text-xs text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Barcode available
+                </p>
+              )}
             </div>
           </div>
+          {integrityChecking && (watchedName.trim() || watchedSku.trim() || watchedBarcode.trim()) && (
+            <p className="text-xs text-slate-400 flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Checking name, SKU, and barcode…
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -540,7 +629,7 @@ export function ProductModal({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || saveBlocked || integrityChecking}
               className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : initialData ? 'Save Changes' : 'Add Product'}

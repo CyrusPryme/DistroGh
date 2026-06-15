@@ -144,7 +144,8 @@ type SpreadsheetRowMeta = Pick<
 function attachSupermarketMatch(
   base: SpreadsheetRowMeta,
   usesBranchMatching: boolean,
-  supermarkets: SupermarketLookup[]
+  supermarkets: SupermarketLookup[],
+  reportingChainName?: string
 ): SpreadsheetRowMeta {
   if (!usesBranchMatching) {
     return {
@@ -177,11 +178,14 @@ function attachSupermarketMatch(
   }
 
   const label = branch || storeCode
+  const chainHint = reportingChainName?.trim()
+    ? ` under “${reportingChainName.trim()}”`
+    : ''
   return {
     ...base,
     import_supermarket_id: null,
     supermarket_matched: false,
-    supermarket_error: `Branch "${label}" not in database — add it under Supermarkets`,
+    supermarket_error: `Branch “${label}” not found${chainHint} — add the outlet under Supermarkets`,
   }
 }
 
@@ -275,6 +279,7 @@ function buildSpreadsheetBase(params: {
   vendors: VendorLookup[]
   usesBranchMatching: boolean
   supermarkets: SupermarketLookup[]
+  reportingChainName?: string
 }): SpreadsheetRowMeta {
   const matchedVendor = params.vendorName ? matchVendorByName(params.vendorName, params.vendors) : null
   const base: SpreadsheetRowMeta = {
@@ -293,7 +298,12 @@ function buildSpreadsheetBase(params: {
     supermarket_matched: false,
     supermarket_error: undefined,
   }
-  return attachSupermarketMatch(base, params.usesBranchMatching, params.supermarkets)
+  return attachSupermarketMatch(
+    base,
+    params.usesBranchMatching,
+    params.supermarkets,
+    params.reportingChainName
+  )
 }
 
 /** Stable key for grouping spreadsheet rows that share the same product identity. */
@@ -348,7 +358,8 @@ export function rematchImportRows(
   vendors: VendorLookup[],
   supermarkets: SupermarketLookup[] = [],
   usesBranchMatching = false,
-  manualProductLinks: Record<string, string> = {}
+  manualProductLinks: Record<string, string> = {},
+  reportingChainName?: string
 ): ImportPreview {
   const rematched = rows.map((row) => {
     const base = buildSpreadsheetBase({
@@ -361,6 +372,7 @@ export function rematchImportRows(
       vendors,
       usesBranchMatching,
       supermarkets,
+      reportingChainName,
     })
 
     const sheetUnit =

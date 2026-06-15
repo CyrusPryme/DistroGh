@@ -16,7 +16,7 @@ import { vendorService } from '@/services/vendor.service'
 import { returnsService } from '@/services/returns.service'
 import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
 import {
-  formatGHS, formatGHSChartAxis, formatDate, formatWeekRange, formatNumber, cn
+  formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, formatNumber, cn
 } from '@/lib/utils'
 import type { DashboardKPIs, VendorBalance, WeeklyRevenue, ProductPerformance, Vendor } from '@/types'
 
@@ -100,7 +100,7 @@ export default function VendorDashboardPage() {
   }, [sessionLoading, vendorId])
 
   const chartData = weeklyRevenue.map(w => ({
-    week: w.week_start ? formatDate(w.week_start).slice(0, 6) : '',
+    week: w.week_start ? formatSalesPeriod(w.week_start, w.week_end) : '',
     'Your earnings': Number(w.total_vendor_due ?? w.total_sales ?? 0),
   }))
 

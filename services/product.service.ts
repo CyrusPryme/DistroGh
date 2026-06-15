@@ -1,5 +1,6 @@
 import { apiFetch, apiFetchNullable } from '@/lib/api/client'
 import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
+import type { ProductIntegrityResult } from '@/lib/product-integrity'
 import { Product, ProductFormData } from '@/types'
 
 export const productService = {
@@ -15,6 +16,24 @@ export const productService = {
     return apiFetch<Product[]>(`/api/products?vendor_id=${encodeURIComponent(vendorId)}`, {
       fallbackError: 'Failed to load products',
     })
+  },
+
+  async checkIntegrity(params: {
+    name?: string
+    sku?: string
+    barcode?: string
+    excludeProductId?: string | null
+  }): Promise<ProductIntegrityResult> {
+    const qs = new URLSearchParams()
+    if (params.name?.trim()) qs.set('name', params.name.trim())
+    if (params.sku?.trim()) qs.set('sku', params.sku.trim())
+    if (params.barcode?.trim()) qs.set('barcode', params.barcode.trim())
+    if (params.excludeProductId) qs.set('exclude_product_id', params.excludeProductId)
+    const query = qs.toString()
+    return apiFetch<ProductIntegrityResult>(
+      `/api/products/integrity-check${query ? `?${query}` : ''}`,
+      { fallbackError: 'Failed to check product identifiers' }
+    )
   },
 
   async create(payload: ProductFormData): Promise<Product> {

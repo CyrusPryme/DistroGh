@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
-import { roundMoney } from '@/lib/utils'
+import { roundMoney, normalizeSaleMonthPeriod } from '@/lib/utils'
 import { resolveProductPricing } from '@/lib/product-pricing'
 
 type SaleInsert = {
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'Quantity sold must be greater than 0' }, { status: 400 })
     }
     if (!sale.week_start || !sale.week_end) {
-      return NextResponse.json({ success: false, error: 'Week start and end dates are required' }, { status: 400 })
+      return NextResponse.json({ success: false, error: 'Report month period is required' }, { status: 400 })
     }
     if (!sale.import_batch_id || !String(sale.import_batch_id).trim()) {
       return NextResponse.json({ success: false, error: 'Import batch ID is required' }, { status: 400 })
@@ -132,6 +132,8 @@ export async function POST(req: Request) {
         totalSales = roundMoney(qty * unitPrice)
       }
 
+      const period = normalizeSaleMonthPeriod(String(s.week_start))
+
       await client.query(
         `
         insert into public.sales (
@@ -159,7 +161,7 @@ export async function POST(req: Request) {
           $10
         )
         `,
-        [pid, smid, Math.floor(qty), unitPrice, totalSales, commissionAmount, vendorDue, s.week_start, s.week_end, batchId]
+        [pid, smid, Math.floor(qty), unitPrice, totalSales, commissionAmount, vendorDue, period.week_start, period.week_end, batchId]
       )
     }
 

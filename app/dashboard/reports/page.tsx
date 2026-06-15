@@ -32,7 +32,7 @@ import { salesService } from '@/services/sales.service'
 import { returnsService } from '@/services/returns.service'
 import { deliveryService } from '@/services/delivery.service'
 import { useSession } from '@/hooks/useSession'
-import { formatGHS, formatGHSChartAxis, formatDate, cn } from '@/lib/utils'
+import { formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, cn } from '@/lib/utils'
 import { aggregateSalesToReport, applyReturnDeductions } from '@/lib/report-utils'
 import {
   AlertCircle,
@@ -174,7 +174,7 @@ export default function ReportsPage() {
   const totalVendorDue = kpis?.totalVendorDue ?? 0
 
   const weeklyChartData = weekly.map(w => ({
-    week: formatDate(w.week_start).slice(0, 6),
+    week: formatSalesPeriod(w.week_start, w.week_end),
     'Total Sales': Number(w.total_sales),
     Markup: Number(w.total_commission),
     'Vendor Due': Number(w.total_vendor_due),
@@ -354,7 +354,7 @@ export default function ReportsPage() {
                         <table className="data-table">
                           <thead>
                             <tr>
-                              <th>Week</th>
+                              <th>Month</th>
                               <th className="text-right">Total sales</th>
                               <th className="text-right">Markup</th>
                               <th className="text-right">Vendor due</th>
@@ -363,7 +363,7 @@ export default function ReportsPage() {
                           <tbody>
                             {weekly.map(w => (
                               <tr key={w.week_start}>
-                                <td className="font-medium">Week of {formatDate(w.week_start)}</td>
+                                <td className="font-medium">{formatSalesPeriod(w.week_start, w.week_end)}</td>
                                 <td className="text-right font-mono">{formatGHS(Number(w.total_sales))}</td>
                                 <td className="text-right font-mono text-violet-600">{formatGHS(Number(w.total_commission))}</td>
                                 <td className="text-right font-mono text-emerald-600">{formatGHS(Number(w.total_vendor_due))}</td>
