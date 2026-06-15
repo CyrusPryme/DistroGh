@@ -19,10 +19,12 @@ import {
 import type { Payout, VendorBalance } from '@/types'
 
 interface PayoutDialogData {
-  payoutId: string
+  mode: 'new' | 'existing'
+  vendorId: string
   vendorName: string
   amountDue: number
   amountPaid: number
+  payoutId?: string
 }
 
 function dispatchPayoutUpdated() {
@@ -87,6 +89,8 @@ export default function PayoutsPage() {
     const due = payoutAmountDue(payout)
     const paid = payoutAmountPaid(payout)
     setDialog({
+      mode: 'existing',
+      vendorId: payout.vendor_id,
       payoutId: payout.id,
       vendorName: vendor?.name ?? '',
       amountDue: due,
@@ -96,22 +100,31 @@ export default function PayoutsPage() {
     setTxnId('')
   }
 
-  const handleCreatePayout = async (vendorId: string, balance: number) => {
-    try {
-      const payout = await payoutService.create({
-        vendor_id: vendorId,
-        amount_due: balance,
-        week_start: weekStart,
-        week_end: weekEnd,
-      })
-      showToast('Payout created — pay on MoMo, then record payment below')
-      setActiveTab('pending')
-      openPaymentDialog(payout)
-      load()
-      dispatchPayoutUpdated()
-    } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Failed to create payout', 'error')
+  const openNewPayoutDialog = (balance: VendorBalance) => {
+    setDialog({
+      mode: 'new',
+      vendorId: balance.vendor_id,
+      vendorName: balance.vendor_name,
+      amountDue: balance.balance,
+      amountPaid: 0,
+    })
+    setPaymentAmount(String(balance.balance))
+    setTxnId('')
+  }
+
+  const closePaymentDialog = () => {
+    setDialog(null)
+    setPaymentAmount('')
+    setTxnId('')
+  }
+
+  const handleStartPayout = (balance: VendorBalance) => {
+    const existing = pendingByVendorId.get(balance.vendor_id)
+    if (existing) {
+      openPaymentDialog(existing)
+      return
     }
+    openNewPayoutDialog(balance)
   }
 
   const handleBulkCreate = async () => {
@@ -150,9 +163,21 @@ export default function PayoutsPage() {
       return
     }
 
-    setProcessingId(dialog.payoutId)
+    setProcessingId(dialog.mode === 'existing' ? dialog.payoutId! : 'new')
     try {
-      const updated = await payoutService.recordPayment(dialog.payoutId, {
+      let payoutId = dialog.payoutId
+
+      if (dialog.mode === 'new') {
+        const created = await payoutService.create({
+          vendor_id: dialog.vendorId,
+          amount_due: dialog.amountDue,
+          week_start: weekStart,
+          week_end: weekEnd,
+        })
+        payoutId = created.id
+      }
+
+      const updated = await payoutService.recordPayment(payoutId!, {
         payment_amount: amount,
         momo_txn_id: txnId.trim() || undefined,
       })
@@ -162,11 +187,10 @@ export default function PayoutsPage() {
           ? `Payment recorded — ${formatGHS(stillOwed)} still owed`
           : 'Payment confirmed — vendor fully paid'
       )
-      setDialog(null)
-      setPaymentAmount('')
-      setTxnId('')
+      closePaymentDialog()
       await load()
       dispatchPayoutUpdated()
+      if (stillOwed > 0) setActiveTab('pending')
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to record payment', 'error')
     } finally {
@@ -181,6 +205,14 @@ export default function PayoutsPage() {
       ),
     [payouts]
   )
+
+  const pendingByVendorId = useMemo(() => {
+    const map = new Map<string, Payout>()
+    for (const p of pendingPayouts) {
+      if (!map.has(p.vendor_id)) map.set(p.vendor_id, p)
+    }
+    return map
+  }, [pendingPayouts])
 
   const totalPending = balances.reduce((s, b) => s + b.balance, 0)
   const dialogRemaining = dialog
@@ -222,8 +254,14 @@ export default function PayoutsPage() {
                 <Send className="w-5 h-5 text-emerald-600" />
               </div>
               <div>
-                <h3 className="font-display font-semibold text-slate-900">Record MoMo Payment</h3>
-                <p className="text-xs text-slate-400">Pay on your phone first, then enter details here</p>
+                <h3 className="font-display font-semibold text-slate-900">
+                  {dialog.mode === 'new' ? 'Pay vendor on MoMo' : 'Record MoMo Payment'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {dialog.mode === 'new'
+                    ? 'Send payment on your phone, then confirm below — nothing is saved until you confirm'
+                    : 'Pay on your phone first, then enter details here'}
+                </p>
               </div>
             </div>
 
@@ -293,11 +331,7 @@ export default function PayoutsPage() {
 
             <div className="flex gap-3">
               <button
-                onClick={() => {
-                  setDialog(null)
-                  setPaymentAmount('')
-                  setTxnId('')
-                }}
+                onClick={closePaymentDialog}
                 className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"
               >
                 Cancel
@@ -451,6 +485,7 @@ export default function PayoutsPage() {
                 <tbody>
                   {paginatedBalances.map((b) => {
                     const netColors = MOMO_NETWORK_COLORS[b.momo_network]
+                    const hasPendingPayout = pendingByVendorId.has(b.vendor_id)
                     return (
                       <tr key={b.vendor_id}>
                         <td>
@@ -479,11 +514,11 @@ export default function PayoutsPage() {
                         </td>
                         <td className="text-right">
                           <button
-                            onClick={() => handleCreatePayout(b.vendor_id, b.balance)}
+                            onClick={() => handleStartPayout(b)}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg transition-colors ml-auto"
                           >
                             <Send className="w-3 h-3" />
-                            Create payout
+                            {hasPendingPayout ? 'Record payment' : 'Pay vendor'}
                           </button>
                         </td>
                       </tr>
