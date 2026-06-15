@@ -36,15 +36,37 @@ export const payoutService = {
     id: string,
     payload: { amount_paid: number; momo_txn_id: string }
   ): Promise<Payout> {
+    return this.recordPayment(id, {
+      payment_amount: payload.amount_paid,
+      momo_txn_id: payload.momo_txn_id,
+    })
+  },
+
+  async recordPayment(
+    id: string,
+    payload: { payment_amount: number; momo_txn_id?: string }
+  ): Promise<Payout> {
     return apiFetch<Payout>(`/api/payouts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        amount_paid: payload.amount_paid,
-        momo_txn_id: payload.momo_txn_id,
-        status: 'completed',
+        record_payment: true,
+        payment_amount: payload.payment_amount,
+        momo_txn_id: payload.momo_txn_id ?? '',
       }),
-      fallbackError: 'Failed to update payout',
+      fallbackError: 'Failed to record payment',
+    })
+  },
+
+  async getPendingSummary(): Promise<{
+    pending_payout_count: number
+    pending_payout_balance: number
+    vendor_balance_count: number
+    vendor_balance_total: number
+    alert_count: number
+  }> {
+    return apiFetch('/api/payouts/pending-summary', {
+      fallbackError: 'Failed to load payout summary',
     })
   },
 

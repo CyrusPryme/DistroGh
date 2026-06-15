@@ -49,7 +49,7 @@ export async function GET() {
         paid_totals as (
           select vendor_id, sum(coalesce(amount_paid, 0)) as total_paid
           from public.payouts
-          where deleted_at is null and status = 'completed'
+          where deleted_at is null and status <> 'failed'
           group by vendor_id
         )
         select

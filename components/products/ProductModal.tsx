@@ -13,6 +13,8 @@ import {
   resolveProductPricing,
   resolveWholesalePrice,
 } from '@/lib/product-pricing'
+import { mergeCategoryOptions, resolveCategoryOption } from '@/lib/product-categories'
+import { settingsService } from '@/services/settings.service'
 import { CurrencyInputPrefix } from '@/components/shared/CurrencyInputPrefix'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 
@@ -54,8 +56,11 @@ export function ProductModal({
 }: ProductModalProps) {
   const [hasExpiry, setHasExpiry] = useState(false)
   const [categorySelect, setCategorySelect] = useState<string>('') // '' or existing category or ADD_NEW_CATEGORY
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [submitError, setSubmitError] = useState<string | null>(null)
   const initKeyRef = useRef<string | null>(null)
+  const parentCategoriesRef = useRef(categories)
+  parentCategoriesRef.current = categories
 
   const {
     register,
@@ -63,6 +68,7 @@ export function ProductModal({
     reset,
     watch,
     setValue,
+    getValues,
     formState: { errors },
   } = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -90,6 +96,45 @@ export function ProductModal({
   })
 
   const prefillKey = prefillValues ? JSON.stringify(prefillValues) : ''
+
+  useEffect(() => {
+    if (!open) {
+      setCategoryOptions([])
+      return
+    }
+
+    let cancelled = false
+    const parentCats = parentCategoriesRef.current
+    const seedCategory =
+      initialData?.category?.trim() || prefillValues?.category?.trim() || ''
+
+    settingsService
+      .getCategoryNames()
+      .then((names) => {
+        if (cancelled) return
+        setCategoryOptions(
+          mergeCategoryOptions(parentCats, names, seedCategory || undefined)
+        )
+      })
+      .catch(() => {
+        if (cancelled) return
+        setCategoryOptions(mergeCategoryOptions(parentCats, seedCategory || undefined))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [open, initialData?.id, prefillKey, initialData?.category, prefillValues?.category])
+
+  const syncCategorySelect = (categoryValue: string, options: string[]) => {
+    const trimmed = categoryValue.trim()
+    if (!trimmed) {
+      setCategorySelect('')
+      return
+    }
+    const match = resolveCategoryOption(options, trimmed)
+    setCategorySelect(match ?? ADD_NEW_CATEGORY)
+  }
 
   useEffect(() => {
     if (!open) {
@@ -126,20 +171,9 @@ export function ProductModal({
         supermarket_selling_price: p.supermarket_selling_price ?? undefined,
         moq: p.moq ?? 1,
       })
-      const cat = p.category?.trim() ?? ''
-      setCategorySelect(cat && categories.includes(cat) ? cat : (cat ? ADD_NEW_CATEGORY : ''))
     } else {
       setHasExpiry(false)
-      setCategorySelect('')
       const prefill = prefillValues ?? {}
-      const prefillCategory = prefill.category?.trim() ?? ''
-      setCategorySelect(
-        prefillCategory && categories.includes(prefillCategory)
-          ? prefillCategory
-          : prefillCategory
-            ? ADD_NEW_CATEGORY
-            : ''
-      )
       reset({
         name: prefill.name ?? '',
         vendor_price: prefill.vendor_price ?? 0,
@@ -155,7 +189,17 @@ export function ProductModal({
         vendor_id: prefill.vendor_id || vendorId,
       })
     }
-  }, [open, initialData, prefillValues, prefillKey, defaultVendorId, vendorOnly, categories, reset])
+  }, [open, initialData, prefillValues, prefillKey, defaultVendorId, vendorOnly, reset])
+
+  useEffect(() => {
+    if (!open || categoryOptions.length === 0) return
+    const current =
+      getValues('category')?.trim() ||
+      initialData?.category?.trim() ||
+      prefillValues?.category?.trim() ||
+      ''
+    syncCategorySelect(current, categoryOptions)
+  }, [open, categoryOptions, initialData?.category, prefillValues?.category, getValues])
 
   return (
     <FormModal
@@ -258,7 +302,7 @@ export function ProductModal({
                 className="form-input appearance-none pr-8"
               >
                 <option value="">Select category...</option>
-                {categories.map((c) => (
+                {categoryOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
                 <option value={ADD_NEW_CATEGORY}>+ Add new category</option>

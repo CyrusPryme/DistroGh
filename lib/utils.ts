@@ -80,8 +80,9 @@ export const MOMO_NETWORK_COLORS = {
 
 export const PAYOUT_STATUS_STYLES = {
   pending: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', label: 'Pending' },
+  partial: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', label: 'Partially paid' },
   processing: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', label: 'Processing' },
-  completed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', label: 'Completed' },
+  completed: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', label: 'Fully paid' },
   failed: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', label: 'Failed' },
 }
 

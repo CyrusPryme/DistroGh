@@ -12,6 +12,7 @@ import { returnsService } from '@/services/returns.service'
 import { settingsService } from '@/services/settings.service'
 import { formatGHS, formatDate, cn } from '@/lib/utils'
 import { resolveProductPriceTiers } from '@/lib/product-pricing'
+import { mergeCategoryOptions } from '@/lib/product-categories'
 import type { Product, Vendor, ProductReturn } from '@/types'
 
 const RETURN_REASON_LABELS: Record<string, string> = {
@@ -77,8 +78,7 @@ function ProductsContent() {
       setVendors(Array.isArray(vs) ? vs : [])
       setReturnsList(returnsData)
       const fromProducts = [...new Set(productList.map((p) => (p as any).category).filter((c): c is string => !!c))]
-      const merged = [...new Set([...catsResult, ...fromProducts])].sort()
-      setCategories(merged)
+      setCategories(mergeCategoryOptions(catsResult, fromProducts))
     } catch (e: any) {
       setError(e.message)
     } finally {

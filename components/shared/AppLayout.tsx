@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deliveryService } from '@/services/delivery.service'
+import { payoutService } from '@/services/payout.service'
 import { ServiceChargeBanner } from '@/components/vendors/ServiceChargeBanner'
 import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
 import type { ServiceChargeBanner as ServiceChargeBannerData } from '@/lib/vendor-service-charge'
@@ -135,6 +136,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [vendorInfo, setVendorInfo] = useState<{ name: string } | null>(null)
   const [vendorProfileOpen, setVendorProfileOpen] = useState(false)
   const [pendingDeliveries, setPendingDeliveries] = useState(0)
+  const [pendingPayoutAlerts, setPendingPayoutAlerts] = useState(0)
   const [serviceChargeBanner, setServiceChargeBanner] = useState<ServiceChargeBannerData | null>(null)
 
   // Fetch user role on mount
@@ -178,14 +180,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (userRole !== 'admin') return
-    const refetch = () => deliveryService.getPendingDeliveryCount().then(setPendingDeliveries).catch(() => {})
-    refetch()
-    const handler = () => refetch()
-    window.addEventListener('delivery-confirmed', handler)
-    window.addEventListener('delivery-created', handler)
+    const refetchDeliveries = () =>
+      deliveryService.getPendingDeliveryCount().then(setPendingDeliveries).catch(() => {})
+    const refetchPayouts = () =>
+      payoutService
+        .getPendingSummary()
+        .then((s) => setPendingPayoutAlerts(s.alert_count))
+        .catch(() => setPendingPayoutAlerts(0))
+
+    refetchDeliveries()
+    refetchPayouts()
+
+    const onDelivery = () => refetchDeliveries()
+    const onPayout = () => refetchPayouts()
+    window.addEventListener('delivery-confirmed', onDelivery)
+    window.addEventListener('delivery-created', onDelivery)
+    window.addEventListener('payout-updated', onPayout)
     return () => {
-      window.removeEventListener('delivery-confirmed', handler)
-      window.removeEventListener('delivery-created', handler)
+      window.removeEventListener('delivery-confirmed', onDelivery)
+      window.removeEventListener('delivery-created', onDelivery)
+      window.removeEventListener('payout-updated', onPayout)
     }
   }, [userRole])
 
@@ -246,7 +260,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               (href !== '/dashboard' && pathname.startsWith(href + '/')) ||
               (href !== '/dashboard' && pathname.startsWith(href))
             const isDeliveries = href === '/dashboard/deliveries'
-            const hasPending = isDeliveries && pendingDeliveries > 0
+            const isPayouts = href === '/dashboard/payouts'
+            const hasPending =
+              (isDeliveries && pendingDeliveries > 0) ||
+              (isPayouts && pendingPayoutAlerts > 0)
+            const pendingTitle = isPayouts
+              ? `${pendingPayoutAlerts} payment(s) need attention`
+              : `${pendingDeliveries} pending delivery(ies)`
             return (
               <Link
                 key={href}
@@ -262,7 +282,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <Icon className={cn('w-4 h-4 flex-shrink-0', hasPending && 'text-red-500')} />
                 <span className="flex-1 truncate">{label}</span>
                 {hasPending && (
-                  <span className="shrink-0 w-2 h-2 rounded-full bg-red-500" title={`${pendingDeliveries} pending delivery(ies)`} />
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-red-500" title={pendingTitle} />
                 )}
                 {isActive && !hasPending && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
                 {isActive && hasPending && <ChevronRight className="w-3 h-3 text-red-500 flex-shrink-0" />}
