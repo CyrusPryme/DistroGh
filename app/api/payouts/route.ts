@@ -1,6 +1,29 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { findOpenPayoutForVendor, vendorIdsWithOpenPayouts } from '@/lib/payout-open'
+
+async function attachVendor(pool: ReturnType<typeof getDbPool>, payoutId: string) {
+  const { rows } = await pool.query(
+    `
+    select
+      p.*,
+      json_build_object(
+        'id', v.id,
+        'name', v.name,
+        'momo_number', v.momo_number,
+        'momo_network', v.momo_network,
+        'deleted_at', v.deleted_at
+      ) as vendor
+    from public.payouts p
+    join public.vendors v on v.id = p.vendor_id
+    where p.id = $1::uuid
+    limit 1
+    `,
+    [payoutId]
+  )
+  return rows[0] ?? null
+}
 
 export async function GET(req: Request) {
   const session = await requireSession()
@@ -40,13 +63,10 @@ export async function POST(req: Request) {
   await requireAdminSession()
   const body = await req.json().catch(() => null)
 
-  // Single create (existing service method)
   const vendor_id = (body?.vendor_id ?? '').toString().trim()
   const amount_due = Number(body?.amount_due ?? 0)
   const week_start = (body?.week_start ?? '').toString().trim()
   const week_end = (body?.week_end ?? '').toString().trim()
-
-  // Bulk create (existing service method)
   const vendor_balances = Array.isArray(body?.vendor_balances) ? body.vendor_balances : null
 
   const pool = getDbPool()
@@ -58,32 +78,46 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'week_start and week_end are required' }, { status: 400 })
     }
 
-    const inserts = vendor_balances
-      .map((v: any) => ({
+    type BalanceInsert = { vendor_id: string; balance: number }
+
+    const inserts: BalanceInsert[] = (vendor_balances as Array<{ vendor_id?: string; balance?: number }>)
+      .map((v) => ({
         vendor_id: (v?.vendor_id ?? '').toString().trim(),
         balance: Number(v?.balance ?? 0),
       }))
-      .filter((v: any) => v.vendor_id && v.balance > 0)
+      .filter((v): v is BalanceInsert => Boolean(v.vendor_id && v.balance > 0))
 
-    if (inserts.length === 0) return NextResponse.json({ success: true, data: [] }, { status: 201 })
-
-    const values: any[] = []
-    const tuples: string[] = []
-    let i = 1
-    for (const v of inserts) {
-      tuples.push(`($${i++}::uuid, $${i++}, 0, 'pending', $${i++}, $${i++})`)
-      values.push(v.vendor_id, v.balance, ws, we)
+    if (inserts.length === 0) {
+      return NextResponse.json({ success: true, data: { created: 0, skipped: 0 } }, { status: 201 })
     }
 
-    await pool.query(
-      `
-      insert into public.payouts (vendor_id, amount_due, amount_paid, status, week_start, week_end)
-      values ${tuples.join(', ')}
-      `,
-      values
-    )
+    const vendorIds = inserts.map((v) => v.vendor_id)
+    const alreadyOpen = await vendorIdsWithOpenPayouts(pool, vendorIds)
+    const toInsert = inserts.filter((v) => !alreadyOpen.has(v.vendor_id))
+    const skipped = inserts.length - toInsert.length
 
-    return NextResponse.json({ success: true, data: [] }, { status: 201 })
+    if (toInsert.length > 0) {
+      const values: unknown[] = []
+      const tuples: string[] = []
+      let i = 1
+      for (const v of toInsert) {
+        tuples.push(`($${i++}::uuid, $${i++}, 0, 'pending', $${i++}, $${i++})`)
+        values.push(v.vendor_id, v.balance, ws, we)
+      }
+
+      await pool.query(
+        `
+        insert into public.payouts (vendor_id, amount_due, amount_paid, status, week_start, week_end)
+        values ${tuples.join(', ')}
+        `,
+        values
+      )
+    }
+
+    return NextResponse.json(
+      { success: true, data: { created: toInsert.length, skipped } },
+      { status: 201 }
+    )
   }
 
   if (!vendor_id) return NextResponse.json({ success: false, error: 'vendor_id is required' }, { status: 400 })
@@ -92,6 +126,20 @@ export async function POST(req: Request) {
   }
   if (Number.isNaN(amount_due) || amount_due <= 0) {
     return NextResponse.json({ success: false, error: 'amount_due must be greater than 0' }, { status: 400 })
+  }
+
+  const existing = await findOpenPayoutForVendor(pool, vendor_id)
+  if (existing) {
+    const row = await attachVendor(pool, String(existing.id))
+    return NextResponse.json(
+      {
+        success: true,
+        data: row,
+        reused_existing: true,
+        message: 'This vendor already has an open pending payout — using that record.',
+      },
+      { status: 200 }
+    )
   }
 
   const { rows } = await pool.query(
@@ -103,6 +151,6 @@ export async function POST(req: Request) {
     [vendor_id, amount_due, week_start, week_end]
   )
 
-  return NextResponse.json({ success: true, data: rows[0] ?? null }, { status: 201 })
+  const row = rows[0] ? await attachVendor(pool, String(rows[0].id)) : null
+  return NextResponse.json({ success: true, data: row }, { status: 201 })
 }
-

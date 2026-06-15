@@ -94,8 +94,8 @@ export const payoutService = {
     vendorBalances: Array<{ vendor_id: string; balance: number }>,
     weekStart: string,
     weekEnd: string
-  ): Promise<void> {
-    await apiFetch<unknown>('/api/payouts', {
+  ): Promise<{ created: number; skipped: number }> {
+    return apiFetch<{ created: number; skipped: number }>('/api/payouts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

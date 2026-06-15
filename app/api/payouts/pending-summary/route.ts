@@ -10,13 +10,22 @@ export async function GET() {
     const [pendingPayouts, vendorBalances] = await Promise.all([
       pool.query(
         `
+        with best_open as (
+          select distinct on (vendor_id, week_start, week_end)
+            vendor_id,
+            week_start,
+            week_end,
+            greatest(amount_due - amount_paid, 0) as balance_remaining
+          from public.payouts
+          where deleted_at is null
+            and status = 'pending'
+            and amount_due > amount_paid
+          order by vendor_id, week_start, week_end, amount_paid desc, created_at desc
+        )
         select
           count(*)::int as count,
-          coalesce(sum(greatest(amount_due - amount_paid, 0)), 0) as balance_remaining
-        from public.payouts
-        where deleted_at is null
-          and status = 'pending'
-          and amount_due > amount_paid
+          coalesce(sum(balance_remaining), 0) as balance_remaining
+        from best_open
         `
       ),
       pool.query(

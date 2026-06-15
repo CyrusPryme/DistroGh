@@ -131,12 +131,16 @@ export default function PayoutsPage() {
     if (!confirm(`Create pending payouts for all ${balances.length} vendors with outstanding balances?`)) return
     setBulkProcessing(true)
     try {
-      await payoutService.bulkCreateForVendors(
+      const result = await payoutService.bulkCreateForVendors(
         balances.map((b) => ({ vendor_id: b.vendor_id, balance: b.balance })),
         weekStart,
         weekEnd
       )
-      showToast(`${balances.length} pending payouts created — pay vendors on MoMo, then confirm each payment`)
+      const skippedNote =
+        result.skipped > 0 ? ` (${result.skipped} skipped — already had open pending payout)` : ''
+      showToast(
+        `${result.created} pending payout(s) created${skippedNote} — pay on MoMo, then confirm each payment`
+      )
       await load()
       setActiveTab('pending')
       dispatchPayoutUpdated()
@@ -198,7 +202,48 @@ export default function PayoutsPage() {
     }
   }
 
-  const pendingPayouts = useMemo(
+  const pendingPayouts = useMemo(() => {
+    const groups = new Map<string, Payout[]>()
+    for (const p of payouts) {
+      if (p.status !== 'pending' || payoutBalanceRemaining(p) <= 0) continue
+      const key = `${p.vendor_id}:${p.week_start}:${p.week_end}`
+      const list = groups.get(key) ?? []
+      list.push(p)
+      groups.set(key, list)
+    }
+    return Array.from(groups.values()).map((list) =>
+      [...list].sort(
+        (a, b) =>
+          payoutAmountPaid(b) - payoutAmountPaid(a) ||
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )[0]
+    )
+  }, [payouts])
+
+  /** Duplicate open rows still in DB (extras beyond the kept row per vendor/week). */
+  const duplicatePendingIds = useMemo(() => {
+    const groups = new Map<string, Payout[]>()
+    for (const p of payouts) {
+      if (p.status !== 'pending' || payoutBalanceRemaining(p) <= 0) continue
+      const key = `${p.vendor_id}:${p.week_start}:${p.week_end}`
+      const list = groups.get(key) ?? []
+      list.push(p)
+      groups.set(key, list)
+    }
+    const dupes = new Set<string>()
+    for (const list of groups.values()) {
+      if (list.length <= 1) continue
+      const sorted = [...list].sort(
+        (a, b) =>
+          payoutAmountPaid(b) - payoutAmountPaid(a) ||
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      for (const p of sorted.slice(1)) dupes.add(p.id)
+    }
+    return dupes
+  }, [payouts])
+
+  const allOpenPending = useMemo(
     () =>
       payouts.filter(
         (p) => p.status === 'pending' && payoutBalanceRemaining(p) > 0
@@ -208,11 +253,11 @@ export default function PayoutsPage() {
 
   const pendingByVendorId = useMemo(() => {
     const map = new Map<string, Payout>()
-    for (const p of pendingPayouts) {
+    for (const p of allOpenPending) {
       if (!map.has(p.vendor_id)) map.set(p.vendor_id, p)
     }
     return map
-  }, [pendingPayouts])
+  }, [allOpenPending])
 
   const totalPending = balances.reduce((s, b) => s + b.balance, 0)
   const dialogRemaining = dialog
@@ -223,6 +268,30 @@ export default function PayoutsPage() {
     () => getPageSlice(balances, balancePage, DEFAULT_PAGE_SIZE),
     [balances, balancePage]
   )
+  const handleRemoveAllDuplicates = async () => {
+    if (duplicatePendingIds.size === 0) return
+    if (
+      !confirm(
+        `Remove ${duplicatePendingIds.size} duplicate pending payout(s)? The newest record for each vendor/week is kept.`
+      )
+    ) {
+      return
+    }
+    setBulkProcessing(true)
+    try {
+      for (const id of duplicatePendingIds) {
+        await payoutService.softDelete(id)
+      }
+      showToast(`Removed ${duplicatePendingIds.size} duplicate payout(s)`)
+      await load()
+      dispatchPayoutUpdated()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to remove duplicates', 'error')
+    } finally {
+      setBulkProcessing(false)
+    }
+  }
+
   const paginatedPending = useMemo(
     () => getPageSlice(pendingPayouts, pendingPage, DEFAULT_PAGE_SIZE),
     [pendingPayouts, pendingPage]
@@ -546,6 +615,22 @@ export default function PayoutsPage() {
 
       {activeTab === 'pending' && (
         <div className="data-card p-0 overflow-hidden">
+          {duplicatePendingIds.size > 0 && (
+            <div className="px-5 py-4 border-b border-amber-200 bg-amber-50 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-amber-900">
+                <span className="font-semibold">{duplicatePendingIds.size} duplicate</span> pending payout
+                {duplicatePendingIds.size === 1 ? '' : 's'} from earlier clicks — only one is needed per vendor/week.
+              </p>
+              <button
+                type="button"
+                onClick={handleRemoveAllDuplicates}
+                disabled={bulkProcessing}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold disabled:opacity-60"
+              >
+                {bulkProcessing ? 'Removing…' : 'Remove duplicates'}
+              </button>
+            </div>
+          )}
           {pendingPayouts.length === 0 ? (
             <div className="p-12 text-center">
               <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -589,6 +674,7 @@ export default function PayoutsPage() {
                         </td>
                         <td>
                           <button
+                            type="button"
                             onClick={() => openPaymentDialog(p)}
                             className="text-xs font-semibold text-brand-600 hover:text-brand-700"
                           >
