@@ -9,6 +9,8 @@
     "db:down": "docker compose down",
     "db:migrate": "node -r dotenv/config scripts/db-migrate.mjs dotenv_config_path=.env.local",
     "db:seed": "node -r dotenv/config scripts/db-seed.mjs dotenv_config_path=.env.local",
+    "db:seed:super-admin": "node -r dotenv/config scripts/seed-super-admin.mjs dotenv_config_path=.env.local",
+    "db:seed:developer": "node -r dotenv/config scripts/seed-developer.mjs dotenv_config_path=.env.local",
     "db:setup": "npm run db:up && npm run db:migrate && npm run db:seed",
     "generate:sample-sales": "node scripts/generate-sample-sales.mjs",
     "generate:static-sample": "node scripts/generate-static-sample.mjs",

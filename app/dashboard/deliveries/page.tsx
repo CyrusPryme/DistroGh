@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, Suspense, useMemo } from 'react'
+import { useEffect, useState, Suspense, useMemo, Fragment, useCallback, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Truck,
@@ -13,18 +13,194 @@ import {
   Filter,
   CheckCircle2,
   Clock,
+  RefreshCw,
 } from 'lucide-react'
 import { deliveryService, type CreateDeliveryRunPayload } from '@/services/delivery.service'
 import { intakeService } from '@/services/intake.service'
 import { supermarketService } from '@/services/supermarket.service'
 import { productService } from '@/services/product.service'
-import { formatGHS, formatDate, formatNumber, cn } from '@/lib/utils'
+import { vendorService } from '@/services/vendor.service'
+import { formatGHS, formatDate, formatNumber, cn, roundMoney } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
+import {
+  allocateTransportCostByQuantity,
+  allocationSharesFromAmounts,
+  sumAllocationAmounts,
+} from '@/lib/delivery-cost-allocation'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
-import type { DeliveryRun, Supermarket, Product } from '@/types'
+import { PageToast } from '@/components/shared/PageToast'
+import type { DeliveryRun, DeliveryRunVendorCharge, Supermarket, Product, Vendor } from '@/types'
 
 type RunItemRow = { product_id: string; quantity_delivered: number }
+
+function VendorChargeTable({ charges, totalCost }: { charges: DeliveryRunVendorCharge[]; totalCost: number }) {
+  if (!charges.length) {
+    return (
+      <p className="text-xs text-slate-500">
+        {totalCost > 0 ? 'No vendor lines to allocate (add products with quantity).' : 'No transport cost on this run.'}
+      </p>
+    )
+  }
+  return (
+    <div className="rounded-lg border border-slate-200 overflow-hidden text-xs">
+      <table className="w-full">
+        <thead className="bg-slate-50 text-slate-600">
+          <tr>
+            <th className="text-left px-3 py-2 font-medium">Vendor</th>
+            <th className="text-right px-3 py-2 font-medium">Units</th>
+            <th className="text-right px-3 py-2 font-medium">Share</th>
+            <th className="text-right px-3 py-2 font-medium">Charge</th>
+          </tr>
+        </thead>
+        <tbody>
+          {charges.map((c) => (
+            <tr key={c.vendor_id} className="border-t border-slate-100">
+              <td className="px-3 py-2 text-slate-800">{c.vendor_name}</td>
+              <td className="px-3 py-2 text-right font-mono">{formatNumber(c.quantity_delivered)}</td>
+              <td className="px-3 py-2 text-right">{c.share_percent.toFixed(1)}%</td>
+              <td className="px-3 py-2 text-right font-mono font-semibold text-amber-800">{formatGHS(c.allocated_amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="px-3 py-2 bg-slate-50 text-slate-500 border-t border-slate-100">
+        Shared vehicle cost split by units delivered. Charges are deducted from each vendor&apos;s payout balance on confirm.
+      </p>
+    </div>
+  )
+}
+
+function EditableVendorChargeSplit({
+  transportCost,
+  onTransportCostChange,
+  charges,
+  onChargesChange,
+  onRecalculate,
+  disabled,
+}: {
+  transportCost: number
+  onTransportCostChange: (value: number) => void
+  charges: DeliveryRunVendorCharge[]
+  onChargesChange: (charges: DeliveryRunVendorCharge[]) => void
+  onRecalculate: () => void
+  disabled?: boolean
+}) {
+  const total = Math.max(0, Number(transportCost) || 0)
+  const allocated = sumAllocationAmounts(charges)
+  const remainder = roundMoney(total - allocated)
+  const balanced = total <= 0 || charges.length === 0 || Math.abs(remainder) < 0.01
+
+  const updateCharge = (vendorId: string, amount: number) => {
+    const next = charges.map((c) =>
+      c.vendor_id === vendorId
+        ? { ...c, allocated_amount: roundMoney(amount) }
+        : c
+    )
+    onChargesChange(
+      allocationSharesFromAmounts(total, next).map((row) => ({
+        ...row,
+        vendor_name: row.vendor_name ?? 'Unknown vendor',
+      }))
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Transport cost (GHS)</label>
+        <input
+          type="number"
+          step="0.01"
+          min={0}
+          disabled={disabled}
+          value={total === 0 ? '' : total}
+          onChange={(e) => onTransportCostChange(Math.max(0, Number(e.target.value) || 0))}
+          className="form-input"
+          placeholder="0"
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-slate-700">Vendor charge split</p>
+        <button
+          type="button"
+          disabled={disabled || total <= 0 || charges.length === 0}
+          onClick={onRecalculate}
+          className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Split by quantity
+        </button>
+      </div>
+
+      {total > 0 && charges.length === 0 ? (
+        <p className="text-xs text-slate-500">No vendor lines to allocate — add products with quantity on this run.</p>
+      ) : charges.length > 0 ? (
+        <div className="rounded-lg border border-slate-200 overflow-hidden text-xs">
+          <table className="w-full">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Vendor</th>
+                <th className="text-right px-3 py-2 font-medium">Units</th>
+                <th className="text-right px-3 py-2 font-medium">Share</th>
+                <th className="text-right px-3 py-2 font-medium">Charge (GHS)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {charges.map((c) => (
+                <tr key={c.vendor_id} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-800">{c.vendor_name}</td>
+                  <td className="px-3 py-2 text-right font-mono">{formatNumber(c.quantity_delivered)}</td>
+                  <td className="px-3 py-2 text-right">{c.share_percent.toFixed(1)}%</td>
+                  <td className="px-3 py-2 text-right">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      disabled={disabled || total <= 0}
+                      value={c.allocated_amount === 0 ? '' : c.allocated_amount}
+                      onChange={(e) => updateCharge(c.vendor_id, Number(e.target.value) || 0)}
+                      className="form-input w-24 text-right font-mono text-xs py-1"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {total > 0 && charges.length > 0 && (
+        <div
+          className={cn(
+            'rounded-lg border px-3 py-2 text-xs',
+            balanced ? 'border-slate-200 bg-slate-50 text-slate-600' : 'border-amber-200 bg-amber-50 text-amber-800'
+          )}
+        >
+          <p>
+            Allocated: <span className="font-mono font-semibold">{formatGHS(allocated)}</span>
+            {' · '}
+            Transport: <span className="font-mono font-semibold">{formatGHS(total)}</span>
+            {!balanced && (
+              <>
+                {' · '}
+                Difference: <span className="font-mono font-semibold">{formatGHS(remainder)}</span>
+              </>
+            )}
+          </p>
+          {!balanced && (
+            <p className="mt-1">Charges must equal transport cost before you can confirm.</p>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs text-slate-500">
+        Adjust total cost or each vendor&apos;s charge. Use &quot;Split by quantity&quot; to reset to the default share.
+      </p>
+    </div>
+  )
+}
 
 function DeliveriesContent() {
   const searchParams = useSearchParams()
@@ -32,6 +208,7 @@ function DeliveriesContent() {
   const [stock, setStock] = useState<{ product_id: string; product_name: string; on_hand: number }[]>([])
   const [supermarkets, setSupermarkets] = useState<Supermarket[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [vendors, setVendors] = useState<Vendor[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -40,7 +217,18 @@ function DeliveriesContent() {
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [createModalError, setCreateModalError] = useState<string | null>(null)
+  const [confirmModalError, setConfirmModalError] = useState<string | null>(null)
   const [confirmingRunId, setConfirmingRunId] = useState<string | null>(null)
+  const [confirmModalRun, setConfirmModalRun] = useState<DeliveryRun | null>(null)
+  const [confirmTransportCost, setConfirmTransportCost] = useState(0)
+  const [confirmAllocation, setConfirmAllocation] = useState<DeliveryRunVendorCharge[]>([])
+  const [confirmAllocationBase, setConfirmAllocationBase] = useState<DeliveryRunVendorCharge[]>([])
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [confirmAllocationLoading, setConfirmAllocationLoading] = useState(false)
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
+  const [expandedChargesByRun, setExpandedChargesByRun] = useState<Record<string, DeliveryRunVendorCharge[]>>({})
+  const [loadingExpandedChargesId, setLoadingExpandedChargesId] = useState<string | null>(null)
   const [runPage, setRunPage] = useState(1)
 
   const [form, setForm] = useState<{
@@ -57,36 +245,71 @@ function DeliveriesContent() {
     items: [{ product_id: '', quantity_delivered: 1 }],
   })
 
-  const load = async () => {
+  const loadRuns = useCallback(async () => {
+    const r = await deliveryService.getAllRuns({
+      supermarket_id: filterSupermarket || undefined,
+      from: filterFrom || undefined,
+      to: filterTo || undefined,
+    })
+    setRuns(r)
+  }, [filterSupermarket, filterFrom, filterTo])
+
+  const loadReferenceData = useCallback(async () => {
+    const [stockRows, s, p, v] = await Promise.all([
+      intakeService.getStockByProduct(),
+      supermarketService.getAll(),
+      productService.getAll(),
+      vendorService.getAll(),
+    ])
+    setStock(stockRows.map((x) => ({ product_id: x.product_id, product_name: x.product_name, on_hand: x.on_hand })))
+    setSupermarkets(s)
+    setProducts(p)
+    setVendors(v)
+  }, [])
+
+  const refreshDeliveries = useCallback(async () => {
     try {
-      const [r, stockRows, s, p] = await Promise.all([
-        deliveryService.getAllRuns({
-          supermarket_id: filterSupermarket || undefined,
-          from: filterFrom || undefined,
-          to: filterTo || undefined,
-        }),
-        intakeService.getStockByProduct(),
-        supermarketService.getAll(),
-        productService.getAll(),
-      ])
-      setRuns(r)
-      setStock(stockRows.map((x) => ({ product_id: x.product_id, product_name: x.product_name, on_hand: x.on_hand })))
-      setSupermarkets(s)
-      setProducts(p)
+      await Promise.all([loadRuns(), loadReferenceData()])
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
-  }
+  }, [loadRuns, loadReferenceData])
 
   useEffect(() => {
-    load()
-  }, [filterSupermarket, filterFrom, filterTo])
+    setLoading(true)
+    refreshDeliveries()
+  }, [refreshDeliveries])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     setRunPage(1)
   }, [filterSupermarket, filterFrom, filterTo])
+
+  const vendorNameById = useMemo(() => new Map(vendors.map((v) => [v.id, v.name])), [vendors])
+
+  const formAllocationPreview = useMemo(() => {
+    const cost = Number(form.total_transport_cost) || 0
+    if (cost <= 0) return []
+    const lines = form.items
+      .filter((i) => i.product_id && i.quantity_delivered > 0)
+      .map((i) => {
+        const product = products.find((p) => p.id === i.product_id)
+        const vendorId = product?.vendor_id ?? ''
+        return {
+          vendor_id: vendorId,
+          vendor_name: vendorNameById.get(vendorId) ?? 'Unknown vendor',
+          quantity_delivered: i.quantity_delivered,
+        }
+      })
+    return allocateTransportCostByQuantity(cost, lines)
+  }, [form.total_transport_cost, form.items, products, vendorNameById])
 
   const paginatedRuns = useMemo(
     () => getPageSlice(runs, runPage, DEFAULT_PAGE_SIZE),
@@ -94,8 +317,17 @@ function DeliveriesContent() {
   )
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
+  }
+
+  const showModalError = (
+    msg: string,
+    target: 'create' | 'confirm'
+  ) => {
+    if (target === 'create') setCreateModalError(msg)
+    else setConfirmModalError(msg)
   }
 
   const addItemRow = () => {
@@ -143,6 +375,7 @@ function DeliveriesContent() {
     }
 
     setSubmitting(true)
+    setCreateModalError(null)
     try {
       const payload: CreateDeliveryRunPayload = {
         supermarket_id: form.supermarket_id,
@@ -162,23 +395,157 @@ function DeliveriesContent() {
         notes: '',
         items: [{ product_id: '', quantity_delivered: 1 }],
       })
-      load()
+      refreshDeliveries()
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Failed to create delivery run', 'error')
+      showModalError(e instanceof Error ? e.message : 'Failed to create delivery run', 'create')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleConfirmDelivery = async (runId: string) => {
-    setConfirmingRunId(runId)
+  const recalculateConfirmSplit = (cost: number, base?: DeliveryRunVendorCharge[]) => {
+    const lines = (base ?? confirmAllocationBase).map((c) => ({
+      vendor_id: c.vendor_id,
+      vendor_name: c.vendor_name,
+      quantity_delivered: c.quantity_delivered,
+    }))
+    return allocateTransportCostByQuantity(cost, lines).map((row) => ({
+      ...row,
+      vendor_name: row.vendor_name ?? 'Unknown vendor',
+    }))
+  }
+
+  const buildAllocationBaseFromRun = (run: DeliveryRun): DeliveryRunVendorCharge[] => {
+    const items = (run.items ?? []) as Array<{
+      quantity_delivered: number
+      product?: { vendor_id?: string; name?: string }
+    }>
+    const byVendor = new Map<string, { vendor_name: string; quantity_delivered: number }>()
+    for (const item of items) {
+      const vendorId = item.product?.vendor_id?.trim()
+      const qty = Math.max(0, Number(item.quantity_delivered) || 0)
+      if (!vendorId || qty <= 0) continue
+      const name = vendorNameById.get(vendorId) ?? 'Unknown vendor'
+      const cur = byVendor.get(vendorId) ?? { vendor_name: name, quantity_delivered: 0 }
+      cur.quantity_delivered += qty
+      byVendor.set(vendorId, cur)
+    }
+    return [...byVendor.entries()].map(([vendor_id, v]) => ({
+      vendor_id,
+      vendor_name: v.vendor_name,
+      quantity_delivered: v.quantity_delivered,
+      share_percent: 0,
+      allocated_amount: 0,
+    }))
+  }
+
+  const openConfirmModal = async (run: DeliveryRun) => {
+    setConfirmModalRun(run)
+    setConfirmAllocation([])
+    setConfirmAllocationBase([])
+    setConfirmTransportCost(0)
+    setConfirmModalError(null)
+    setConfirmAllocationLoading(true)
     try {
-      await deliveryService.confirmRun(runId)
-      showToast('Delivery confirmed. Stock at supermarket updated.')
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('delivery-confirmed'))
-      load()
+      const data = await deliveryService.getChargeAllocation(run.id)
+      const cost = Number(data.total_transport_cost) || 0
+      const baseFromPreview = data.preview.map((row) => ({
+        ...row,
+        vendor_name: row.vendor_name ?? 'Unknown vendor',
+      }))
+      const base = baseFromPreview.length > 0 ? baseFromPreview : buildAllocationBaseFromRun(run)
+      setConfirmAllocationBase(base)
+      setConfirmTransportCost(cost)
+      setConfirmAllocation(cost > 0 && base.length > 0 ? recalculateConfirmSplit(cost, base) : [])
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Failed to confirm delivery', 'error')
+      showToast(e instanceof Error ? e.message : 'Failed to load charge split', 'error')
+      setConfirmModalRun(null)
+    } finally {
+      setConfirmAllocationLoading(false)
+    }
+  }
+
+  const handleConfirmTransportCostChange = (cost: number) => {
+    setConfirmTransportCost(cost)
+    if (confirmAllocationBase.length > 0) {
+      setConfirmAllocation(cost > 0 ? recalculateConfirmSplit(cost, confirmAllocationBase) : [])
+    }
+  }
+
+  const toggleExpandedCharges = async (run: DeliveryRun) => {
+    if (expandedRunId === run.id) {
+      setExpandedRunId(null)
+      return
+    }
+    setExpandedRunId(run.id)
+    if (expandedChargesByRun[run.id]?.length) return
+
+    setLoadingExpandedChargesId(run.id)
+    try {
+      const data = await deliveryService.getChargeAllocation(run.id)
+      const charges = (data.applied ?? data.preview).map((row) => ({
+        ...row,
+        vendor_name: row.vendor_name ?? 'Unknown vendor',
+      }))
+      setExpandedChargesByRun((prev) => ({ ...prev, [run.id]: charges }))
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to load vendor charges', 'error')
+      setExpandedRunId(null)
+    } finally {
+      setLoadingExpandedChargesId(null)
+    }
+  }
+
+  const handleConfirmDelivery = async () => {
+    if (!confirmModalRun) return
+    const runId = confirmModalRun.id
+    const total = Math.max(0, Number(confirmTransportCost) || 0)
+    const allocated = sumAllocationAmounts(confirmAllocation)
+
+    if (total > 0 && confirmAllocation.length === 0) {
+      showModalError('Transport cost is set — add vendor lines on this run or set transport cost to zero.', 'confirm')
+      return
+    }
+
+    if (total > 0 && confirmAllocation.length > 0 && Math.abs(total - allocated) > 0.01) {
+      showModalError(
+        `Vendor charges (${allocated.toFixed(2)}) must equal transport cost (${total.toFixed(2)}).`,
+        'confirm'
+      )
+      return
+    }
+
+    setConfirmingRunId(runId)
+    setConfirmModalError(null)
+    try {
+      await deliveryService.confirmRun(runId, {
+        total_transport_cost: total,
+        vendor_charges:
+          total > 0 && confirmAllocation.length > 0
+            ? confirmAllocation.map((c) => ({
+                vendor_id: c.vendor_id,
+                vendor_name: c.vendor_name,
+                quantity_delivered: c.quantity_delivered,
+                share_percent: c.share_percent,
+                allocated_amount: c.allocated_amount,
+              }))
+            : undefined,
+      })
+      const chargeTotal = confirmAllocation.reduce((s, c) => s + c.allocated_amount, 0)
+      const vendorCount = confirmAllocation.length
+      const msg =
+        chargeTotal > 0 && vendorCount > 0
+          ? `Delivery confirmed. ${formatGHS(chargeTotal)} transport split across ${vendorCount} vendor(s) and deducted from balances.`
+          : 'Delivery confirmed. Stock at supermarket updated.'
+      showToast(msg)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('delivery-confirmed'))
+        window.dispatchEvent(new Event('payout-updated'))
+      }
+      setConfirmModalRun(null)
+      refreshDeliveries()
+    } catch (e: unknown) {
+      showModalError(e instanceof Error ? e.message : 'Failed to confirm delivery', 'confirm')
     } finally {
       setConfirmingRunId(null)
     }
@@ -186,27 +553,25 @@ function DeliveriesContent() {
 
   return (
     <div className="page-container space-y-6">
-        {toast && (
-          <div
-            className={cn(
-              'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-            )}
-          >
-            {toast.msg}
-          </div>
-        )}
+        <PageToast
+          message={toast?.msg ?? null}
+          type={toast?.type}
+          onDismiss={() => setToast(null)}
+        />
 
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl font-bold text-slate-900">Deliveries</h1>
             <p className="text-slate-500 text-sm mt-0.5">
-              Record delivery runs from DistroGH to supermarkets and add transport cost for each run.
+              Record delivery runs and transport cost. On confirm, cost is split across vendors by units delivered and deducted from payout balances.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
+            onClick={() => {
+              setCreateModalError(null)
+              setModalOpen(true)
+            }}
             className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -277,6 +642,7 @@ function DeliveriesContent() {
                     <th>Date</th>
                     <th className="text-right">Transport cost</th>
                     <th>Items</th>
+                    <th>Vendor charges</th>
                     <th>Status</th>
                     <th>Notes</th>
                     <th></th>
@@ -286,10 +652,14 @@ function DeliveriesContent() {
                   {paginatedRuns.map((run) => {
                     const items = (run.items ?? []) as { product_id: string; quantity_delivered: number; product?: { name: string } }[]
                     const totalQty = items.reduce((s, i) => s + Number(i.quantity_delivered), 0)
-                    const isConfirmed = !!(run as any).confirmed_at
+                    const isConfirmed = !!run.confirmed_at
                     const isConfirming = confirmingRunId === run.id
+                    const charges = expandedChargesByRun[run.id] ?? ((run.vendor_charges ?? []) as DeliveryRunVendorCharge[])
+                    const isExpanded = expandedRunId === run.id
+                    const chargeTotal = charges.reduce((s, c) => s + Number(c.allocated_amount), 0)
                     return (
-                      <tr key={run.id}>
+                      <Fragment key={run.id}>
+                      <tr>
                         <td>
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4 text-slate-400" />
@@ -306,6 +676,28 @@ function DeliveriesContent() {
                         </td>
                         <td className="text-slate-600">
                           {items.length} product(s), {formatNumber(totalQty)} units
+                        </td>
+                        <td className="text-slate-600 text-sm">
+                          {isConfirmed && Number(run.total_transport_cost) > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandedCharges(run)}
+                              disabled={loadingExpandedChargesId === run.id}
+                              className="text-brand-600 hover:text-brand-700 font-medium disabled:opacity-60"
+                            >
+                              {loadingExpandedChargesId === run.id ? (
+                                'Loading…'
+                              ) : charges.length > 0 ? (
+                                `${charges.length} vendor(s) · ${formatGHS(chargeTotal)}`
+                              ) : (
+                                'View charge split'
+                              )}
+                            </button>
+                          ) : Number(run.total_transport_cost) > 0 && !isConfirmed ? (
+                            <span className="text-amber-700">Split on confirm</span>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td>
                           {isConfirmed ? (
@@ -327,7 +719,7 @@ function DeliveriesContent() {
                           {!isConfirmed && (
                             <button
                               type="button"
-                              onClick={() => handleConfirmDelivery(run.id)}
+                              onClick={() => openConfirmModal(run)}
                               disabled={isConfirming}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
                             >
@@ -337,6 +729,14 @@ function DeliveriesContent() {
                           )}
                         </td>
                       </tr>
+                      {isExpanded && charges.length > 0 && (
+                        <tr key={`${run.id}-charges`} className="bg-slate-50/80">
+                          <td colSpan={8} className="px-4 py-3">
+                            <VendorChargeTable charges={charges} totalCost={Number(run.total_transport_cost)} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     )
                   })}
                 </tbody>
@@ -353,11 +753,16 @@ function DeliveriesContent() {
 
         <FormModal
           open={modalOpen}
-          onClose={() => !submitting && setModalOpen(false)}
+          onClose={() => {
+            if (submitting) return
+            setCreateModalError(null)
+            setModalOpen(false)
+          }}
           title="New delivery run"
           description="Record delivery to supermarket and add transport cost for this run."
           maxWidthClass="max-w-lg"
           disableBackdropClose={submitting}
+          error={createModalError}
         >
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <FormModalBody>
@@ -465,6 +870,19 @@ function DeliveriesContent() {
                   </div>
                 </div>
 
+                {formAllocationPreview.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Vendor transport split (preview)</label>
+                    <VendorChargeTable
+                      charges={formAllocationPreview.map((c) => ({
+                        ...c,
+                        vendor_name: c.vendor_name ?? 'Unknown vendor',
+                      }))}
+                      totalCost={Number(form.total_transport_cost) || 0}
+                    />
+                  </div>
+                )}
+
             </FormModalBody>
             <FormModalFooter>
                   <button
@@ -484,6 +902,80 @@ function DeliveriesContent() {
                   </button>
             </FormModalFooter>
           </form>
+        </FormModal>
+
+        <FormModal
+          open={!!confirmModalRun}
+          onClose={() => {
+            if (confirmingRunId) return
+            setConfirmModalError(null)
+            setConfirmModalRun(null)
+          }}
+          title="Confirm delivery"
+          description="Review transport cost and vendor charges before confirming. Stock is added at the supermarket and charges are deducted from payout balances."
+          maxWidthClass="max-w-lg"
+          disableBackdropClose={!!confirmingRunId}
+          error={confirmModalError}
+        >
+          {confirmModalRun && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <FormModalBody>
+                <div className="text-sm text-slate-600">
+                  <p>
+                    <span className="font-medium text-slate-800">Destination:</span>{' '}
+                    {confirmModalRun.supermarket
+                      ? formatSupermarketLabel(confirmModalRun.supermarket as Supermarket)
+                      : '—'}
+                  </p>
+                </div>
+                {confirmAllocationLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                  </div>
+                ) : (
+                  <EditableVendorChargeSplit
+                    transportCost={confirmTransportCost}
+                    onTransportCostChange={handleConfirmTransportCostChange}
+                    charges={confirmAllocation}
+                    onChargesChange={setConfirmAllocation}
+                    onRecalculate={() =>
+                      setConfirmAllocation(
+                        confirmTransportCost > 0
+                          ? recalculateConfirmSplit(confirmTransportCost, confirmAllocationBase)
+                          : []
+                      )
+                    }
+                    disabled={!!confirmingRunId}
+                  />
+                )}
+              </FormModalBody>
+              <FormModalFooter>
+                <button
+                  type="button"
+                  onClick={() => !confirmingRunId && setConfirmModalRun(null)}
+                  disabled={!!confirmingRunId}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelivery}
+                  disabled={
+                    !!confirmingRunId ||
+                    confirmAllocationLoading ||
+                    (confirmTransportCost > 0 &&
+                      (confirmAllocation.length === 0 ||
+                        Math.abs(confirmTransportCost - sumAllocationAmounts(confirmAllocation)) > 0.01))
+                  }
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {confirmingRunId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Confirm &amp; deduct charges
+                </button>
+              </FormModalFooter>
+            </div>
+          )}
         </FormModal>
       </div>
   )

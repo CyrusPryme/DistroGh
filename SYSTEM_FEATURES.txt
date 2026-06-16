@@ -1,0 +1,458 @@
+================================================================================
+DISTROGH CONSIGNMENT DISTRIBUTION SYSTEM
+FEATURES & FUNCTIONALITIES
+================================================================================
+Generated: May 2026
+Platform: Web application (Next.js) with PostgreSQL (Neon) backend
+
+================================================================================
+1. SYSTEM OVERVIEW
+================================================================================
+
+DistroGH is a consignment distribution platform for managing vendors who supply
+products through DistroGH to supermarkets. The system tracks:
+
+  - Vendor products, pricing, and stock received at the warehouse
+  - Deliveries from DistroGH to supermarket branches
+  - Monthly supermarket sales imports
+  - Returns and deductions
+  - Vendor balances and mobile-money (MoMo) payouts
+  - Compliance (FDA certificates, service charges, verification)
+
+Currency: Ghana Cedis (GHS)
+
+================================================================================
+2. USER ROLES & ACCESS
+================================================================================
+
+ADMIN
+  Full access to vendors, products, sales import, deliveries, payouts, reports,
+  settings, applications, and deactivation requests.
+
+VENDOR
+  Portal for self-service vendors: dashboard, products (own), sales (own),
+  returns (own), receiving visibility, payouts, statements, delivery status,
+  profile, FDA upload, service charge, deactivation request.
+
+USER
+  Limited staff role: dashboard, sales view, supermarkets, store stock, reports.
+  (No vendor management, payouts, deliveries, or sales import.)
+
+Access modes for vendors:
+  - self_service   — vendor logs in and manages their own portal
+  - admin_managed  — DistroGH admin operates on behalf of vendor; vendor sees
+                     a read-only "vendor report" style statement
+
+================================================================================
+3. PUBLIC WEBSITE (UNAUTHENTICATED)
+================================================================================
+
+Home / Landing page (/)
+  - Marketing content for DistroGH consignment model
+  - Vendor application form (store name, email, phone, description)
+  - Duplicate email check before submit
+  - Link to login
+
+Contact page (/contact)
+  - Public contact information
+
+Welcome page (/welcome)
+  - Post-login welcome for new vendors
+
+Login (/login)
+  - Email + password authentication
+  - Session-based access to dashboard
+
+================================================================================
+4. AUTHENTICATION & SESSION
+================================================================================
+
+  - Login / logout API
+  - Role-based navigation (sidebar filtered by role)
+  - Session endpoint (/api/me) with vendor profile and service-charge status
+  - Vendors with expired service charge can be suspended automatically
+  - Service charge reminder/grace banners in vendor layout
+
+================================================================================
+5. ADMIN DASHBOARD
+================================================================================
+
+Main dashboard (/dashboard)
+  - KPI cards: sales, commission, vendor due, vendor count, products, pending payouts
+  - Monthly revenue chart
+  - Recent sales list
+  - Vendor balances summary (top vendors owed)
+  - Analytics: top/bottom products, top vendors by intake, top returns,
+    top supermarkets by sales
+  - Inventory status (products in stock vs out of stock at warehouse)
+  - Quick links to import sales and payouts
+
+================================================================================
+6. VENDOR MANAGEMENT (ADMIN)
+================================================================================
+
+Vendors list (/dashboard/vendors)
+  - Search vendors by name
+  - Filter by access mode (all / self-service / admin-managed)
+  - View balance owed per vendor
+  - Create new vendor
+  - Edit vendor details
+  - Soft-delete vendor (with cascade)
+  - View deleted vendors pending auth cleanup
+  - Verification stage badges (pending, verified, suspended)
+  - Link to vendor detail page
+
+Vendor detail (/dashboard/vendors/[id])
+  Tabs:
+    Overview
+      - Contact, MoMo details, verification status
+      - Suspend / reactivate vendor
+      - Verify vendor (after FDA review)
+      - Request verification changes (feedback to vendor)
+      - Reset vendor password
+      - Service charge: record payment, extend coverage, lifecycle status
+      - Deactivation request approve/reject
+      - FDA certificate viewer
+      - Balance and payout summary charts
+      - Date range presets for analytics
+
+    Vendor report (admin-managed vendors)
+      - Print-friendly vendor-safe statement (what vendor would see)
+
+    Sales report
+      - Sales by period with charts
+      - Print report
+
+    Products report
+      - Product performance for vendor
+      - Print report
+
+    Deductions
+      - List all vendor deductions
+      - Manually add deductions (fees, adjustments)
+      - Total deductions summary
+
+Vendor applications (/dashboard/admin/applications)
+  - Review incoming vendor applications from public website
+  - Approve application → creates vendor + login credentials
+  - Reject / remove application
+  - Display initial password on approval (one-time)
+  - Track application status (pending, approved, rejected)
+
+Deactivation requests (/dashboard/admin/deactivation-requests)
+  - Review vendor requests to deactivate account
+  - Approve or reject with admin notes
+  - Requires zero balance before vendor can request
+
+================================================================================
+7. PRODUCTS
+================================================================================
+
+Products page (/dashboard/products) — Admin & Vendor
+  - List all products (vendor sees own only)
+  - Create / edit / soft-delete products
+  - Product fields: name, vendor, vendor price, DistroGH markup, selling price,
+    SKU, barcode, category, packaging size, wholesale price, supermarket
+    selling price, MOQ, expiry date, product images
+  - Live integrity checks on save:
+      * Barcode globally unique (blocks duplicate)
+      * Name + SKU combination unique (blocks duplicate)
+      * Same SKU on different product names allowed (info)
+      * Same name with different SKU allowed (info)
+  - Pagination and search
+  - Relative "last updated" timestamps
+
+Categories (Settings)
+  - Admin manages product categories used in product forms
+
+================================================================================
+8. RECEIVING (WAREHOUSE INTAKE)
+================================================================================
+
+Receiving page (/dashboard/receiving)
+  Admin:
+    - Record stock received from vendors (intake)
+    - Product, quantity, date, notes
+    - Updates warehouse on-hand stock
+
+  Vendor:
+    - Read-only view of their intakes and on-hand quantities
+
+Stock API
+  - On-hand = total received − total delivered (all delivery runs)
+  - Used to validate delivery quantities
+
+================================================================================
+9. DELIVERIES TO SUPERMARKETS
+================================================================================
+
+Deliveries page (/dashboard/deliveries) — Admin only
+  - Create delivery run: supermarket, date, transport cost, notes, line items
+  - Stock validation (cannot deliver more than on hand)
+  - Preview vendor transport charge split when creating run
+  - List delivery runs with filters (supermarket, date range)
+  - Pending vs confirmed status
+  - Confirm delivery workflow:
+      * Review/edit transport cost before confirm
+      * Edit per-vendor charge split or auto "split by quantity"
+      * Balance check: charges must equal transport cost
+      * On confirm: supermarket inventory updated
+      * Transport cost split across vendors by units delivered
+      * Vendor deductions created automatically (linked to delivery run)
+      * Deductions reduce vendor payout balance
+  - View applied charge split on confirmed runs (lazy-loaded)
+  - Sidebar badge for pending (unconfirmed) deliveries
+
+Delivery charge allocation rules:
+  - Default: quantity-weighted split of total transport cost
+  - Manual override per vendor before confirm
+  - One shared vehicle → multiple vendors pay proportional to units on run
+  - Zero transport cost → no deductions
+
+================================================================================
+10. SUPERMARKETS & STORE STOCK
+================================================================================
+
+Supermarkets (/dashboard/supermarkets) — Admin & User
+  - List supermarket outlets (name, branch, location, store code)
+  - Create / edit supermarkets
+  - Summary stats per outlet: sales, returns, delivery run count
+  - Link to filtered deliveries
+
+Store stock (/dashboard/stock-at-supermarkets) — Admin & User
+  - View inventory at each supermarket branch (per product quantity)
+  - Updated when deliveries are confirmed and when sales are imported
+
+Supermarket chains
+  - Chain name grouping for sales import (e.g. match branches within a chain)
+
+================================================================================
+11. SALES
+================================================================================
+
+Sales list (/dashboard/sales) — Admin, Vendor, User
+  - View sales records with filters
+  - Monthly period display (sales stored as calendar months)
+  - Month filter
+  - Vendor-scoped view for vendor role
+  - Shows qty sold, revenue, commission, vendor due per line
+
+Sales import (/dashboard/sales/import) — Admin only
+  - Upload Excel spreadsheet from supermarket
+  - Select reporting supermarket (chain) and report month
+  - Parse rows: product, quantity, branch, dates, etc.
+  - Match products by name/SKU/barcode
+  - Match supermarket branches within selected chain
+  - Outlet picker when spreadsheet has no BRANCH column
+  - Preview matched / unmatched / duplicate rows
+  - Create missing products or supermarkets inline during import
+  - Bulk insert validated sales (normalized to full calendar month)
+  - Download sample Excel template
+  - Import draft saved in browser session (resume later)
+  - Import history page
+
+Sales calculations (per line):
+  - Revenue = qty × selling price
+  - Vendor due = qty × vendor price
+  - Commission = revenue − vendor due (DistroGH margin)
+
+================================================================================
+12. RETURNS
+================================================================================
+
+Returns page (/dashboard/returns) — Admin & Vendor
+  - Record product returns from supermarkets
+  - Fields: product, supermarket, quantity, reason, date, notes
+  - Return reasons (expired, damaged, etc.)
+  - Reduces vendor balance (vendor due on returned units)
+  - Vendor sees own returns only
+
+================================================================================
+13. DEDUCTIONS
+================================================================================
+
+Vendor deductions
+  - Manual deductions via vendor detail page (admin)
+  - Automatic delivery transport deductions on delivery confirm
+  - Stored with reason, date, amount, reference (e.g. delivery_run)
+  - Subtracted from vendor balance in payout calculations
+
+Deductions API
+  - Create, list, update, delete deductions (admin)
+
+================================================================================
+14. PAYOUTS & VENDOR BALANCES
+================================================================================
+
+Payouts page (/dashboard/payouts) — Admin only
+  Tabs:
+    Vendor balances
+      - All vendors with positive balance owed
+      - Total outstanding footer
+      - Duplicate open payout detection and cleanup banner
+      - Create payout for individual vendor
+      - Bulk create payouts for all vendors with balance
+
+    Pending payments
+      - Open payout records awaiting MoMo payment
+      - Record partial or full payment
+      - MoMo transaction ID tracking (append multiple)
+      - Status: pending → partial → completed
+
+    Payment history
+      - Completed and past payouts
+
+  Features:
+    - Week/period range on payout records
+    - Prevent duplicate open payouts per vendor (DB constraint)
+    - Race-safe payment recording (transaction + row lock)
+    - Reuse existing open payout if one already exists
+    - Sidebar alert badge for pending payout count
+    - Pagination on all tabs
+
+Vendor balance formula:
+  Balance = sales vendor due − returns − deductions − completed payout amounts
+
+Vendor payouts portal (/dashboard/vendor/payouts) — Vendor
+  - View own payout history and status
+  - See amount due, paid, remaining
+
+================================================================================
+15. REPORTS
+================================================================================
+
+Reports page (/dashboard/reports) — Admin & User
+  Date presets: this week, this month, last 7/30 days, quarter, custom range
+
+  Report types:
+    - Sales report (revenue, trends, charts)
+    - Products report (top performers)
+    - Vendors report (sales breakdown by vendor)
+    - Delivery / transport cost report (by supermarket)
+    - Full combined report
+
+  Features:
+    - Charts (bar, area, pie)
+    - Print-friendly report output
+    - Monthly sales aggregation labels
+    - Return deductions applied in vendor reports
+
+Vendor statement (/dashboard/vendor/statement) — Vendor
+  - Period-based statement: sales, returns, deductions, payouts
+  - Vendor-safe view (no internal DistroGH margin detail beyond their due)
+  - Print support
+
+Vendor delivery status (/dashboard/vendor/delivery-status) — Vendor
+  - Confirmed deliveries containing their products
+  - Supermarket destination and dates
+
+================================================================================
+16. VENDOR PORTAL (SELF-SERVICE)
+================================================================================
+
+Vendor dashboard (/dashboard/vendor)
+  - KPIs: earnings, quantity sold
+  - Monthly revenue chart
+  - Recent sales and top products
+  - Scoped to logged-in vendor only
+
+Vendor profile (/dashboard/vendor/profile)
+  - Update contact details, MoMo number/network
+  - Upload / manage FDA certificate
+  - View verification status and admin feedback
+  - Service charge payment status
+
+Request deactivation (/dashboard/vendor/request-deactivation)
+  - Submit deactivation request with reason
+  - Blocked if balance > 0
+  - Pending request status display
+
+Support (/dashboard/support, /dashboard/vendor/support)
+  - Support / help contact page
+
+Service charge system
+  - Annual vendor platform fee with expiry date
+  - Grace period and reminders
+  - Auto-suspend vendor when expired (after grace)
+  - Admin records payment and extends coverage (1+ years)
+  - Banner warnings in vendor UI
+
+================================================================================
+17. SETTINGS (ADMIN)
+================================================================================
+
+Settings page (/dashboard/settings)
+  - Company name
+  - Default MOQ (minimum order quantity)
+  - Product expiry reminder days
+  - Product categories CRUD (add, rename, delete)
+
+================================================================================
+18. NOTIFICATIONS & UI
+================================================================================
+
+  - Sidebar badges: pending deliveries, pending payouts
+  - Page toasts (portal-based, above modals)
+  - Inline modal errors on form failures
+  - Pagination on long lists
+  - Responsive layout with mobile sidebar
+  - Print styles for reports and statements
+  - Form modals for create/edit workflows
+
+================================================================================
+19. API CAPABILITIES (BACKEND)
+================================================================================
+
+Authentication:     login, logout, me
+Vendors:            CRUD, balances, restore, service charge, per-vendor balance
+Vendor applications: submit, list, approve, check email
+Products:           CRUD, integrity check
+Categories:         CRUD
+Intakes:            CRUD, stock-on-hand query
+Deliveries:         CRUD, confirm, charge allocation preview, pending count
+Supermarkets:       CRUD, inventory, summary stats
+Sales:              list, KPIs, recent, top products/supermarkets, weekly/monthly
+                    revenue, bulk insert, by-vendor
+Returns:            CRUD
+Deductions:         CRUD
+Payouts:            CRUD, partial payment, pending summary
+Settings:           system settings
+Vendor documents:   FDA upload, file serving
+Deactivation:       vendor request + admin approve/reject (via server actions)
+
+================================================================================
+20. DATA INTEGRITY & BUSINESS RULES
+================================================================================
+
+  - Soft delete on vendors, products, payouts, intakes, returns
+  - Unique barcode per product (after deduplication migration)
+  - Unique name+SKU per product (after deduplication migration)
+  - Delivery confirm is transactional (inventory + charges + confirm flag)
+  - Idempotent delivery vendor charges (no double deduction per run)
+  - Payout open-record uniqueness per vendor
+  - Sales periods stored as full calendar months
+  - Transport charges validated: sum of vendor shares = total cost
+  - Server-side stock check on delivery creation
+  - PostgreSQL reporting views for vendor balances
+
+================================================================================
+21. DATABASE & DEPLOYMENT
+================================================================================
+
+  - PostgreSQL with versioned SQL migrations (001–018+)
+  - Neon serverless Postgres support
+  - Environment via .env.local (DATABASE_URL, etc.)
+  - Vercel deployment compatible (Next.js App Router)
+  - Docker Compose available for local Postgres
+
+================================================================================
+22. TESTING & QUALITY
+================================================================================
+
+  - Vitest unit tests (utils, delivery allocation, vendor service, components)
+  - TypeScript strict checking
+  - Production build verification (next build)
+
+================================================================================
+END OF DOCUMENT
+================================================================================

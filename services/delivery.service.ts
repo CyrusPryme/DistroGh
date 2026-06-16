@@ -1,6 +1,15 @@
 import { apiFetch, apiFetchNullable } from '@/lib/api/client'
 import { intakeService } from '@/services/intake.service'
-import type { DeliveryRun, DeliveryRunItem } from '@/types'
+import type { DeliveryRun, DeliveryRunItem, DeliveryRunVendorCharge } from '@/types'
+
+export interface DeliveryChargeAllocation {
+  total_transport_cost: number
+  supermarket_label: string
+  delivery_date: string
+  confirmed: boolean
+  preview: DeliveryRunVendorCharge[]
+  applied: DeliveryRunVendorCharge[] | null
+}
 
 export interface CreateDeliveryRunPayload {
   supermarket_id: string
@@ -59,10 +68,30 @@ export const deliveryService = {
     })
   },
 
-  async confirmRun(runId: string): Promise<DeliveryRun> {
+  async confirmRun(
+    runId: string,
+    options?: {
+      total_transport_cost?: number
+      vendor_charges?: {
+        vendor_id: string
+        vendor_name?: string
+        quantity_delivered: number
+        share_percent?: number
+        allocated_amount: number
+      }[]
+    }
+  ): Promise<DeliveryRun> {
     return apiFetch<DeliveryRun>(`/api/deliveries/${runId}/confirm`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options ?? {}),
       fallbackError: 'Failed to confirm delivery',
+    })
+  },
+
+  async getChargeAllocation(runId: string): Promise<DeliveryChargeAllocation> {
+    return apiFetch<DeliveryChargeAllocation>(`/api/deliveries/${runId}/charge-allocation`, {
+      fallbackError: 'Failed to load transport charge split',
     })
   },
 

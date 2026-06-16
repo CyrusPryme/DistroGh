@@ -40,4 +40,5 @@ export async function GET() {
       service_charge: serviceCharge,
     },
   })
+  
 }

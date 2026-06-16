@@ -2,28 +2,9 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireSession } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
+import { DELIVERY_RUN_SELECT } from '@/lib/delivery-run-sql'
 
-const RUN_SELECT = `
-  dr.*,
-  json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location, 'branch', sm.branch, 'store_code', sm.store_code) as supermarket,
-  coalesce(
-    (
-      select json_agg(
-        json_build_object(
-          'id', dri.id,
-          'product_id', dri.product_id,
-          'quantity_delivered', dri.quantity_delivered,
-          'created_at', dri.created_at,
-          'product', json_build_object('id', p.id, 'name', p.name, 'vendor_id', p.vendor_id)
-        )
-      )
-      from public.delivery_run_items dri
-      join public.products p on p.id = dri.product_id
-      where dri.delivery_run_id = dr.id
-    ),
-    '[]'::json
-  ) as items
-`
+const RUN_SELECT = DELIVERY_RUN_SELECT
 
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {

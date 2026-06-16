@@ -3,6 +3,12 @@ import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
 import { roundMoney, normalizeSaleMonthPeriod } from '@/lib/utils'
 import { resolveProductPricing } from '@/lib/product-pricing'
+import {
+  loadActiveFeeConfigs,
+  isDeveloperFeeEnabled,
+  computeSaleFee,
+  type DeveloperFeeConfig,
+} from '@/lib/developer-fees'
 
 type SaleInsert = {
   product_id: string
@@ -69,21 +75,30 @@ export async function POST(req: Request) {
     const productIds = Array.from(new Set(sales.map((s) => String(s.product_id).trim())))
     const productRows = await client.query(
       `
-      select id, vendor_price, distrogh_markup
-      from public.products
-      where id = any($1::uuid[]) and deleted_at is null
+      select p.id, p.vendor_price, p.distrogh_markup, p.category, p.vendor_id
+      from public.products p
+      where p.id = any($1::uuid[]) and p.deleted_at is null
       `,
       [productIds]
     )
     const productMap = new Map<
       string,
-      { vendor_price: number; distrogh_markup: number }
+      { vendor_price: number; distrogh_markup: number; category: string | null; vendor_id: string }
     >(
       (productRows.rows ?? []).map((r: any) => [
         String(r.id),
-        { vendor_price: Number(r.vendor_price ?? 0), distrogh_markup: Number(r.distrogh_markup ?? 0) },
+        {
+          vendor_price: Number(r.vendor_price ?? 0),
+          distrogh_markup: Number(r.distrogh_markup ?? 0),
+          category: r.category ?? null,
+          vendor_id: String(r.vendor_id),
+        },
       ])
     )
+
+    // Load developer fee configs if feature is enabled
+    const feeEnabled = await isDeveloperFeeEnabled(pool)
+    const feeConfigs: DeveloperFeeConfig[] = feeEnabled ? await loadActiveFeeConfigs(pool) : []
 
     for (const s of sales) {
       if (!productMap.has(String(s.product_id).trim())) {
@@ -134,6 +149,21 @@ export async function POST(req: Request) {
 
       const period = normalizeSaleMonthPeriod(String(s.week_start))
 
+      // Calculate developer fee (zero if feature disabled or no matching config)
+      const feeResult = feeEnabled
+        ? computeSaleFee(feeConfigs, {
+            qty,
+            totalSales,
+            productId: pid,
+            vendorId: product.vendor_id,
+            category: product.category,
+          })
+        : { fee: 0, config_id: null, config_name: null, fee_type: null }
+
+      const developerFee = roundMoney(feeResult.fee)
+      // DistroGH keeps everything after vendor_due and developer_fee
+      const distroghCommission = roundMoney(commissionAmount - developerFee)
+
       await client.query(
         `
         insert into public.sales (
@@ -144,6 +174,8 @@ export async function POST(req: Request) {
           total_sales,
           commission_amount,
           vendor_due,
+          developer_fee,
+          fee_config_id,
           week_start,
           week_end,
           import_batch_id
@@ -156,12 +188,20 @@ export async function POST(req: Request) {
           $5::numeric,
           $6::numeric,
           $7::numeric,
-          $8::date,
-          $9::date,
-          $10
+          $8::numeric,
+          $9::uuid,
+          $10::date,
+          $11::date,
+          $12
         )
         `,
-        [pid, smid, Math.floor(qty), unitPrice, totalSales, commissionAmount, vendorDue, period.week_start, period.week_end, batchId]
+        [
+          pid, smid, Math.floor(qty), unitPrice, totalSales,
+          distroghCommission, vendorDue,
+          developerFee,
+          feeResult.config_id ?? null,
+          period.week_start, period.week_end, batchId,
+        ]
       )
     }
 

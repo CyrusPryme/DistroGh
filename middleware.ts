@@ -5,18 +5,45 @@ import { getAuthSecret } from '@/lib/auth/config'
 const isDev = process.env.NODE_ENV === 'development'
 
 type Role = 'admin' | 'vendor'
+type AdminRole = 'developer' | 'super_admin' | 'admin' | 'user'
 
-async function readSession(request: NextRequest): Promise<{ role: Role } | null> {
+interface SessionInfo {
+  role: Role
+  admin_role?: AdminRole | null
+  permissions?: string[] | null
+}
+
+async function readSession(request: NextRequest): Promise<SessionInfo | null> {
   const token = request.cookies.get('session')?.value
   if (!token) return null
   try {
     const { payload } = await jwtVerify(token, getAuthSecret())
     const role = (payload as any)?.role
     if (role !== 'admin' && role !== 'vendor') return null
-    return { role }
+    const admin_role = (payload as any)?.admin_role ?? null
+    const permissions = (payload as any)?.permissions ?? null
+    return { role, admin_role, permissions }
   } catch {
     return null
   }
+}
+
+/** Check if the session has permission to access a given path. */
+function isAdminPathAllowed(session: SessionInfo, pathname: string): boolean {
+  // Developer gets everywhere
+  if (session.admin_role === 'developer') return true
+
+  // Platform Management is developer-only
+  if (pathname.startsWith('/dashboard/platform')) return false
+
+  // super_admin gets all remaining dashboard paths
+  if (session.admin_role === 'super_admin') return true
+
+  // Administration section is super_admin+ only
+  if (pathname.startsWith('/dashboard/administration')) return false
+
+  // Standard admin + user: allowed as long as role = 'admin'
+  return true
 }
 
 export async function middleware(request: NextRequest) {
@@ -35,7 +62,7 @@ export async function middleware(request: NextRequest) {
   if (isRootPage) return NextResponse.next()
 
   const session = await readSession(request)
-  if (isDev) console.log('🔐 SESSION:', { hasSession: !!session, role: session?.role, pathname })
+  if (isDev) console.log('🔐 SESSION:', { hasSession: !!session, role: session?.role, admin_role: session?.admin_role, pathname })
 
   if (isLoginPage) {
     if (session) return NextResponse.redirect(new URL('/dashboard', request.url))
@@ -49,7 +76,12 @@ export async function middleware(request: NextRequest) {
   if (isProtectedRoute) {
     if (!session) return NextResponse.redirect(new URL('/login', request.url))
 
-    if (session.role === 'admin') return NextResponse.next()
+    if (session.role === 'admin') {
+      if (!isAdminPathAllowed(session, pathname)) {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+      return NextResponse.next()
+    }
 
     // vendor RBAC
     if (pathname === '/dashboard') {

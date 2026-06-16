@@ -1,6 +1,7 @@
 import { getDbPool } from '@/lib/db'
 import { readSessionCookie, type SessionPayload } from '@/lib/auth/session'
 import { vendorBalanceSql, type VendorBalanceOptions } from '@/lib/vendor-earnings'
+import { hasPermission, assertPermission, type PermissionAction } from '@/lib/auth/permissions'
 
 export async function requireSession(): Promise<SessionPayload> {
   const session = await readSessionCookie()
@@ -11,6 +12,35 @@ export async function requireSession(): Promise<SessionPayload> {
 export async function requireAdminSession(): Promise<SessionPayload> {
   const session = await requireSession()
   if (session.role !== 'admin') throw new Error('Forbidden')
+  return session
+}
+
+/** Require the session to have super_admin or developer role. */
+export async function requireSuperAdmin(): Promise<SessionPayload> {
+  const session = await requireAdminSession()
+  if (session.admin_role !== 'super_admin' && session.admin_role !== 'developer') {
+    throw new Error('Forbidden')
+  }
+  return session
+}
+
+/** Require the session to have developer role (highest authority). */
+export async function requireDeveloper(): Promise<SessionPayload> {
+  const session = await requireAdminSession()
+  if (session.admin_role !== 'developer') throw new Error('Forbidden')
+  return session
+}
+
+/**
+ * Require the session to have a specific permission.
+ * super_admin always passes. Throws Forbidden if denied.
+ */
+export async function requirePermission(
+  module: string,
+  action: PermissionAction
+): Promise<SessionPayload> {
+  const session = await requireAdminSession()
+  assertPermission(session, module, action)
   return session
 }
 
@@ -39,6 +69,8 @@ export async function getServerUserProfile() {
     profile: { role: session.role, vendor_id: session.vendor_id },
   }
 }
+
+export { hasPermission }
 
 /** Vendor balance: sales due − returns − optional deductions − completed payouts. */
 export async function getVendorBalanceAmount(

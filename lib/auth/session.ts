@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { getAuthSecret } from '@/lib/auth/config'
+import type { AdminRole } from '@/lib/auth/permissions'
 
 const COOKIE_NAME = 'session'
 
@@ -11,6 +12,12 @@ export interface SessionPayload {
   email: string
   role: SessionRole
   vendor_id?: string | null
+  /** Granular admin sub-role (only present for admin-type users) */
+  admin_role?: AdminRole | null
+  /** Compact permission keys: "module:action". Empty for super_admin (all implicit). */
+  permissions?: string[] | null
+  /** Display name from admin_profiles */
+  display_name?: string | null
 }
 
 // `jose` requires the payload to be a record-like object (JWTPayload).
@@ -57,10 +64,13 @@ export async function readSessionCookie(): Promise<SessionPayload | null> {
     const email = (payload as any).email
     const role = (payload as any).role
     const vendor_id = (payload as any).vendor_id ?? null
+    const admin_role = (payload as any).admin_role ?? null
+    const permissions = (payload as any).permissions ?? null
+    const display_name = (payload as any).display_name ?? null
     if (typeof user_id !== 'string') return null
     if (typeof email !== 'string') return null
     if (role !== 'admin' && role !== 'vendor') return null
-    return { user_id, email, role, vendor_id }
+    return { user_id, email, role, vendor_id, admin_role, permissions, display_name }
   } catch {
     return null
   }

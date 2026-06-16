@@ -187,6 +187,16 @@ export interface Intake {
   vendor?: Vendor
 }
 
+/** Per-vendor share of a delivery run transport cost (deducted from payout balance) */
+export interface DeliveryRunVendorCharge {
+  vendor_id: string
+  vendor_name: string
+  quantity_delivered: number
+  share_percent: number
+  allocated_amount: number
+  vendor_deduction_id?: string
+}
+
 /** Delivery run from DistroGH to supermarket; total_transport_cost is the delivery cost for this run */
 export interface DeliveryRun {
   id: string
@@ -200,6 +210,7 @@ export interface DeliveryRun {
   confirmed_by: string | null
   supermarket?: Supermarket
   items?: DeliveryRunItem[]
+  vendor_charges?: DeliveryRunVendorCharge[]
 }
 
 /** Current stock at a supermarket (per product); updated on delivery confirm and sales import */

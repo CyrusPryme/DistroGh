@@ -51,6 +51,36 @@ export function formatDateTime(dateStr: string): string {
   }
 }
 
+/** Normalize Date / ISO / pg values to YYYY-MM-DD for SQL date columns. */
+export function toSqlDate(value: string | Date | null | undefined): string {
+  if (value == null || value === '') {
+    return format(new Date(), 'yyyy-MM-dd')
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return format(new Date(), 'yyyy-MM-dd')
+    return format(value, 'yyyy-MM-dd')
+  }
+  const s = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10)
+  try {
+    const parsed = new Date(s)
+    if (!Number.isNaN(parsed.getTime())) {
+      const y = parsed.getUTCFullYear()
+      const m = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+      const d = String(parsed.getUTCDate()).padStart(2, '0')
+      return `${y}-${m}-${d}`
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    return format(parseISO(s), 'yyyy-MM-dd')
+  } catch {
+    return s
+  }
+}
+
 export function getWeekRange(date: Date = new Date()) {
   const start = startOfWeek(date, { weekStartsOn: 1 }) // Monday
   const end = endOfWeek(date, { weekStartsOn: 1 })     // Sunday

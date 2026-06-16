@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { apiError } from '@/lib/api/respond'
 import { findOpenPayoutForVendor, vendorIdsWithOpenPayouts } from '@/lib/payout-open'
 
 async function attachVendor(pool: ReturnType<typeof getDbPool>, payoutId: string) {
@@ -26,7 +27,8 @@ async function attachVendor(pool: ReturnType<typeof getDbPool>, payoutId: string
 }
 
 export async function GET(req: Request) {
-  const session = await requireSession()
+  try {
+    const session = await requireSession()
   const url = new URL(req.url)
   const status = url.searchParams.get('status')?.trim() || null
   const vendorIdParam = url.searchParams.get('vendor_id')?.trim() || null
@@ -57,10 +59,14 @@ export async function GET(req: Request) {
   )
 
   return NextResponse.json({ success: true, data: rows })
+  } catch (e) {
+    return apiError(e, 'Failed to load payouts')
+  }
 }
 
 export async function POST(req: Request) {
-  await requireAdminSession()
+  try {
+    await requireAdminSession()
   const body = await req.json().catch(() => null)
 
   const vendor_id = (body?.vendor_id ?? '').toString().trim()
@@ -142,15 +148,37 @@ export async function POST(req: Request) {
     )
   }
 
-  const { rows } = await pool.query(
-    `
-    insert into public.payouts (vendor_id, amount_due, amount_paid, status, week_start, week_end)
-    values ($1::uuid, $2, 0, 'pending', $3, $4)
-    returning *
-    `,
-    [vendor_id, amount_due, week_start, week_end]
-  )
-
-  const row = rows[0] ? await attachVendor(pool, String(rows[0].id)) : null
-  return NextResponse.json({ success: true, data: row }, { status: 201 })
+  try {
+    const { rows } = await pool.query(
+      `
+      insert into public.payouts (vendor_id, amount_due, amount_paid, status, week_start, week_end)
+      values ($1::uuid, $2, 0, 'pending', $3, $4)
+      returning *
+      `,
+      [vendor_id, amount_due, week_start, week_end]
+    )
+    const row = rows[0] ? await attachVendor(pool, String(rows[0].id)) : null
+    return NextResponse.json({ success: true, data: row }, { status: 201 })
+  } catch (e: unknown) {
+    const pgCode = (e as { code?: string })?.code
+    if (pgCode === '23505') {
+      const raced = await findOpenPayoutForVendor(pool, vendor_id)
+      if (raced) {
+        const row = await attachVendor(pool, String(raced.id))
+        return NextResponse.json(
+          {
+            success: true,
+            data: row,
+            reused_existing: true,
+            message: 'This vendor already has an open pending payout — using that record.',
+          },
+          { status: 200 }
+        )
+      }
+    }
+    throw e
+  }
+  } catch (e) {
+    return apiError(e, 'Failed to create payout')
+  }
 }

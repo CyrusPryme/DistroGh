@@ -6,7 +6,10 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, Package, ShoppingCart, Upload,
   CreditCard, BarChart3, LogOut, Menu, ChevronRight, ChevronDown,
-  Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings
+  Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings,
+  Shield, UserCog, KeyRound, ScrollText,
+  Crown, BadgeDollarSign, Scale, ClipboardList, HeartPulse, ArchiveRestore,
+  ShieldAlert, Database, SlidersHorizontal
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deliveryService } from '@/services/delivery.service'
@@ -132,7 +135,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [userAdminRole, setUserAdminRole] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string>('')
+  const [displayName, setDisplayName] = useState<string | null>(null)
   const [vendorInfo, setVendorInfo] = useState<{ name: string } | null>(null)
   const [vendorProfileOpen, setVendorProfileOpen] = useState(false)
   const [pendingDeliveries, setPendingDeliveries] = useState(0)
@@ -146,6 +151,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const json = await res.json().catch(() => null)
       if (!res.ok || !json?.success) {
         setUserRole(null)
+        setUserAdminRole(null)
         setUserEmail('')
         setVendorInfo(null)
         setServiceChargeBanner(null)
@@ -155,8 +161,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const role = json.data?.role as string | undefined
       const email = (json.data?.email ?? '') as string
       const vendorId = (json.data?.vendor_id ?? null) as string | null
+      const adminRole = (json.data?.admin_role ?? null) as string | null
+      const dn = (json.data?.display_name ?? null) as string | null
 
       setUserRole(role ?? null)
+      setUserAdminRole(adminRole)
+      setDisplayName(dn)
       setUserEmail(email)
 
       if (role === 'vendor') {
@@ -222,7 +232,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isProfileActive =
     pathname === profileHref || pathname.startsWith(`${profileHref}/`)
 
-  const SidebarContent = () => (
+  const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Logo - compact */}
       <div className="px-4 py-3 border-b border-slate-100">
@@ -238,13 +248,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <div className={cn(
               'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide',
-              userRole === 'admin' && 'bg-emerald-100 text-emerald-700',
+              userAdminRole === 'developer' && 'bg-violet-100 text-violet-700',
+              userAdminRole === 'super_admin' && 'bg-purple-100 text-purple-700',
+              userAdminRole === 'admin' && 'bg-emerald-100 text-emerald-700',
+              userAdminRole === 'user' && 'bg-slate-200 text-slate-700',
+              !userAdminRole && userRole === 'admin' && 'bg-emerald-100 text-emerald-700',
               userRole === 'vendor' && 'bg-blue-100 text-blue-700',
-              userRole === 'user' && 'bg-slate-200 text-slate-700'
             )}>
-              {userRole}
+              {userAdminRole ? userAdminRole.replace('_', ' ') : userRole}
             </div>
-            <span className="text-xs text-slate-500 truncate">{userEmail}</span>
+            <span className="text-xs text-slate-500 truncate">{displayName || userEmail}</span>
           </div>
         </div>
       )}
@@ -257,8 +270,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="space-y-0.5">
           {visibleNavItems.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href ||
-              (href !== '/dashboard' && pathname.startsWith(href + '/')) ||
-              (href !== '/dashboard' && pathname.startsWith(href))
+              (href !== '/dashboard' && pathname.startsWith(href + '/'))
             const isDeliveries = href === '/dashboard/deliveries'
             const isPayouts = href === '/dashboard/payouts'
             const hasPending =
@@ -290,6 +302,84 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             )
           })}
         </div>
+
+        {/* Administration section — visible to super_admin and developer */}
+        {(userAdminRole === 'super_admin' || userAdminRole === 'developer') && (
+          <div className="mt-4">
+            <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-purple-400">
+              Administration
+            </p>
+            <div className="space-y-0.5">
+              {[
+                { href: '/dashboard/administration/admin-accounts', label: 'Admin Accounts', icon: UserCog },
+                { href: '/dashboard/administration/roles-permissions', label: 'Roles & Permissions', icon: KeyRound },
+                { href: '/dashboard/administration/audit-logs', label: 'Audit Logs', icon: ScrollText },
+              ].map(({ href, label, icon: Icon }) => {
+                const isActive = pathname === href || pathname.startsWith(href + '/')
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => setSidebarOpen(false)}
+                    className={cn(
+                      'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-150 text-xs font-medium',
+                      isActive
+                        ? 'bg-purple-50 text-purple-800 font-semibold border-l-2 border-purple-500'
+                        : 'text-slate-600 hover:bg-purple-50 hover:text-purple-700'
+                    )}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="flex-1 truncate">{label}</span>
+                    {isActive && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Platform Management section — visible to developer only */}
+        {userAdminRole === 'developer' && (
+          <div className="mt-4">
+            <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-400">
+              Platform Management
+            </p>
+            <div className="space-y-0.5">
+              {[
+                { href: '/dashboard/platform', label: 'Overview', icon: LayoutDashboard },
+                { href: '/dashboard/platform/developer-accounts', label: 'Developer Accounts', icon: Crown },
+                { href: '/dashboard/platform/revenue', label: 'Platform Revenue', icon: BadgeDollarSign },
+                { href: '/dashboard/platform/reconciliation', label: 'Reconciliation', icon: Scale },
+                { href: '/dashboard/platform/audit-center', label: 'Audit Center', icon: ClipboardList },
+                { href: '/dashboard/platform/system-health', label: 'System Health', icon: HeartPulse },
+                { href: '/dashboard/platform/data-recovery', label: 'Data Recovery', icon: ArchiveRestore },
+                { href: '/dashboard/platform/security', label: 'Security Center', icon: ShieldAlert },
+                { href: '/dashboard/platform/database', label: 'Database', icon: Database },
+                { href: '/dashboard/platform/configuration', label: 'Configuration', icon: SlidersHorizontal },
+              ].map(({ href, label, icon: Icon }) => {
+                const isActive = pathname === href ||
+                  (href !== '/dashboard/platform' && pathname.startsWith(href + '/'))
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => setSidebarOpen(false)}
+                    className={cn(
+                      'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-150 text-xs font-medium',
+                      isActive
+                        ? 'bg-violet-50 text-violet-800 font-semibold border-l-2 border-violet-500'
+                        : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
+                    )}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="flex-1 truncate">{label}</span>
+                    {isActive && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* Footer - compact */}
@@ -340,7 +430,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="app-layout-root flex h-screen bg-slate-50 overflow-hidden">
       {/* Desktop Sidebar */}
       <aside className="app-layout-sidebar no-print hidden lg:flex flex-col w-64 bg-white border-r border-slate-200/80 shrink-0 shadow-sm">
-        <SidebarContent />
+        {sidebarContent}
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -354,7 +444,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             className="absolute left-0 top-0 h-full w-60 bg-white shadow-xl transform transition-transform duration-300 ease-in-out"
             onClick={(e) => e.stopPropagation()}
           >
-            <SidebarContent />
+            {sidebarContent}
           </aside>
         </div>
       )}
