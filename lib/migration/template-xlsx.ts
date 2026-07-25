@@ -113,47 +113,41 @@ function registerList(
   return range
 }
 
-function applyColumnValidation(
-  worksheet: ExcelJS.Worksheet,
-  colIndex: number,
+function buildCellValidation(
   validation: ColumnValidation,
   listRange: string | null,
-  required: boolean
-) {
-  const letter = colLetter(colIndex)
-  const range = `${letter}${FIRST_EDITABLE_ROW}:${letter}${LAST_DATA_ROW}`
-
+  required: boolean,
+  columnLetter: string
+): ExcelJS.DataValidation | null {
   if (validation.kind === 'list' && listRange) {
-    worksheet.dataValidations.add(range, {
+    return {
       type: 'list',
       allowBlank: !required,
       formulae: [listRange],
       showErrorMessage: true,
       errorStyle: 'error',
       errorTitle: 'Invalid value',
-      error: `Choose a value from the dropdown list.`,
+      error: 'Choose a value from the dropdown list.',
       showInputMessage: true,
-      promptTitle: humanizeColumn(letter),
+      promptTitle: humanizeColumn(columnLetter),
       prompt: 'Select from the dropdown',
-    })
-    return
+    }
   }
 
   if (validation.kind === 'decimal') {
-    worksheet.dataValidations.add(range, {
+    return {
       type: 'decimal',
-      operator: validation.min != null ? 'greaterThanOrEqual' : 'greaterThanOrEqual',
+      operator: 'greaterThanOrEqual',
       allowBlank: !required,
       formulae: validation.min != null ? [validation.min] : [0],
       showErrorMessage: true,
       errorTitle: 'Invalid number',
       error: validation.min != null ? `Enter a number ≥ ${validation.min}` : 'Enter a valid decimal number',
-    })
-    return
+    }
   }
 
   if (validation.kind === 'whole') {
-    worksheet.dataValidations.add(range, {
+    return {
       type: 'whole',
       operator: 'greaterThanOrEqual',
       allowBlank: !required,
@@ -161,12 +155,11 @@ function applyColumnValidation(
       showErrorMessage: true,
       errorTitle: 'Invalid quantity',
       error: `Enter a whole number ≥ ${validation.min ?? 1}`,
-    })
-    return
+    }
   }
 
   if (validation.kind === 'phone') {
-    worksheet.dataValidations.add(range, {
+    return {
       type: 'textLength',
       operator: 'greaterThanOrEqual',
       allowBlank: !required,
@@ -176,12 +169,11 @@ function applyColumnValidation(
       error: 'Phone / MoMo numbers should be at least 10 digits',
       showInputMessage: true,
       prompt: 'e.g. 0244123456',
-    })
-    return
+    }
   }
 
   if (validation.kind === 'date') {
-    worksheet.dataValidations.add(range, {
+    return {
       type: 'textLength',
       operator: 'greaterThanOrEqual',
       allowBlank: !required,
@@ -192,7 +184,25 @@ function applyColumnValidation(
       showInputMessage: true,
       promptTitle: 'Date format',
       prompt: 'YYYY-MM-DD (e.g. 2024-01-15)',
-    })
+    }
+  }
+
+  return null
+}
+
+function applyColumnValidation(
+  worksheet: ExcelJS.Worksheet,
+  colIndex: number,
+  validation: ColumnValidation,
+  listRange: string | null,
+  required: boolean
+) {
+  const letter = colLetter(colIndex)
+  const cellValidation = buildCellValidation(validation, listRange, required, letter)
+  if (!cellValidation) return
+
+  for (let row = FIRST_EDITABLE_ROW; row <= LAST_DATA_ROW; row++) {
+    worksheet.getCell(row, colIndex).dataValidation = cellValidation
   }
 }
 
