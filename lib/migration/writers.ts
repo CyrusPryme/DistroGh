@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { toSqlDate } from '@/lib/utils'
+import { normalizeMomoNetwork } from '@/lib/migration/normalize'
 
 type StagingRow = {
   id: string
@@ -57,7 +58,7 @@ export async function importStagingRow(
     case 'vendors': {
       // Historical migrations always create/update admin-managed vendors (no portal login).
       const name = s(d.name)
-      const momoNetwork = s(d.momo_network) || 'MTN'
+      const momoNetwork = normalizeMomoNetwork(d.momo_network)
       const momoNumber = s(d.momo_number) || '0000000000'
       const contactPerson = s(d.contact_person_name || d.contact_person)
       const contactPhone = s(d.phone || d.contact_phone) || null

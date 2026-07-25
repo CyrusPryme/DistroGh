@@ -163,3 +163,19 @@ export async function cancelMigrationJobs(
   )
   return rowCount ?? 0
 }
+
+/** Re-queue failed jobs so import can be retried after a fix. */
+export async function resetFailedMigrationJobs(db: Db, migrationId: string): Promise<number> {
+  const { rowCount } = await db.query(
+    `UPDATE public.migration_jobs
+     SET status = 'queued',
+         error_message = NULL,
+         locked_at = NULL,
+         locked_by = NULL,
+         completed_at = NULL,
+         updated_at = now()
+     WHERE migration_id = $1 AND status = 'failed'`,
+    [migrationId]
+  )
+  return rowCount ?? 0
+}

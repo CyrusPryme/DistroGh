@@ -5,7 +5,7 @@ import { parseAllActiveFiles } from '@/lib/migration/parse'
 import { validateMigrationStaging } from '@/lib/migration/validate'
 import { claimNextJob, updateJobProgress } from '@/lib/migration/jobs'
 import { importStagingRow } from '@/lib/migration/writers'
-import { updateMigrationProject, getMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
+import { updateMigrationProject, getMigrationProject, isMigrationAborted } from '@/lib/migration/projects'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import type { MigrationEntityType } from '@/lib/migration/types'
 
@@ -46,7 +46,7 @@ async function runParse(pool: Pool, migrationId: string, actorId?: string | null
 
 async function runImportChunk(pool: Pool, jobId: string, migrationId: string, entityType: MigrationEntityType) {
   const project = await getMigrationProject(pool, migrationId)
-  if (!project || isMigrationTerminal(project.status)) {
+  if (!project || isMigrationAborted(project)) {
     await updateJobProgress(pool, jobId, {
       status: 'cancelled',
       error_message: 'Migration was cancelled',
@@ -156,7 +156,7 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
   const pct = Math.min(99, Math.round((current / total) * 1000) / 10)
 
   const afterProject = await getMigrationProject(pool, migrationId)
-  if (!afterProject || isMigrationTerminal(afterProject.status)) {
+  if (!afterProject || isMigrationAborted(afterProject)) {
     await updateJobProgress(pool, jobId, {
       current_record: current,
       progress_pct: pct,
@@ -295,7 +295,7 @@ export async function processMigrationJobs(pool: Pool, opts?: { maxJobs?: number
     if (!job) break
 
     const project = await getMigrationProject(pool, job.migration_id)
-    if (!project || isMigrationTerminal(project.status)) {
+    if (!project || isMigrationAborted(project)) {
       await updateJobProgress(pool, job.id, {
         status: 'cancelled',
         error_message: 'Migration was cancelled',
@@ -345,7 +345,17 @@ export async function processMigrationJobs(pool: Pool, opts?: { maxJobs?: number
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Job failed'
       await updateJobProgress(pool, job.id, { status: 'failed', error_message: msg })
-      await updateMigrationProject(pool, job.migration_id, { status: 'failed' })
+      const failedProject = await getMigrationProject(pool, job.migration_id)
+      await updateMigrationProject(pool, job.migration_id, {
+        status: 'failed',
+        error_summary: {
+          ...(failedProject?.error_summary ?? {}),
+          import_error: msg,
+          failed_job_id: job.id,
+          failed_job_type: job.job_type,
+          failed_at: new Date().toISOString(),
+        },
+      })
       await writeMigrationAudit(pool, {
         migrationId: job.migration_id,
         action: 'migration.job_failed',

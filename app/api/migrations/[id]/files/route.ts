@@ -6,7 +6,7 @@ import { attachMigrationFile, listMigrationFiles, replaceMigrationFile, setFileE
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { enqueueJob } from '@/lib/migration/jobs'
 import { processMigrationJobs } from '@/lib/migration/process'
-import { getMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
+import { getMigrationProject, isMigrationWorkBlocked, isMigrationUserCancelled } from '@/lib/migration/projects'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -42,11 +42,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!project) {
       return NextResponse.json({ success: false, error: 'Migration not found' }, { status: 404 })
     }
-    if (isMigrationTerminal(project.status)) {
-      return NextResponse.json(
-        { success: false, error: 'Migration is finished. Start over before uploading new files.' },
-        { status: 400 }
-      )
+    if (isMigrationWorkBlocked(project)) {
+      let error = 'Cannot upload files to this migration.'
+      if (isMigrationUserCancelled(project)) {
+        error = 'This migration was cancelled. Click "Start over with new files" first.'
+      } else if (['completed', 'rolled_back', 'archived', 'cancelled'].includes(project.status)) {
+        error = 'This migration is finished. Start over with new files or create a new migration project.'
+      }
+      return NextResponse.json({ success: false, error }, { status: 400 })
     }
     if (project.status === 'importing') {
       return NextResponse.json(

@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { apiError } from '@/lib/api/respond'
 import { requirePermission } from '@/lib/auth/require'
-import { enqueueJob, listJobs, cancelMigrationJobs } from '@/lib/migration/jobs'
+import { enqueueJob, listJobs, cancelMigrationJobs, resetFailedMigrationJobs } from '@/lib/migration/jobs'
 import { buildPreviewSummary, processMigrationJobs } from '@/lib/migration/process'
-import { getMigrationProject, updateMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
+import { getMigrationProject, updateMigrationProject, isMigrationWorkBlocked, isMigrationTerminal } from '@/lib/migration/projects'
 import { clearMigrationUploads } from '@/lib/migration/files'
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
@@ -35,7 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const project = await getMigrationProject(pool, id)
     if (!project) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
 
-    if (action !== 'cancel' && action !== 'restart' && isMigrationTerminal(project.status)) {
+    if (action !== 'cancel' && action !== 'restart' && isMigrationWorkBlocked(project)) {
       return NextResponse.json(
         { success: false, error: 'Migration is no longer active' },
         { status: 400 }
@@ -156,9 +156,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     if (action === 'restart') {
-      if (project.status !== 'failed' || !project.error_summary?.cancel_reason) {
+      if (project.status !== 'failed') {
         return NextResponse.json(
-          { success: false, error: 'Only cancelled migrations can be restarted' },
+          { success: false, error: 'Only failed migrations can be restarted' },
           { status: 400 }
         )
       }
@@ -237,6 +237,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     if (action === 'process') {
+      if (project.status === 'failed' && project.error_summary?.import_error && !project.error_summary?.cancel_reason) {
+        await resetFailedMigrationJobs(pool, id)
+        await updateMigrationProject(pool, id, {
+          status: 'importing',
+          current_stage: 8,
+          error_summary: {
+            ...project.error_summary,
+            import_error: null,
+            last_retry_at: new Date().toISOString(),
+          },
+        })
+      }
       const results = await processMigrationJobs(pool, { maxJobs: Number(body.max_jobs || 5) })
       return NextResponse.json({ success: true, data: results })
     }

@@ -12,7 +12,7 @@ import { PageToast } from '@/components/shared/PageToast'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { cn } from '@/lib/utils'
-import { MIGRATION_STAGES, MIGRATION_TERMINAL_STATUSES, type MigrationEntityType } from '@/lib/migration/types'
+import { MIGRATION_STAGES, type MigrationEntityType } from '@/lib/migration/types'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
 
 type Project = {
@@ -31,7 +31,7 @@ type Project = {
   warning_count: number
   rollback_available: boolean
   files_uploaded: number
-  error_summary?: { cancel_reason?: string; cancelled_at?: string }
+  error_summary?: { cancel_reason?: string; cancelled_at?: string; import_error?: string; failed_at?: string }
 }
 
 type MigFile = {
@@ -108,6 +108,7 @@ export default function MigrationWizardPage() {
   useEffect(() => {
     if (!project) return
     const active = ['importing', 'analysing', 'verifying'].includes(project.status)
+      || (project.status === 'failed' && !project.error_summary?.cancel_reason)
       || jobs.some((j) => j.status === 'queued' || j.status === 'running')
     if (!active) {
       if (pollRef.current) clearInterval(pollRef.current)
@@ -239,9 +240,14 @@ export default function MigrationWizardPage() {
 
   const stage = project?.current_stage ?? 1
   const importJobs = useMemo(() => jobs.filter((j) => j.job_type === 'import'), [jobs])
-  const isTerminal = project ? MIGRATION_TERMINAL_STATUSES.includes(project.status as (typeof MIGRATION_TERMINAL_STATUSES)[number]) : false
   const cancelReasonText = project?.error_summary?.cancel_reason
-  const needsRestart = project?.status === 'failed' && Boolean(cancelReasonText)
+  const isUserCancelled = Boolean(cancelReasonText)
+  const importErrorText = project?.error_summary?.import_error
+  const isLocked = project
+    ? ['completed', 'rolled_back', 'archived', 'cancelled'].includes(project.status) || isUserCancelled
+    : false
+  const needsRestart = project?.status === 'failed' && isUserCancelled
+  const showStartOver = project?.status === 'failed'
   const canManageFiles = project
     ? !['importing', 'completed', 'rolled_back', 'archived'].includes(project.status) && !needsRestart
     : false
@@ -284,7 +290,7 @@ export default function MigrationWizardPage() {
         description={project.description || 'Stateful historical migration workspace'}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {!isTerminal && (
+            {!isLocked && (
               <button
                 type="button"
                 className="btn-danger"
@@ -298,7 +304,7 @@ export default function MigrationWizardPage() {
                 Cancel migration
               </button>
             )}
-            {needsRestart && (
+            {showStartOver && (
               <button
                 type="button"
                 className="btn-primary"
@@ -315,6 +321,23 @@ export default function MigrationWizardPage() {
           </div>
         }
       />
+
+      {importErrorText && !isUserCancelled && (
+        <div className="data-card bg-red-50 border-red-200">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h2 className="font-semibold text-red-900">Import error</h2>
+              <p className="text-sm text-red-800 mt-1 font-mono text-xs break-all">{importErrorText}</p>
+              <p className="text-xs text-red-700 mt-2">
+                {importErrorText.includes('momo_network')
+                  ? 'The mobile money network issue is fixed — click Process next job chunk to retry the import. Only upload new files if you changed the spreadsheet.'
+                  : <>Fix the data if needed, then use <strong>Process next job chunk</strong> to retry import. Use <strong>Start over with new files</strong> only if you want to replace all uploads.</>}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(cancelReasonText && (project.status === 'failed' || project.status === 'draft')) && (
         <div className={cn(
@@ -700,7 +723,7 @@ export default function MigrationWizardPage() {
       )}
 
       {/* Stage 8/9 — Import / Verification */}
-      {(stage === 8 || stage === 9 || project.status === 'importing') && (
+      {(stage === 8 || stage === 9 || project.status === 'importing' || (project.status === 'failed' && importErrorText)) && (
         <div className="space-y-4">
           {importJobs.map((j) => (
             <div key={j.id} className="data-card">

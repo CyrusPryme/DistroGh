@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
+import { normalizeMomoNetwork, momoNetworkWasNormalized } from '@/lib/migration/normalize'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { updateMigrationProject } from '@/lib/migration/projects'
 
@@ -35,6 +36,13 @@ function validateRow(
       requireField('name', 'Vendor name')
       // Historical migrations always import as admin-managed (no portal login)
       normalized.access_mode = 'admin_managed'
+      normalized.momo_network = normalizeMomoNetwork(data.momo_network)
+      if (momoNetworkWasNormalized(data.momo_network)) {
+        warnings.push({
+          code: 'MOMO_NETWORK_NORMALIZED',
+          message: `momo_network "${str(data.momo_network)}" will be imported as ${normalized.momo_network}`,
+        })
+      }
       if (str(data.login_email) || str(data.email)) {
         warnings.push({
           code: 'ADMIN_MANAGED_NO_LOGIN',

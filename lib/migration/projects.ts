@@ -13,6 +13,24 @@ export function isMigrationTerminal(status: MigrationStatus): boolean {
   return MIGRATION_TERMINAL_STATUSES.includes(status)
 }
 
+/** User cancelled — no further work allowed. */
+export function isMigrationUserCancelled(project: MigrationProject): boolean {
+  return Boolean(project.error_summary?.cancel_reason)
+}
+
+/** Block migration work (import, reconcile, validate, etc.). Import failures stay recoverable. */
+export function isMigrationWorkBlocked(project: MigrationProject): boolean {
+  if (isMigrationUserCancelled(project)) return true
+  if (project.status === 'failed') return false
+  return isMigrationTerminal(project.status)
+}
+
+/** Stop background jobs (cancelled, completed, user-cancelled failed). */
+export function isMigrationAborted(project: MigrationProject): boolean {
+  if (project.status === 'failed' && !isMigrationUserCancelled(project)) return false
+  return isMigrationTerminal(project.status)
+}
+
 function mapProject(r: Record<string, unknown>): MigrationProject {
   return {
     id: String(r.id),
