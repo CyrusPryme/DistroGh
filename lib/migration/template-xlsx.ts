@@ -11,6 +11,14 @@ export type MigrationTemplateRecord = {
   sample_rows: Record<string, unknown>[]
 }
 
+/** Live data injected when generating templates (e.g. vendor dropdowns). */
+export type TemplateBuildOptions = {
+  vendorNames?: string[]
+}
+
+const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
+const PHONE_COLUMNS = new Set(['momo_number', 'contact_phone', 'phone'])
+
 const DATA_ROW_COUNT = 250
 const HEADER_ROW = 1
 const SAMPLE_ROW = 2
@@ -81,8 +89,25 @@ function colLetter(index: number): string {
   return s
 }
 
-function getValidation(entityType: string, column: string): ColumnValidation | null {
+function getValidation(
+  entityType: string,
+  column: string,
+  options?: TemplateBuildOptions
+): ColumnValidation | null {
+  if (VENDOR_NAME_COLUMNS.has(column)) {
+    const names = options?.vendorNames ?? []
+    return {
+      kind: 'list',
+      options: names.length
+        ? names
+        : ['(No vendors in system — add vendors first)'],
+    }
+  }
   return ENTITY_FIELD_OVERRIDES[entityType]?.[column] ?? FIELD_VALIDATIONS[column] ?? null
+}
+
+function isPhoneColumn(column: string): boolean {
+  return PHONE_COLUMNS.has(column)
 }
 
 function humanizeColumn(name: string): string {
@@ -159,17 +184,7 @@ function buildCellValidation(
   }
 
   if (validation.kind === 'phone') {
-    return {
-      type: 'textLength',
-      operator: 'greaterThanOrEqual',
-      allowBlank: !required,
-      formulae: [10],
-      showErrorMessage: true,
-      errorTitle: 'Invalid phone',
-      error: 'Phone / MoMo numbers should be at least 10 digits',
-      showInputMessage: true,
-      prompt: 'e.g. 0244123456',
-    }
+    return null
   }
 
   if (validation.kind === 'date') {
@@ -190,6 +205,30 @@ function buildCellValidation(
   return null
 }
 
+function applyPhoneColumnValidation(
+  worksheet: ExcelJS.Worksheet,
+  colIndex: number,
+  required: boolean
+) {
+  const letter = colLetter(colIndex)
+  for (let row = FIRST_EDITABLE_ROW; row <= LAST_DATA_ROW; row++) {
+    const cell = worksheet.getCell(row, colIndex)
+    cell.numFmt = '@'
+    cell.dataValidation = {
+      type: 'custom',
+      allowBlank: !required,
+      formulae: [`=AND(LEN(${letter}${row})=10,LEFT(${letter}${row},1)="0")`],
+      showErrorMessage: true,
+      errorStyle: 'error',
+      errorTitle: 'Invalid Ghana phone',
+      error: 'Enter exactly 10 digits starting with 0 (e.g. 0243222222).',
+      showInputMessage: true,
+      promptTitle: 'Ghana phone / MoMo',
+      prompt: '10 digits starting with 0 — e.g. 0243222222',
+    }
+  }
+}
+
 function applyColumnValidation(
   worksheet: ExcelJS.Worksheet,
   colIndex: number,
@@ -197,6 +236,11 @@ function applyColumnValidation(
   listRange: string | null,
   required: boolean
 ) {
+  if (validation.kind === 'phone') {
+    applyPhoneColumnValidation(worksheet, colIndex, required)
+    return
+  }
+
   const letter = colLetter(colIndex)
   const cellValidation = buildCellValidation(validation, listRange, required, letter)
   if (!cellValidation) return
@@ -208,7 +252,8 @@ function applyColumnValidation(
 
 function buildInstructionsSheet(
   workbook: ExcelJS.Workbook,
-  template: MigrationTemplateRecord
+  template: MigrationTemplateRecord,
+  options?: TemplateBuildOptions
 ) {
   const sheet = workbook.addWorksheet('Instructions')
   sheet.columns = [{ width: 90 }]
@@ -225,8 +270,11 @@ function buildInstructionsSheet(
     [''],
     ['How to use:'],
     ['1. Fill rows on the "Data" sheet (row 2 is an example — replace or add below).'],
-    ['2. Use dropdowns where provided (momo_network, status, reason, etc.).'],
-    ['3. Dates must be YYYY-MM-DD. Phone/MoMo numbers: at least 10 digits.'],
+    ['2. Use dropdowns where provided (momo_network, status, vendor_name, reason, etc.).'],
+    ['3. Dates must be YYYY-MM-DD. Ghana phones: exactly 10 digits starting with 0 (e.g. 0243222222).'],
+    ...(template.entity_type === 'products' || (template.required_columns || []).some((c) => VENDOR_NAME_COLUMNS.has(c))
+      ? [[`Vendor dropdown lists ${options?.vendorNames?.length ?? 0} vendor(s) from the system at download time — re-download after adding/removing vendors.`]]
+      : []),
     ['4. Required columns are marked with * in the header.'],
     ['5. Save as .xlsx and upload in Data Management → Historical Migrations.'],
     [''],
@@ -247,7 +295,8 @@ function populateTemplateSheets(
   workbook: ExcelJS.Workbook,
   template: MigrationTemplateRecord,
   dataSheetName = 'Data',
-  shared?: { listsSheet: ExcelJS.Worksheet; listRegistry: ListRegistry; listCol: { value: number } }
+  shared?: { listsSheet: ExcelJS.Worksheet; listRegistry: ListRegistry; listCol: { value: number } },
+  options?: TemplateBuildOptions
 ) {
   const requiredSet = new Set(template.required_columns || [])
   const columns = [
@@ -292,21 +341,36 @@ function populateTemplateSheets(
   const sampleRow = dataSheet.getRow(SAMPLE_ROW)
   columns.forEach((key, idx) => {
     const val = sample[key]
-    if (val !== undefined && val !== null) sampleRow.getCell(idx + 1).value = val as string | number
+    const cell = sampleRow.getCell(idx + 1)
+    if (val !== undefined && val !== null) {
+      if (isPhoneColumn(key)) {
+        cell.value = String(val)
+        cell.numFmt = '@'
+      } else if (VENDOR_NAME_COLUMNS.has(key) && options?.vendorNames?.length) {
+        cell.value = options.vendorNames.includes(String(val))
+          ? String(val)
+          : options.vendorNames[0]
+      } else {
+        cell.value = val as string | number
+      }
+    }
   })
   sampleRow.font = { italic: true, color: { argb: 'FF64748B' } }
 
   columns.forEach((key, idx) => {
     const colIndex = idx + 1
-    const validation = getValidation(template.entity_type, key)
+    const validation = getValidation(template.entity_type, key, options)
     if (!validation) return
     let listRange: string | null = null
     if (validation.kind === 'list') {
+      const listKey = VENDOR_NAME_COLUMNS.has(key)
+        ? 'live:vendors'
+        : `${template.entity_type}:${key}`
       listRange = registerList(
         listsSheet,
         listCol,
         listRegistry,
-        `${template.entity_type}:${key}`,
+        listKey,
         validation.options
       )
     }
@@ -319,14 +383,15 @@ function populateTemplateSheets(
 
 /** Build a single-entity migration template workbook. */
 export async function buildMigrationTemplateWorkbook(
-  template: MigrationTemplateRecord
+  template: MigrationTemplateRecord,
+  options?: TemplateBuildOptions
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'DistroGH Data Management'
   workbook.created = new Date()
 
-  buildInstructionsSheet(workbook, template)
-  populateTemplateSheets(workbook, template, 'Data')
+  buildInstructionsSheet(workbook, template, options)
+  populateTemplateSheets(workbook, template, 'Data', undefined, options)
 
   const buffer = await workbook.xlsx.writeBuffer()
   return Buffer.from(buffer)
@@ -334,7 +399,8 @@ export async function buildMigrationTemplateWorkbook(
 
 /** All entity templates in one workbook (one sheet per entity). */
 export async function buildAllMigrationTemplatesWorkbook(
-  templates: MigrationTemplateRecord[]
+  templates: MigrationTemplateRecord[],
+  options?: TemplateBuildOptions
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'DistroGH Data Management'
@@ -361,7 +427,8 @@ export async function buildAllMigrationTemplatesWorkbook(
       workbook,
       template,
       sanitizeSheetName(ENTITY_LABELS[template.entity_type as MigrationEntityType] || template.label),
-      shared
+      shared,
+      options
     )
   }
 

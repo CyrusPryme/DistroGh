@@ -27,8 +27,25 @@ describe('template-xlsx', () => {
     expect(buf.subarray(0, 2).toString()).toBe('PK')
   })
 
+  it('generates products template with vendor dropdown list', async () => {
+    const productsTemplate: MigrationTemplateRecord = {
+      entity_type: 'products',
+      label: 'Products',
+      description: 'Vendor SKUs',
+      required_columns: ['name', 'vendor_name', 'vendor_price'],
+      optional_columns: ['barcode'],
+      sample_rows: [{ name: 'Palm Oil 1L', vendor_name: 'Acme Foods', vendor_price: 25 }],
+    }
+    const buf = await buildMigrationTemplateWorkbook(productsTemplate, {
+      vendorNames: ['Acme Foods', 'Beta Traders'],
+    })
+    expect(buf.length).toBeGreaterThan(1000)
+  })
+
   it('generates combined templates workbook', async () => {
-    const buf = await buildAllMigrationTemplatesWorkbook([vendorTemplate])
+    const buf = await buildAllMigrationTemplatesWorkbook([vendorTemplate], {
+      vendorNames: ['Acme Foods'],
+    })
     expect(buf.length).toBeGreaterThan(1000)
   })
 })

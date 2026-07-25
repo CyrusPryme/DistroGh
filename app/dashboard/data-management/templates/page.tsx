@@ -68,9 +68,9 @@ export default function MigrationTemplatesPage() {
       />
 
       <div className="data-card bg-brand-50 border-brand-200 text-sm text-brand-900">
-        Templates include an <strong>Instructions</strong> sheet, a <strong>Data</strong> sheet with sample row,
-        dropdowns for fields like <code className="text-xs">momo_network</code> and <code className="text-xs">status</code>,
-        and validation hints for dates, numbers, and phone columns.
+        Templates are generated fresh on each download. Product and other sheets with{' '}
+        <strong>vendor_name</strong> include a dropdown of current system vendors — re-download after
+        adding or removing vendors. Ghana phone columns use text format (10 digits starting with 0).
       </div>
 
       <div className="space-y-4">

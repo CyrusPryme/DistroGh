@@ -132,10 +132,10 @@ export function validateVendorPhones(data: Record<string, unknown>): {
       code: 'MISSING_MOMO_NUMBER',
       message: 'momo_number is required (MoMo wallet for payouts). Use column momo_number or Mobile Money Number.',
     })
-  } else if (momo.length < 10) {
+  } else if (momo.length !== 10 || !momo.startsWith('0')) {
     errors.push({
       code: 'INVALID_MOMO_NUMBER',
-      message: 'momo_number must be at least 10 digits',
+      message: 'momo_number must be exactly 10 digits starting with 0 (e.g. 0243222222)',
     })
   }
 
@@ -144,10 +144,10 @@ export function validateVendorPhones(data: Record<string, unknown>): {
       code: 'MISSING_CONTACT_PHONE',
       message: 'contact_phone is recommended for reaching the vendor (separate from MoMo wallet).',
     })
-  } else if (contact.length < 10) {
+  } else if (contact.length !== 10 || !contact.startsWith('0')) {
     warnings.push({
       code: 'INVALID_CONTACT_PHONE',
-      message: 'contact_phone looks too short — check the contact number column',
+      message: 'contact_phone should be exactly 10 digits starting with 0 (e.g. 0302123456)',
     })
   }
 
