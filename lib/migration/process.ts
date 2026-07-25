@@ -5,7 +5,7 @@ import { parseAllActiveFiles } from '@/lib/migration/parse'
 import { validateMigrationStaging } from '@/lib/migration/validate'
 import { claimNextJob, updateJobProgress } from '@/lib/migration/jobs'
 import { importStagingRow } from '@/lib/migration/writers'
-import { updateMigrationProject, getMigrationProject } from '@/lib/migration/projects'
+import { updateMigrationProject, getMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import type { MigrationEntityType } from '@/lib/migration/types'
 
@@ -45,6 +45,15 @@ async function runParse(pool: Pool, migrationId: string, actorId?: string | null
 }
 
 async function runImportChunk(pool: Pool, jobId: string, migrationId: string, entityType: MigrationEntityType) {
+  const project = await getMigrationProject(pool, migrationId)
+  if (!project || isMigrationTerminal(project.status)) {
+    await updateJobProgress(pool, jobId, {
+      status: 'cancelled',
+      error_message: 'Migration was cancelled',
+    })
+    return { done: true, processed: 0, cancelled: true }
+  }
+
   const jobRes = await pool.query(`SELECT * FROM public.migration_jobs WHERE id = $1`, [jobId])
   const job = jobRes.rows[0]
   const chunkSize = Number(job.chunk_size || 250)
@@ -145,6 +154,18 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
   const total = Number(job.total_records) || 1
   const current = Math.min(total, Number(job.current_record || 0) + rows.length)
   const pct = Math.min(99, Math.round((current / total) * 1000) / 10)
+
+  const afterProject = await getMigrationProject(pool, migrationId)
+  if (!afterProject || isMigrationTerminal(afterProject.status)) {
+    await updateJobProgress(pool, jobId, {
+      current_record: current,
+      progress_pct: pct,
+      last_cursor: String(lastRow),
+      status: 'cancelled',
+      error_message: 'Migration was cancelled',
+    })
+    return { done: true, processed: rows.length, cancelled: true }
+  }
 
   await updateJobProgress(pool, jobId, {
     current_record: current,
@@ -272,6 +293,16 @@ export async function processMigrationJobs(pool: Pool, opts?: { maxJobs?: number
   for (let i = 0; i < maxJobs; i++) {
     const job = await claimNextJob(pool, workerId)
     if (!job) break
+
+    const project = await getMigrationProject(pool, job.migration_id)
+    if (!project || isMigrationTerminal(project.status)) {
+      await updateJobProgress(pool, job.id, {
+        status: 'cancelled',
+        error_message: 'Migration was cancelled',
+      })
+      results.push({ jobId: job.id, type: job.job_type, cancelled: true })
+      continue
+    }
 
     try {
       if (job.job_type === 'analyse') {

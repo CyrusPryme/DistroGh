@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { apiError } from '@/lib/api/respond'
 import { requirePermission } from '@/lib/auth/require'
-import { enqueueJob, listJobs } from '@/lib/migration/jobs'
+import { enqueueJob, listJobs, cancelMigrationJobs } from '@/lib/migration/jobs'
 import { buildPreviewSummary, processMigrationJobs } from '@/lib/migration/process'
-import { getMigrationProject, updateMigrationProject } from '@/lib/migration/projects'
+import { getMigrationProject, updateMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -32,6 +32,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const pool = getDbPool()
     const project = await getMigrationProject(pool, id)
     if (!project) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
+
+    if (action !== 'cancel' && isMigrationTerminal(project.status)) {
+      return NextResponse.json(
+        { success: false, error: 'Migration is no longer active' },
+        { status: 400 }
+      )
+    }
 
     if (action === 'correct_row') {
       const rowId = String(body.row_id || '')
@@ -79,14 +86,56 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     if (action === 'cancel') {
+      const reason = String(body.reason || '').trim()
+      if (!reason) {
+        return NextResponse.json(
+          { success: false, error: 'Cancellation reason is required' },
+          { status: 400 }
+        )
+      }
+      if (isMigrationTerminal(project.status)) {
+        return NextResponse.json(
+          { success: false, error: 'Migration is already finished' },
+          { status: 400 }
+        )
+      }
+
+      const cancelledJobs = await cancelMigrationJobs(pool, id, reason)
+      const cancelledAt = new Date().toISOString()
       const updated = await updateMigrationProject(
         pool,
         id,
-        { status: 'cancelled', current_stage: project.current_stage },
+        {
+          status: 'failed',
+          error_summary: {
+            ...project.error_summary,
+            cancel_reason: reason,
+            cancelled_at: cancelledAt,
+            cancelled_by: session.user_id,
+            cancelled_at_stage: project.current_stage,
+            cancelled_jobs: cancelledJobs,
+          },
+          wizard_state: {
+            ...project.wizard_state,
+            cancelled_at: cancelledAt,
+            cancel_reason: reason,
+          },
+        },
         session.user_id,
         'migration.cancelled'
       )
-      return NextResponse.json({ success: true, data: updated })
+      await writeMigrationAudit(pool, {
+        migrationId: id,
+        actorId: session.user_id,
+        action: 'migration.failed',
+        stage: project.current_stage,
+        details: {
+          reason,
+          cancelled_jobs: cancelledJobs,
+          previous_status: project.status,
+        },
+      })
+      return NextResponse.json({ success: true, data: { project: updated, cancelled_jobs: cancelledJobs } })
     }
 
     if (action === 'archive') {

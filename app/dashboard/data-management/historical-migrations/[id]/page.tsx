@@ -5,13 +5,14 @@ import { useParams } from 'next/navigation'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, Play, CheckCircle2, AlertTriangle, RefreshCw, ShieldCheck,
-  FileSpreadsheet, ArrowRight, RotateCcw,
+  FileSpreadsheet, ArrowRight, RotateCcw, XCircle,
 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { PageLoading } from '@/components/shared/PageLoading'
+import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { cn } from '@/lib/utils'
-import { MIGRATION_STAGES, type MigrationEntityType } from '@/lib/migration/types'
+import { MIGRATION_STAGES, MIGRATION_TERMINAL_STATUSES, type MigrationEntityType } from '@/lib/migration/types'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
 
 type Project = {
@@ -30,6 +31,7 @@ type Project = {
   warning_count: number
   rollback_available: boolean
   files_uploaded: number
+  error_summary?: { cancel_reason?: string; cancelled_at?: string }
 }
 
 type MigFile = {
@@ -76,6 +78,9 @@ export default function MigrationWizardPage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
@@ -135,7 +140,8 @@ export default function MigrationWizardPage() {
       })
       const j = await res.json()
       if (!j.success) throw new Error(j.error || 'Action failed')
-      setToast({ type: 'success', message: `${action.replace(/_/g, ' ')} started` })
+      const label = action === 'cancel' ? 'Migration cancelled' : `${action.replace(/_/g, ' ')} started`
+      setToast({ type: 'success', message: label })
       await load()
       if (action === 'validate' || action === 'preview') await loadStaging()
     } catch (e) {
@@ -209,6 +215,35 @@ export default function MigrationWizardPage() {
 
   const stage = project?.current_stage ?? 1
   const importJobs = useMemo(() => jobs.filter((j) => j.job_type === 'import'), [jobs])
+  const isTerminal = project ? MIGRATION_TERMINAL_STATUSES.includes(project.status as (typeof MIGRATION_TERMINAL_STATUSES)[number]) : false
+  const cancelReasonText = project?.error_summary?.cancel_reason
+
+  const handleCancel = async () => {
+    const reason = cancelReason.trim()
+    if (!reason) {
+      setCancelError('Please provide a reason for cancelling this migration.')
+      return
+    }
+    setCancelError(null)
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/migrations/${id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', reason }),
+      })
+      const j = await res.json()
+      if (!j.success) throw new Error(j.error || 'Cancellation failed')
+      setCancelOpen(false)
+      setCancelReason('')
+      setToast({ type: 'success', message: 'Migration cancelled and marked as failed' })
+      await load()
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : 'Cancellation failed')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (loading || !project) return <PageLoading label="Loading migration…" />
 
@@ -220,12 +255,89 @@ export default function MigrationWizardPage() {
         title={project.name}
         description={project.description || 'Stateful historical migration workspace'}
         actions={
-          <button type="button" className="btn-secondary" onClick={load}>
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isTerminal && (
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={busy}
+                onClick={() => {
+                  setCancelError(null)
+                  setCancelOpen(true)
+                }}
+              >
+                <XCircle className="w-4 h-4" />
+                Cancel migration
+              </button>
+            )}
+            <button type="button" className="btn-secondary" onClick={load}>
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+          </div>
         }
       />
+
+      {project.status === 'failed' && cancelReasonText && (
+        <div className="data-card bg-red-50 border-red-200">
+          <div className="flex items-start gap-3">
+            <XCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h2 className="font-semibold text-red-900">Migration cancelled</h2>
+              <p className="text-sm text-red-800 mt-1">{cancelReasonText}</p>
+              {project.error_summary?.cancelled_at && (
+                <p className="text-xs text-red-600 mt-2">
+                  Cancelled {new Date(project.error_summary.cancelled_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <FormModal
+        open={cancelOpen}
+        onClose={() => {
+          if (busy) return
+          setCancelOpen(false)
+          setCancelError(null)
+        }}
+        title="Cancel migration"
+        description="This will stop all pending jobs and mark the migration as failed. This cannot be undone."
+        error={cancelError}
+        disableBackdropClose={busy}
+        maxWidthClass="max-w-lg"
+      >
+        <FormModalBody>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5" htmlFor="cancel-reason">
+            Reason for cancellation <span className="text-red-600">*</span>
+          </label>
+          <textarea
+            id="cancel-reason"
+            className="form-input min-h-[120px] resize-y"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="Explain why this migration is being cancelled…"
+            disabled={busy}
+          />
+        </FormModalBody>
+        <FormModalFooter>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={busy}
+            onClick={() => {
+              setCancelOpen(false)
+              setCancelError(null)
+            }}
+          >
+            Keep migration
+          </button>
+          <button type="button" className="btn-danger" disabled={busy} onClick={handleCancel}>
+            {busy ? 'Cancelling…' : 'Cancel migration'}
+          </button>
+        </FormModalFooter>
+      </FormModal>
 
       {/* Stage rail */}
       <div className="data-card !p-4 overflow-x-auto">

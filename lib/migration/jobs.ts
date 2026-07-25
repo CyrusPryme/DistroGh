@@ -119,7 +119,7 @@ export async function updateJobProgress(
   if (patch.status !== undefined) set('status', patch.status)
   if (patch.error_message !== undefined) set('error_message', patch.error_message)
   if (patch.result_summary !== undefined) set('result_summary', patch.result_summary, true)
-  if (patch.status === 'completed' || patch.status === 'failed') {
+  if (patch.status === 'completed' || patch.status === 'failed' || patch.status === 'cancelled') {
     fields.push(`completed_at = now()`)
   }
   fields.push(`updated_at = now()`)
@@ -141,4 +141,25 @@ export async function listJobs(db: Db, migrationId: string): Promise<MigrationJo
 export async function getJob(db: Db, jobId: string): Promise<MigrationJob | null> {
   const { rows } = await db.query(`SELECT * FROM public.migration_jobs WHERE id = $1`, [jobId])
   return rows[0] ? mapJob(rows[0]) : null
+}
+
+/** Cancel all pending jobs for a migration (queued, running, paused). */
+export async function cancelMigrationJobs(
+  db: Db,
+  migrationId: string,
+  reason: string
+): Promise<number> {
+  const { rowCount } = await db.query(
+    `UPDATE public.migration_jobs
+     SET status = 'cancelled',
+         error_message = $2,
+         completed_at = now(),
+         locked_at = NULL,
+         locked_by = NULL,
+         updated_at = now()
+     WHERE migration_id = $1
+       AND status IN ('queued', 'running', 'paused')`,
+    [migrationId, reason]
+  )
+  return rowCount ?? 0
 }

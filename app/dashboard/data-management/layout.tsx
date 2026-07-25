@@ -16,6 +16,7 @@ const LINKS = [
   { href: '/dashboard/data-management/historical-migrations?status=completed', label: 'Completed', icon: CheckCircle2 },
   { href: '/dashboard/data-management/historical-migrations?status=failed', label: 'Failed', icon: AlertTriangle },
   { href: '/dashboard/data-management/templates', label: 'Migration Templates', icon: FileSpreadsheet },
+  { href: '/dashboard/data-management/import-history', label: 'Sales Import History', icon: ScrollText },
 ]
 
 export default function DataManagementLayout({ children }: { children: React.ReactNode }) {
@@ -66,13 +67,6 @@ export default function DataManagementLayout({ children }: { children: React.Rea
             </Link>
           )
         })}
-        <Link
-          href="/dashboard/sales/import/history"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-        >
-          <ScrollText className="w-3.5 h-3.5" />
-          Sales Import History
-        </Link>
       </div>
       {children}
     </div>

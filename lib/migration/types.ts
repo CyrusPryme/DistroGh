@@ -26,6 +26,15 @@ export type MigrationStatus =
   | 'rolled_back'
   | 'archived'
 
+/** Statuses where no further migration work should run. */
+export const MIGRATION_TERMINAL_STATUSES: MigrationStatus[] = [
+  'completed',
+  'failed',
+  'cancelled',
+  'rolled_back',
+  'archived',
+]
+
 export type MigrationEntityType =
   | 'categories'
   | 'vendors'

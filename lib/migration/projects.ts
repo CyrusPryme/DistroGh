@@ -4,9 +4,14 @@ import type {
   MigrationProject,
   MigrationStatus,
 } from '@/lib/migration/types'
+import { MIGRATION_TERMINAL_STATUSES } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 
 type Db = Pool | PoolClient
+
+export function isMigrationTerminal(status: MigrationStatus): boolean {
+  return MIGRATION_TERMINAL_STATUSES.includes(status)
+}
 
 function mapProject(r: Record<string, unknown>): MigrationProject {
   return {
