@@ -467,8 +467,9 @@ export default function MigrationWizardPage() {
               {uploading ? 'Uploading…' : 'Drag & drop Excel/CSV files here'}
             </p>
             <p className="text-xs text-slate-500 mt-1">xlsx · xls · csv · multiple files · remove and re-upload anytime</p>
-            <p className="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
-              All vendors in this migration are imported as <strong>admin-managed</strong> (no portal login).
+            <p className="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block max-w-xl mx-auto">
+              Vendors: use <strong>momo_number</strong> (MoMo wallet for payouts) and <strong>contact_phone</strong> (business/contact line) as separate columns.
+              All vendors import as <strong>admin-managed</strong> (no portal login).
             </p>
           </div>
           ) : needsRestart ? (
@@ -602,7 +603,7 @@ export default function MigrationWizardPage() {
                   <th>Row</th>
                   <th>Status</th>
                   <th>Issues</th>
-                  <th>Quick fix (name / vendor_name)</th>
+                  <th>Quick fix</th>
                 </tr>
               </thead>
               <tbody>
@@ -626,15 +627,36 @@ export default function MigrationWizardPage() {
                       {[...(row.errors || []), ...(row.warnings || [])].map((i) => i.message).join('; ') || '—'}
                     </td>
                     <td>
-                      <input
-                        className="form-input !py-1 text-xs"
-                        defaultValue={String(row.corrections?.name ?? row.normalized_data?.name ?? row.normalized_data?.vendor_name ?? '')}
-                        onBlur={(e) => {
-                          const field = row.entity_type === 'vendors' || row.entity_type === 'categories' ? 'name' : 'vendor_name'
-                          if (e.target.value) correctRow(row, field, e.target.value)
-                        }}
-                        placeholder="Inline correction"
-                      />
+                      {row.entity_type === 'vendors' ? (
+                        <div className="space-y-1 min-w-[200px]">
+                          <input
+                            className="form-input !py-1 text-xs w-full"
+                            placeholder="momo_number"
+                            defaultValue={String(row.corrections?.momo_number ?? row.normalized_data?.momo_number ?? '')}
+                            onBlur={(e) => {
+                              if (e.target.value) correctRow(row, 'momo_number', e.target.value)
+                            }}
+                          />
+                          <input
+                            className="form-input !py-1 text-xs w-full"
+                            placeholder="contact_phone"
+                            defaultValue={String(row.corrections?.contact_phone ?? row.normalized_data?.contact_phone ?? '')}
+                            onBlur={(e) => {
+                              if (e.target.value) correctRow(row, 'contact_phone', e.target.value)
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <input
+                          className="form-input !py-1 text-xs"
+                          defaultValue={String(row.corrections?.name ?? row.normalized_data?.name ?? row.normalized_data?.vendor_name ?? '')}
+                          onBlur={(e) => {
+                            const field = row.entity_type === 'categories' ? 'name' : 'vendor_name'
+                            if (e.target.value) correctRow(row, field, e.target.value)
+                          }}
+                          placeholder="Inline correction"
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}

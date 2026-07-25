@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { toSqlDate } from '@/lib/utils'
 import { normalizeMomoNetwork } from '@/lib/migration/normalize'
+import { resolveVendorPhones } from '@/lib/migration/vendor-fields'
 
 type StagingRow = {
   id: string
@@ -58,10 +59,10 @@ export async function importStagingRow(
     case 'vendors': {
       // Historical migrations always create/update admin-managed vendors (no portal login).
       const name = s(d.name)
+      const { momoNumber, contactPhone } = resolveVendorPhones(d)
+      if (!momoNumber) throw new Error(`Vendor "${name}" is missing momo_number`)
       const momoNetwork = normalizeMomoNetwork(d.momo_network)
-      const momoNumber = s(d.momo_number) || '0000000000'
       const contactPerson = s(d.contact_person_name || d.contact_person)
-      const contactPhone = s(d.phone || d.contact_phone) || null
       const description = s(d.description) || null
       const reportNotes = s(d.report_delivery_notes) || null
       const existing = await client.query(
@@ -81,7 +82,7 @@ export async function importStagingRow(
              login_email = NULL,
              initial_password = NULL
            WHERE id = $1`,
-          [existing.rows[0].id, contactPerson, contactPhone, s(d.momo_number), momoNetwork, description, reportNotes]
+          [existing.rows[0].id, contactPerson, contactPhone, momoNumber, momoNetwork, description, reportNotes]
         )
         return { productionId: existing.rows[0].id, action: 'update' }
       }

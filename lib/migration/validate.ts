@@ -1,6 +1,7 @@
 import type { Pool } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { normalizeMomoNetwork, momoNetworkWasNormalized } from '@/lib/migration/normalize'
+import { validateVendorPhones } from '@/lib/migration/vendor-fields'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { updateMigrationProject } from '@/lib/migration/projects'
 
@@ -32,11 +33,14 @@ function validateRow(
     case 'categories':
       requireField('name', 'Category name')
       break
-    case 'vendors':
+    case 'vendors': {
       requireField('name', 'Vendor name')
-      // Historical migrations always import as admin-managed (no portal login)
       normalized.access_mode = 'admin_managed'
-      normalized.momo_network = normalizeMomoNetwork(data.momo_network)
+      const phoneResult = validateVendorPhones({ ...data, ...normalized })
+      Object.assign(normalized, phoneResult.normalized)
+      errors.push(...phoneResult.errors)
+      warnings.push(...phoneResult.warnings)
+      normalized.momo_network = normalizeMomoNetwork(normalized.momo_network ?? data.momo_network)
       if (momoNetworkWasNormalized(data.momo_network)) {
         warnings.push({
           code: 'MOMO_NETWORK_NORMALIZED',
@@ -50,6 +54,7 @@ function validateRow(
         })
       }
       break
+    }
     case 'products': {
       requireField('name', 'Product name')
       if (!str(data.vendor_name) && !str(data.vendor)) {
