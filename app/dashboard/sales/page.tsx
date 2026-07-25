@@ -11,6 +11,7 @@ import { productService } from '@/services/product.service'
 import { formatGHS, formatDate, formatSalesPeriod, reportMonthToRange, formatNumber, downloadBlob, cn } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { useSession } from '@/hooks/useSession'
 import type { Sale, Vendor, Supermarket, Product } from '@/types'
 import {
@@ -200,7 +201,7 @@ function SalesContent() {
     return (
       <div className="page-container flex items-center justify-center min-h-[40vh]">
         <div className="flex flex-col items-center gap-3 text-slate-500">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Loading sales...</span>
         </div>
       </div>
@@ -208,34 +209,27 @@ function SalesContent() {
   }
 
   return (
-    <div className="page-container space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Sales Records</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{filtered.length} monthly sale records</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {filtered.length > 0 && (
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="flex items-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
-          )}
-          {role === 'admin' && (
-            <Link
-              href="/dashboard/sales/import"
-              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              Import Excel
-            </Link>
-          )}
-        </div>
-      </div>
+    <div className="page-container">
+      <PageHeader
+        title="Sales Records"
+        description={`${filtered.length} monthly sale records`}
+        actions={
+          <>
+            {filtered.length > 0 && (
+              <button type="button" onClick={handleExportCSV} className="btn-secondary">
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            )}
+            {role === 'admin' && (
+              <Link href="/dashboard/sales/import" className="btn-primary">
+                <Upload className="w-4 h-4" />
+                Import Excel
+              </Link>
+            )}
+          </>
+        }
+      />
 
       {/* Filters */}
       <div className="data-card py-4">
@@ -316,13 +310,13 @@ function SalesContent() {
         {(isVendor
           ? [
               { label: 'Total Qty', value: formatNumber(totals.qty), color: 'text-slate-600' },
-              { label: vendorDueLabel, value: formatGHS(totals.vendorDue), color: 'text-emerald-600' },
+              { label: vendorDueLabel, value: formatGHS(totals.vendorDue), color: 'text-brand-600' },
             ]
           : [
               { label: 'Total Sales', value: formatGHS(totals.sales), color: 'text-blue-600' },
               { label: 'Total Qty', value: formatNumber(totals.qty), color: 'text-slate-600' },
               { label: 'Total Markup', value: formatGHS(totals.markup), color: 'text-violet-600' },
-              { label: vendorDueLabel, value: formatGHS(totals.vendorDue), color: 'text-emerald-600' },
+              { label: vendorDueLabel, value: formatGHS(totals.vendorDue), color: 'text-brand-600' },
             ]
         ).map(({ label, value, color }) => (
           <div key={label} className="kpi-card py-4">
@@ -449,7 +443,7 @@ function SalesContent() {
                         </td>
                       </>
                     )}
-                    <td className="text-right text-emerald-600 font-semibold font-mono">
+                    <td className="text-right text-brand-600 font-semibold font-mono">
                       {formatGHS(isVendor ? getVendorLineTotal(sale) : getSaleRecordedAmounts(sale).vendorDue)}
                     </td>
                   </tr>
@@ -463,7 +457,7 @@ function SalesContent() {
                     <td></td>
                     <td className="text-right font-mono">{formatGHS(totals.sales)}</td>
                     <td className="text-right font-mono text-violet-600">{formatGHS(totals.markup)}</td>
-                    <td className="text-right font-mono text-emerald-600">{formatGHS(totals.vendorDue)}</td>
+                    <td className="text-right font-mono text-brand-600">{formatGHS(totals.vendorDue)}</td>
                   </tr>
                 )}
               </tfoot>

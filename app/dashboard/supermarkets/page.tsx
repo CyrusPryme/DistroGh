@@ -101,7 +101,7 @@ export default function SupermarketsPage() {
       </div>
 
       {toast && (
-        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium">
+        <div className="p-3 rounded-xl bg-brand-50 border border-brand-200 text-brand-800 text-sm font-medium">
           {toast}
         </div>
       )}
@@ -168,7 +168,7 @@ export default function SupermarketsPage() {
                         )}
                         <Link
                           href={`/dashboard/sales?supermarket_id=${s.id}`}
-                          className="p-1.5 rounded text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
+                          className="p-1.5 rounded text-slate-400 hover:bg-slate-100 hover:text-brand-600"
                           title={`View sales — ${formatSupermarketLabel(s)}`}
                         >
                           <ShoppingCart className="w-4 h-4" />

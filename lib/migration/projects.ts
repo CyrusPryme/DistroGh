@@ -1,0 +1,201 @@
+import type { Pool, PoolClient } from 'pg'
+import type {
+  MigrationEntityType,
+  MigrationProject,
+  MigrationStatus,
+} from '@/lib/migration/types'
+import { writeMigrationAudit } from '@/lib/migration/audit'
+
+type Db = Pool | PoolClient
+
+function mapProject(r: Record<string, unknown>): MigrationProject {
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    description: (r.description as string) ?? null,
+    status: r.status as MigrationStatus,
+    current_stage: Number(r.current_stage),
+    progress_pct: Number(r.progress_pct),
+    validation_status: r.validation_status as MigrationProject['validation_status'],
+    rollback_available: Boolean(r.rollback_available),
+    wizard_state: (r.wizard_state as Record<string, unknown>) ?? {},
+    dependency_graph: (r.dependency_graph as MigrationProject['dependency_graph']) ?? [],
+    import_order: (r.import_order as MigrationEntityType[]) ?? [],
+    preview_summary: (r.preview_summary as Record<string, unknown>) ?? {},
+    reconciliation: (r.reconciliation as Record<string, unknown>) ?? {},
+    error_summary: (r.error_summary as Record<string, unknown>) ?? {},
+    warning_summary: (r.warning_summary as Record<string, unknown>) ?? {},
+    files_uploaded: Number(r.files_uploaded ?? 0),
+    error_count: Number(r.error_count ?? 0),
+    warning_count: Number(r.warning_count ?? 0),
+    created_by: (r.created_by as string) ?? null,
+    approved_by: (r.approved_by as string) ?? null,
+    created_at: String(r.created_at),
+    updated_at: String(r.updated_at),
+    started_at: r.started_at ? String(r.started_at) : null,
+    last_activity_at: String(r.last_activity_at),
+    completed_at: r.completed_at ? String(r.completed_at) : null,
+    archived_at: r.archived_at ? String(r.archived_at) : null,
+  }
+}
+
+export async function touchMigration(db: Db, migrationId: string) {
+  await db.query(
+    `UPDATE public.migration_projects
+     SET last_activity_at = now(), updated_at = now()
+     WHERE id = $1`,
+    [migrationId]
+  )
+}
+
+export async function createMigrationProject(
+  db: Db,
+  params: { name: string; description?: string; createdBy: string }
+): Promise<MigrationProject> {
+  const { rows } = await db.query(
+    `INSERT INTO public.migration_projects (name, description, created_by, wizard_state, started_at)
+     VALUES ($1, $2, $3, $4::jsonb, now())
+     RETURNING *`,
+    [
+      params.name.trim(),
+      params.description?.trim() || null,
+      params.createdBy,
+      JSON.stringify({ stage: 1, created: true }),
+    ]
+  )
+  const project = mapProject(rows[0])
+  await writeMigrationAudit(db, {
+    migrationId: project.id,
+    actorId: params.createdBy,
+    action: 'migration.created',
+    stage: 1,
+    details: { name: project.name },
+  })
+  return project
+}
+
+export async function getMigrationProject(db: Db, id: string): Promise<MigrationProject | null> {
+  const { rows } = await db.query(`SELECT * FROM public.migration_projects WHERE id = $1`, [id])
+  return rows[0] ? mapProject(rows[0]) : null
+}
+
+export async function listMigrationProjects(
+  db: Db,
+  filter?: { status?: string; q?: string; limit?: number }
+): Promise<MigrationProject[]> {
+  const limit = filter?.limit ?? 100
+  const params: unknown[] = []
+  const where: string[] = [`status <> 'archived'`]
+  if (filter?.status) {
+    params.push(filter.status)
+    where.push(`status = $${params.length}`)
+  }
+  if (filter?.q) {
+    params.push(`%${filter.q}%`)
+    where.push(`(name ILIKE $${params.length} OR description ILIKE $${params.length})`)
+  }
+  params.push(limit)
+  const { rows } = await db.query(
+    `SELECT * FROM public.migration_projects
+     WHERE ${where.join(' AND ')}
+     ORDER BY last_activity_at DESC
+     LIMIT $${params.length}`,
+    params
+  )
+  return rows.map(mapProject)
+}
+
+export async function updateMigrationProject(
+  db: Db,
+  id: string,
+  patch: Partial<{
+    name: string
+    description: string | null
+    status: MigrationStatus
+    current_stage: number
+    progress_pct: number
+    validation_status: MigrationProject['validation_status']
+    rollback_available: boolean
+    wizard_state: Record<string, unknown>
+    dependency_graph: unknown
+    import_order: unknown
+    preview_summary: unknown
+    reconciliation: unknown
+    error_summary: unknown
+    warning_summary: unknown
+    files_uploaded: number
+    error_count: number
+    warning_count: number
+    approved_by: string | null
+    completed_at: string | null
+  }>,
+  actorId?: string | null,
+  auditAction?: string
+): Promise<MigrationProject | null> {
+  const fields: string[] = []
+  const values: unknown[] = []
+  const set = (col: string, val: unknown, json = false) => {
+    values.push(json ? JSON.stringify(val) : val)
+    fields.push(`${col} = $${values.length}${json ? '::jsonb' : ''}`)
+  }
+
+  if (patch.name !== undefined) set('name', patch.name)
+  if (patch.description !== undefined) set('description', patch.description)
+  if (patch.status !== undefined) set('status', patch.status)
+  if (patch.current_stage !== undefined) set('current_stage', patch.current_stage)
+  if (patch.progress_pct !== undefined) set('progress_pct', patch.progress_pct)
+  if (patch.validation_status !== undefined) set('validation_status', patch.validation_status)
+  if (patch.rollback_available !== undefined) set('rollback_available', patch.rollback_available)
+  if (patch.wizard_state !== undefined) set('wizard_state', patch.wizard_state, true)
+  if (patch.dependency_graph !== undefined) set('dependency_graph', patch.dependency_graph, true)
+  if (patch.import_order !== undefined) set('import_order', patch.import_order, true)
+  if (patch.preview_summary !== undefined) set('preview_summary', patch.preview_summary, true)
+  if (patch.reconciliation !== undefined) set('reconciliation', patch.reconciliation, true)
+  if (patch.error_summary !== undefined) set('error_summary', patch.error_summary, true)
+  if (patch.warning_summary !== undefined) set('warning_summary', patch.warning_summary, true)
+  if (patch.files_uploaded !== undefined) set('files_uploaded', patch.files_uploaded)
+  if (patch.error_count !== undefined) set('error_count', patch.error_count)
+  if (patch.warning_count !== undefined) set('warning_count', patch.warning_count)
+  if (patch.approved_by !== undefined) set('approved_by', patch.approved_by)
+  if (patch.completed_at !== undefined) set('completed_at', patch.completed_at)
+
+  if (!fields.length) return getMigrationProject(db, id)
+
+  fields.push(`updated_at = now()`, `last_activity_at = now()`)
+  values.push(id)
+
+  const { rows } = await db.query(
+    `UPDATE public.migration_projects SET ${fields.join(', ')} WHERE id = $${values.length} RETURNING *`,
+    values
+  )
+  const project = rows[0] ? mapProject(rows[0]) : null
+  if (project && auditAction) {
+    await writeMigrationAudit(db, {
+      migrationId: id,
+      actorId: actorId ?? null,
+      action: auditAction,
+      stage: project.current_stage,
+      details: patch as Record<string, unknown>,
+    })
+  }
+  return project
+}
+
+export async function saveWizardState(
+  db: Db,
+  id: string,
+  stage: number,
+  state: Record<string, unknown>,
+  actorId?: string | null
+) {
+  const existing = await getMigrationProject(db, id)
+  if (!existing) return null
+  const wizard_state = { ...existing.wizard_state, ...state, stage }
+  return updateMigrationProject(
+    db,
+    id,
+    { current_stage: stage, wizard_state },
+    actorId,
+    'migration.wizard_saved'
+  )
+}

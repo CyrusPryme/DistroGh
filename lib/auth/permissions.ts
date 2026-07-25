@@ -29,6 +29,7 @@ export const MODULES: ModuleDefinition[] = [
   { key: 'categories',            label: 'Categories',             group: 'Core',         actions: ['read','create','update','delete'] },
   { key: 'sales',                 label: 'Sales',                  group: 'Core',         actions: ['read','create','update','delete','export'] },
   { key: 'sales_import',          label: 'Sales Import',           group: 'Core',         actions: ['read','create','update','delete','export'] },
+  { key: 'historical_migrations', label: 'Historical Migrations',  group: 'Core',         actions: ['read','create','update','delete','export','approve','manage'] },
   { key: 'returns',               label: 'Returns',                group: 'Core',         actions: ['read','create','update','delete','export'] },
   { key: 'receiving',             label: 'Receiving',              group: 'Core',         actions: ['read','create','update','delete','export'] },
   { key: 'deliveries',            label: 'Deliveries',             group: 'Core',         actions: ['read','create','update','delete','export','approve'] },

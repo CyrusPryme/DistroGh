@@ -21,6 +21,8 @@ import { supermarketService } from '@/services/supermarket.service'
 import { formatGHS, formatDate, downloadBlob, cn } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
 import type { ProductReturn, ReturnReason, Product, Supermarket } from '@/types'
@@ -177,50 +179,37 @@ function ReturnsContent() {
   }
 
   return (
-    <div className="page-container space-y-6">
-      {toast && (
-        <div
-          className={cn(
-            'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
+    <div className="page-container">
+      <PageToast
+        message={toast?.msg ?? null}
+        type={toast?.type}
+        onDismiss={() => setToast(null)}
+      />
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Returned / Defective Items</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {role === 'vendor'
-              ? 'Returns reported by supermarkets (defective, expired, or unacceptable items).'
-              : 'Record returns from supermarkets. Deductions are applied to sales and product dashboards.'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {returns.length > 0 && (
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="flex items-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
-          )}
-          {role === 'admin' && (
-            <button
-              type="button"
-              onClick={() => setModalOpen(true)}
-              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Record return
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Returned / Defective Items"
+        description={
+          role === 'vendor'
+            ? 'Returns reported by supermarkets (defective, expired, or unacceptable items).'
+            : 'Record returns from supermarkets. Deductions are applied to sales and product dashboards.'
+        }
+        actions={
+          <>
+            {returns.length > 0 && (
+              <button type="button" onClick={handleExportCSV} className="btn-secondary">
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            )}
+            {role === 'admin' && (
+              <button type="button" onClick={() => setModalOpen(true)} className="btn-primary">
+                <Plus className="w-4 h-4" />
+                Record return
+              </button>
+            )}
+          </>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <Filter className="w-4 h-4 text-slate-400" />
@@ -293,7 +282,7 @@ function ReturnsContent() {
             <button
               type="button"
               onClick={() => setModalOpen(true)}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+              className="mt-4 btn-primary"
             >
               <Plus className="w-4 h-4" />
               Record return

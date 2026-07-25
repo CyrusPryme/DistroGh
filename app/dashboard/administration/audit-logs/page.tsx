@@ -28,7 +28,7 @@ interface Meta {
 const ACTION_COLORS: Record<string, string> = {
   login: 'bg-blue-100 text-blue-700',
   logout: 'bg-slate-100 text-slate-600',
-  create_admin_account: 'bg-emerald-100 text-emerald-700',
+  create_admin_account: 'bg-brand-100 text-brand-700',
   update_admin_account: 'bg-amber-100 text-amber-700',
   delete_admin_account: 'bg-red-100 text-red-700',
   reset_password: 'bg-orange-100 text-orange-700',
@@ -126,7 +126,7 @@ export default function AuditLogsPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="page-container">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">

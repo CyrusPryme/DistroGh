@@ -105,7 +105,7 @@ export default function DashboardPage() {
     return (
       <div className="page-container flex items-center justify-center min-h-[50vh]">
         <div className="flex flex-col items-center gap-3 text-slate-500">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Loading dashboard...</span>
         </div>
       </div>
@@ -135,10 +135,7 @@ export default function DashboardPage() {
           <h1 className="font-display text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
           <p className="text-slate-500 text-sm mt-1">Overview of your distribution operations</p>
         </div>
-        <Link
-          href="/dashboard/sales/import"
-          className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all w-fit"
-        >
+        <Link href="/dashboard/sales/import" className="btn-primary rounded-xl shadow-md shadow-brand-600/20">
           <Upload className="w-4 h-4" />
           Import Sales
         </Link>
@@ -188,8 +185,8 @@ export default function DashboardPage() {
           title="Active Vendors"
           value={kpis?.vendorCount ?? 0}
           icon={Users}
-          iconBg="bg-emerald-50"
-          iconColor="text-emerald-600"
+          iconBg="bg-brand-50"
+          iconColor="text-brand-600"
         />
         <KPICard
           title="Products Listed"
@@ -351,7 +348,7 @@ export default function DashboardPage() {
                   <div className="text-right">
                     <p className={cn(
                       'text-sm font-bold',
-                      vb.balance > 0 ? 'text-amber-600' : 'text-emerald-600'
+                      vb.balance > 0 ? 'text-amber-600' : 'text-brand-600'
                     )}>
                       {formatGHS(vb.balance)}
                     </p>

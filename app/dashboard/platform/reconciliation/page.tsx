@@ -87,7 +87,7 @@ export default function ReconciliationPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8">
+    <div className="page-container">
       <PageToast message={toast?.message ?? null} type={toast?.type} />
 
       <div>

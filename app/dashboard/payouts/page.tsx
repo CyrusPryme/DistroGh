@@ -10,6 +10,9 @@ import { vendorService } from '@/services/vendor.service'
 import { formatGHS, formatDate, formatWeekRange, getWeekRange, cn } from '@/lib/utils'
 import { MOMO_NETWORK_COLORS, PAYOUT_STATUS_STYLES } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
+import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import {
   getPayoutDisplayStatus,
   payoutAmountDue,
@@ -311,141 +314,118 @@ export default function PayoutsPage() {
   )
 
   return (
-    <div className="page-container space-y-6">
-      {toast && (
-        <div
-          className={cn(
-            'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
+    <div className="page-container">
+      <PageToast
+        message={toast?.msg ?? null}
+        type={toast?.type}
+        onDismiss={() => setToast(null)}
+      />
 
-      {dialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
-          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-md max-h-[min(90vh,720px)] flex flex-col overflow-hidden animate-slide-up my-auto p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
-                <Send className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <h3 className="font-display font-semibold text-slate-900">
-                  {dialog.mode === 'new' ? 'Pay vendor on MoMo' : 'Record MoMo Payment'}
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {dialog.mode === 'new'
-                    ? 'Send payment on your phone, then confirm below — nothing is saved until you confirm'
-                    : 'Pay on your phone first, then enter details here'}
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 rounded-xl p-4 mb-5 border border-slate-100 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Vendor</span>
-                <span className="font-semibold text-slate-800">{dialog.vendorName}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Amount due</span>
-                <span className="font-semibold text-slate-800">{formatGHS(dialog.amountDue)}</span>
-              </div>
-              {dialog.amountPaid > 0 && (
+      <FormModal
+        open={!!dialog}
+        onClose={closePaymentDialog}
+        title={dialog?.mode === 'new' ? 'Pay vendor on MoMo' : 'Record MoMo Payment'}
+        description={
+          dialog?.mode === 'new'
+            ? 'Send payment on your phone, then confirm below — nothing is saved until you confirm'
+            : 'Pay on your phone first, then enter details here'
+        }
+        disableBackdropClose={!!processingId}
+      >
+        <FormModalBody>
+          {dialog && (
+            <>
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Already paid</span>
-                  <span className="font-semibold text-emerald-600">{formatGHS(dialog.amountPaid)}</span>
+                  <span className="text-slate-500">Vendor</span>
+                  <span className="font-semibold text-slate-800">{dialog.vendorName}</span>
                 </div>
-              )}
-              <div className="flex justify-between text-sm border-t border-slate-200 pt-2">
-                <span className="text-slate-500">Balance before this payment</span>
-                <span className="font-bold text-amber-600">
-                  {formatGHS(
-                    payoutBalanceRemaining({
-                      amount_due: dialog.amountDue,
-                      amount_paid: dialog.amountPaid,
-                    })
-                  )}
-                </span>
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <label className="text-sm font-medium text-slate-700 mb-1.5 block">
-                Amount paid (this transfer) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                className="form-input font-mono"
-                placeholder="0.00"
-                autoFocus
-              />
-              {Number(paymentAmount) > 0 && (
-                <p className="mt-1.5 text-xs text-slate-500">
-                  After this payment:{' '}
-                  <span className={dialogRemaining <= 0 ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
-                    {dialogRemaining <= 0 ? 'Fully paid' : `${formatGHS(dialogRemaining)} remaining`}
-                  </span>
-                </p>
-              )}
-            </div>
-
-            <div className="mb-5">
-              <label className="text-sm font-medium text-slate-700 mb-1.5 block">
-                MoMo transaction ID <span className="text-slate-400 font-normal">(optional)</span>
-              </label>
-              <input
-                value={txnId}
-                onChange={(e) => setTxnId(e.target.value)}
-                className="form-input font-mono"
-                placeholder="e.g. MTN-XXXXXXXXXX"
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={closePaymentDialog}
-                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmPayment}
-                disabled={!paymentAmount || Number(paymentAmount) <= 0 || !!processingId}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {processingId ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4" />
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Amount due</span>
+                  <span className="font-semibold text-slate-800">{formatGHS(dialog.amountDue)}</span>
+                </div>
+                {dialog.amountPaid > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Already paid</span>
+                    <span className="font-semibold text-brand-600">{formatGHS(dialog.amountPaid)}</span>
+                  </div>
                 )}
-                Confirm Payment
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                <div className="flex justify-between text-sm border-t border-slate-200 pt-2">
+                  <span className="text-slate-500">Balance before this payment</span>
+                  <span className="font-bold text-amber-600">
+                    {formatGHS(
+                      payoutBalanceRemaining({
+                        amount_due: dialog.amountDue,
+                        amount_paid: dialog.amountPaid,
+                      })
+                    )}
+                  </span>
+                </div>
+              </div>
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Payouts</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            Manual MoMo payouts — pay on phone, record amount, confirm in system
-          </p>
-        </div>
-        <button
-          onClick={load}
-          className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
-      </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                  Amount paid (this transfer) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="form-input font-mono"
+                  placeholder="0.00"
+                  autoFocus
+                />
+                {Number(paymentAmount) > 0 && (
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    After this payment:{' '}
+                    <span className={dialogRemaining <= 0 ? 'text-brand-600 font-semibold' : 'text-amber-600 font-semibold'}>
+                      {dialogRemaining <= 0 ? 'Fully paid' : `${formatGHS(dialogRemaining)} remaining`}
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                  MoMo transaction ID <span className="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  value={txnId}
+                  onChange={(e) => setTxnId(e.target.value)}
+                  className="form-input font-mono"
+                  placeholder="e.g. MTN-XXXXXXXXXX"
+                />
+              </div>
+            </>
+          )}
+        </FormModalBody>
+        <FormModalFooter>
+          <button onClick={closePaymentDialog} className="btn-secondary flex-1" disabled={!!processingId}>
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirmPayment}
+            disabled={!paymentAmount || Number(paymentAmount) <= 0 || !!processingId}
+            className="btn-primary flex-1"
+          >
+            {processingId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            Confirm Payment
+          </button>
+        </FormModalFooter>
+      </FormModal>
+
+      <PageHeader
+        title="Payouts"
+        description="Manual MoMo payouts — pay on phone, record amount, confirm in system"
+        actions={
+          <button onClick={load} className="btn-secondary" title="Refresh">
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        }
+      />
 
       {(summary.pending_payout_count > 0 || summary.vendor_balance_count > 0) && (
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
@@ -586,7 +566,7 @@ export default function PayoutsPage() {
                           </div>
                         </td>
                         <td className="text-right font-mono text-slate-600">{formatGHS(b.total_due)}</td>
-                        <td className="text-right font-mono text-emerald-600">{formatGHS(b.total_paid)}</td>
+                        <td className="text-right font-mono text-brand-600">{formatGHS(b.total_paid)}</td>
                         <td className="text-right">
                           <span className="font-bold text-amber-600 font-mono">{formatGHS(b.balance)}</span>
                         </td>
@@ -672,7 +652,7 @@ export default function PayoutsPage() {
                         <td className="font-medium text-slate-800">{vendor?.name ?? '—'}</td>
                         <td className="text-xs text-slate-400">{formatWeekRange(p.week_start, p.week_end)}</td>
                         <td className="text-right font-mono">{formatGHS(payoutAmountDue(p))}</td>
-                        <td className="text-right font-mono text-emerald-600">
+                        <td className="text-right font-mono text-brand-600">
                           {payoutAmountPaid(p) > 0 ? formatGHS(payoutAmountPaid(p)) : '—'}
                         </td>
                         <td className="text-right font-mono font-semibold text-amber-600">
@@ -741,7 +721,7 @@ export default function PayoutsPage() {
                         </td>
                         <td className="text-xs text-slate-400">{formatWeekRange(p.week_start, p.week_end)}</td>
                         <td className="text-right font-mono font-semibold">{formatGHS(payoutAmountDue(p))}</td>
-                        <td className="text-right font-mono text-emerald-600">
+                        <td className="text-right font-mono text-brand-600">
                           {payoutAmountPaid(p) > 0 ? formatGHS(payoutAmountPaid(p)) : '—'}
                         </td>
                         <td className="text-right font-mono text-amber-600">

@@ -10,6 +10,8 @@ import { vendorService } from '@/services/vendor.service'
 import { getDeletedPendingAuthCleanup, markVendorAuthCleanupDone, softDeleteVendorCascade, createVendorAdmin, updateVendorAdmin } from '@/app/dashboard/vendors/actions'
 import { formatGHS, formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
 import { MOMO_NETWORK_COLORS } from '@/lib/utils'
 import type { Vendor, VendorBalance } from '@/types'
 import type { VendorFormValues } from '@/lib/validations'
@@ -221,42 +223,34 @@ export default function VendorsPage() {
   const momoColors = MOMO_NETWORK_COLORS
 
   return (
-    <div className="page-container space-y-6">
-      {/* Toast */}
-      {toast && (
-        <div className={cn(
-          'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium flex items-center gap-2 animate-slide-up',
-          toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-        )}>
-          {toast.msg}
-        </div>
-      )}
+    <div className="page-container">
+      <PageToast
+        message={toast?.msg ?? null}
+        type={toast?.type}
+        onDismiss={() => setToast(null)}
+      />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Vendors</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {vendors.length} registered vendors
-            {filtered.length !== vendors.length && ` · ${filtered.length} match search`}
-          </p>
-        </div>
-        <button
-          onClick={() => { setEditVendor(null); setModalOpen(true) }}
-          className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Vendor
-        </button>
-      </div>
+      <PageHeader
+        title="Vendors"
+        description={`${vendors.length} registered vendors${filtered.length !== vendors.length ? ` · ${filtered.length} match search` : ''}`}
+        actions={
+          <button
+            onClick={() => { setEditVendor(null); setModalOpen(true) }}
+            className="btn-primary"
+          >
+            <Plus className="w-4 h-4" />
+            Add Vendor
+          </button>
+        }
+      />
 
       {readyToActivate.length > 0 && (
-        <div className="data-card border-2 border-emerald-200 bg-emerald-50/60 space-y-3">
+        <div className="data-card border-2 border-brand-200 bg-brand-50/60 space-y-3">
           <div className="flex items-center gap-2 text-emerald-900 font-semibold">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
+            <ShieldCheck className="w-5 h-5 text-brand-600" />
             Final verification — {readyToActivate.length} vendor{readyToActivate.length === 1 ? '' : 's'} ready to activate
           </div>
-          <p className="text-sm text-emerald-800">
+          <p className="text-sm text-brand-800">
             These vendors submitted FDA documents and are waiting for you to activate their accounts.
           </p>
           <ul className="flex flex-col gap-2">
@@ -264,10 +258,10 @@ export default function VendorsPage() {
               <li key={v.id}>
                 <Link
                   href={`/dashboard/vendors/${v.id}`}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm hover:border-emerald-400 transition-colors"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-white px-4 py-3 text-sm hover:border-emerald-400 transition-colors"
                 >
                   <span className="font-medium text-slate-900">{v.name}</span>
-                  <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                  <span className="inline-flex items-center gap-1 text-brand-700 font-medium">
                     Review &amp; activate
                     <Eye className="w-4 h-4" />
                   </span>
@@ -311,7 +305,7 @@ export default function VendorsPage() {
               className={cn(
                 'px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                 accessFilter === key
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-brand-600 text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               )}
             >
@@ -404,7 +398,7 @@ export default function VendorsPage() {
                       <td>
                         <span className={cn(
                           'font-bold text-sm',
-                          balance > 0 ? 'text-amber-600' : 'text-emerald-600'
+                          balance > 0 ? 'text-amber-600' : 'text-brand-600'
                         )}>
                           {formatGHS(balance)}
                         </span>
@@ -420,7 +414,7 @@ export default function VendorsPage() {
                         <div className="flex items-center gap-1 justify-end">
                           <Link
                             href={`/dashboard/vendors/${vendor.id}`}
-                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-emerald-600 transition-colors"
+                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-brand-600 transition-colors"
                             title="View details"
                           >
                             <Eye className="w-4 h-4" />
@@ -498,7 +492,7 @@ export default function VendorsPage() {
                     type="button"
                     onClick={() => handleMarkAuthCleanupDone(v.id)}
                     disabled={markingDone === v.id}
-                    className="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 rounded border border-emerald-200 text-emerald-700 text-xs font-medium hover:bg-emerald-50 disabled:opacity-50"
+                    className="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 rounded border border-brand-200 text-brand-700 text-xs font-medium hover:bg-brand-50 disabled:opacity-50"
                   >
                     {markingDone === v.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
                     Done

@@ -16,6 +16,13 @@ export function PageToast({ message, type = 'success', onDismiss }: PageToastPro
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
+  // Auto-dismiss after 4s when dismiss handler is provided
+  useEffect(() => {
+    if (!message || !onDismiss) return
+    const t = setTimeout(onDismiss, 4000)
+    return () => clearTimeout(t)
+  }, [message, onDismiss])
+
   if (!message || !mounted) return null
 
   return createPortal(
@@ -23,7 +30,7 @@ export function PageToast({ message, type = 'success', onDismiss }: PageToastPro
       role="alert"
       className={cn(
         'fixed top-4 right-4 z-[100] flex max-w-md items-start gap-2 rounded-xl px-4 py-3 text-sm font-medium shadow-modal animate-slide-up',
-        type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        type === 'success' ? 'bg-brand-600 text-white' : 'bg-red-600 text-white'
       )}
     >
       <span className="flex-1">{message}</span>

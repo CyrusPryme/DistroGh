@@ -51,7 +51,7 @@ export default function DataRecoveryPage() {
   const fmtDate = (d: string) => new Date(d).toLocaleString()
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="page-container">
       <PageToast message={toast?.message ?? null} type={toast?.type} />
 
       <div>

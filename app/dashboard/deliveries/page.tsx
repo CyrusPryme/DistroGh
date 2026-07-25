@@ -30,6 +30,7 @@ import {
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { PageToast } from '@/components/shared/PageToast'
+import { PageHeader } from '@/components/shared/PageHeader'
 import type { DeliveryRun, DeliveryRunVendorCharge, Supermarket, Product, Vendor } from '@/types'
 
 type RunItemRow = { product_id: string; quantity_delivered: number }
@@ -552,32 +553,30 @@ function DeliveriesContent() {
   }
 
   return (
-    <div className="page-container space-y-6">
+    <div className="page-container">
         <PageToast
           message={toast?.msg ?? null}
           type={toast?.type}
           onDismiss={() => setToast(null)}
         />
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-bold text-slate-900">Deliveries</h1>
-            <p className="text-slate-500 text-sm mt-0.5">
-              Record delivery runs and transport cost. On confirm, cost is split across vendors by units delivered and deducted from payout balances.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCreateModalError(null)
-              setModalOpen(true)
-            }}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New delivery run
-          </button>
-        </div>
+        <PageHeader
+          title="Deliveries"
+          description="Record delivery runs and transport cost. On confirm, cost is split across vendors by units delivered and deducted from payout balances."
+          actions={
+            <button
+              type="button"
+              onClick={() => {
+                setCreateModalError(null)
+                setModalOpen(true)
+              }}
+              className="btn-primary"
+            >
+              <Plus className="w-4 h-4" />
+              New delivery run
+            </button>
+          }
+        />
 
         <div className="flex flex-wrap items-center gap-3">
           <Filter className="w-4 h-4 text-slate-400" />
@@ -671,7 +670,7 @@ function DeliveriesContent() {
                           </div>
                         </td>
                         <td className="text-slate-600">{formatDate(run.delivery_date)}</td>
-                        <td className="text-right font-mono font-semibold text-emerald-700">
+                        <td className="text-right font-mono font-semibold text-brand-700">
                           {formatGHS(Number(run.total_transport_cost))}
                         </td>
                         <td className="text-slate-600">
@@ -701,7 +700,7 @@ function DeliveriesContent() {
                         </td>
                         <td>
                           {isConfirmed ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-brand-100 text-brand-800">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               Confirmed
                             </span>
@@ -721,7 +720,7 @@ function DeliveriesContent() {
                               type="button"
                               onClick={() => openConfirmModal(run)}
                               disabled={isConfirming}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60"
                             >
                               {isConfirming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                               {isConfirming ? 'Confirming…' : 'Confirm delivery'}
@@ -968,7 +967,7 @@ function DeliveriesContent() {
                       (confirmAllocation.length === 0 ||
                         Math.abs(confirmTransportCost - sumAllocationAmounts(confirmAllocation)) > 0.01))
                   }
-                  className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2 disabled:opacity-60"
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 flex items-center justify-center gap-2 disabled:opacity-60"
                 >
                   {confirmingRunId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   Confirm &amp; deduct charges

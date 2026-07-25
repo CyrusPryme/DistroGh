@@ -13,7 +13,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 220 13% 13%;
 
-    --primary: 142 71% 25%;
+    /* Aligns with Tailwind brand-600 (#16a34a) — single primary green */
+    --primary: 142 76% 36%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 16% 95%;
@@ -30,7 +31,7 @@
 
     --border: 214 13% 91%;
     --input: 214 13% 91%;
-    --ring: 142 71% 25%;
+    --ring: 142 76% 36%;
 
     --radius: 0.75rem;
   }
@@ -66,8 +67,9 @@
   }
 
   /* ─── Page container ────────────────────────────────────── */
+  /* AppLayout provides outer padding; pages should use this for max-width + vertical rhythm */
   .page-container {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8;
+    @apply max-w-7xl mx-auto w-full space-y-6;
   }
 
   /* ─── Mobile touch targets (min 44px for accessibility) ─── */
@@ -113,16 +115,18 @@
 
   /* ─── Sidebar ───────────────────────────────────────────── */
   .sidebar-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600
-           hover:bg-slate-100 hover:text-slate-900 transition-all duration-150 text-sm font-medium;
+    @apply flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-slate-600
+           hover:bg-slate-100 hover:text-slate-900 transition-all duration-150 text-xs font-medium min-h-[40px];
   }
   .sidebar-link.active {
-    @apply bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-500;
+    @apply bg-brand-50 text-brand-800 font-semibold border-l-2 border-brand-500;
   }
 
-  /* ─── Form field focus ──────────────────────────────────── */
-  .form-input {
-    @apply w-full px-3 py-2.5 sm:py-2.5 rounded-lg border border-slate-200 text-base sm:text-sm
+  /* ─── Form field focus (single input system) ────────────── */
+  .form-input,
+  .input-base {
+    @apply w-full px-3 py-2.5 rounded-lg border border-slate-200 text-base sm:text-sm
+           text-slate-800 placeholder-slate-400
            focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500
            transition-all duration-150 bg-white;
   }
@@ -132,28 +136,30 @@
     @apply overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0;
   }
 
-  /* ─── Generic input (reusable across admin pages) ────────── */
-  .input-base {
-    @apply w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
-           focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500
-           transition-all duration-150 bg-white text-slate-800 placeholder-slate-400;
-  }
-
-  /* ─── Button variants ────────────────────────────────────── */
+  /* ─── Button variants (brand green = primary) ───────────── */
   .btn-primary {
-    @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-lg
-           bg-emerald-600 hover:bg-emerald-700 text-white font-medium
-           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 rounded-lg
+           bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           min-h-[40px];
   }
   .btn-secondary {
-    @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-lg
-           border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium
-           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 rounded-lg
+           border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           min-h-[40px];
   }
   .btn-danger {
-    @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-lg
-           bg-red-600 hover:bg-red-700 text-white font-medium
-           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 rounded-lg
+           bg-red-600 hover:bg-red-700 text-white text-sm font-medium
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           min-h-[40px];
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg
+           text-slate-600 hover:bg-slate-100 hover:text-slate-900 text-sm font-medium
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           min-h-[40px];
   }
 }
 

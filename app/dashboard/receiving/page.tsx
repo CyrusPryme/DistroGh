@@ -16,6 +16,8 @@ import { vendorService } from '@/services/vendor.service'
 import { productService } from '@/services/product.service'
 import { formatDate, formatNumber, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
 import type { Intake, Vendor, Product } from '@/types'
@@ -161,38 +163,29 @@ export default function ReceivingPage() {
   }
 
   return (
-    <div className="page-container space-y-6">
-        {toast && (
-          <div
-            className={cn(
-              'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-            )}
-          >
-            {toast.msg}
-          </div>
-        )}
+    <div className="page-container">
+        <PageToast
+          message={toast?.msg ?? null}
+          type={toast?.type}
+          onDismiss={() => setToast(null)}
+        />
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-bold text-slate-900">Receiving</h1>
-            <p className="text-slate-500 text-sm mt-0.5">
-              {isVendor
-                ? 'When your products were received at DistroGH and current stock on hand (read-only).'
-                : 'Confirm and record stock received at DistroGH from vendors before sending to supermarkets.'}
-            </p>
-          </div>
-          {!isVendor && (
-            <button
-              type="button"
-              onClick={() => setModalOpen(true)}
-              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Record intake
-            </button>
-          )}
-        </div>
+        <PageHeader
+          title="Receiving"
+          description={
+            isVendor
+              ? 'When your products were received at DistroGH and current stock on hand (read-only).'
+              : 'Confirm and record stock received at DistroGH from vendors before sending to supermarkets.'
+          }
+          actions={
+            !isVendor ? (
+              <button type="button" onClick={() => setModalOpen(true)} className="btn-primary">
+                <Plus className="w-4 h-4" />
+                Record intake
+              </button>
+            ) : undefined
+          }
+        />
 
         <div className="flex flex-wrap items-center gap-3">
           <Filter className="w-4 h-4 text-slate-400" />
@@ -246,7 +239,7 @@ export default function ReceivingPage() {
                       <td className="font-medium text-slate-800">{row.product_name}</td>
                       <td className="text-right font-mono">{formatNumber(row.received)}</td>
                       <td className="text-right font-mono">{formatNumber(row.delivered)}</td>
-                      <td className="text-right font-mono font-semibold text-emerald-700">{formatNumber(row.on_hand)}</td>
+                      <td className="text-right font-mono font-semibold text-brand-700">{formatNumber(row.on_hand)}</td>
                     </tr>
                   ))}
                 </tbody>

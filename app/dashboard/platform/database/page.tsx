@@ -32,7 +32,7 @@ export default function DatabaseMonitoringPage() {
   const tabs = ['tables', 'indexes', 'queries', 'migrations'] as const
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="page-container">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Database Monitoring</h1>

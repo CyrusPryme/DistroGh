@@ -9,7 +9,7 @@ import {
   Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings,
   Shield, UserCog, KeyRound, ScrollText,
   Crown, BadgeDollarSign, Scale, ClipboardList, HeartPulse, ArchiveRestore,
-  ShieldAlert, Database, SlidersHorizontal
+  ShieldAlert, Database, SlidersHorizontal, DatabaseBackup
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deliveryService } from '@/services/delivery.service'
@@ -79,6 +79,12 @@ const navItems = [
     label: 'Import Sales', 
     icon: Upload,
     roles: ['admin'] // Admin only; vendors cannot import sales
+  },
+  {
+    href: '/dashboard/data-management/historical-migrations',
+    label: 'Data Management',
+    icon: DatabaseBackup,
+    roles: ['admin'],
   },
   { 
     href: '/dashboard/returns', 
@@ -250,12 +256,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide',
               userAdminRole === 'developer' && 'bg-violet-100 text-violet-700',
               userAdminRole === 'super_admin' && 'bg-purple-100 text-purple-700',
-              userAdminRole === 'admin' && 'bg-emerald-100 text-emerald-700',
+              userAdminRole === 'admin' && 'bg-brand-100 text-brand-700',
               userAdminRole === 'user' && 'bg-slate-200 text-slate-700',
-              !userAdminRole && userRole === 'admin' && 'bg-emerald-100 text-emerald-700',
+              !userAdminRole && userRole === 'admin' && 'bg-brand-100 text-brand-700',
               userRole === 'vendor' && 'bg-blue-100 text-blue-700',
             )}>
-              {userAdminRole ? userAdminRole.replace('_', ' ') : userRole}
+              {userAdminRole ? userAdminRole.replace(/_/g, ' ') : userRole}
             </div>
             <span className="text-xs text-slate-500 truncate">{displayName || userEmail}</span>
           </div>
@@ -283,11 +289,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={href}
                 href={href}
+                onClick={() => setSidebarOpen(false)}
                 className={cn(
-                  'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-150 text-xs font-medium',
+                  'sidebar-link',
                   hasPending && !isActive && 'text-red-600 hover:bg-red-50 hover:text-red-700',
-                  !hasPending && 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-                  isActive && !hasPending && 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-500',
+                  isActive && !hasPending && 'active',
                   isActive && hasPending && 'bg-red-50 text-red-800 font-semibold border-l-2 border-red-500'
                 )}
               >
@@ -389,10 +395,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             href="/dashboard/support"
             onClick={() => setSidebarOpen(false)}
             className={cn(
-              'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200 text-xs font-medium',
-              pathname === '/dashboard/support' || pathname.startsWith('/dashboard/support/')
-                ? 'bg-emerald-50 text-emerald-800 font-semibold'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+              'sidebar-link w-full',
+              (pathname === '/dashboard/support' || pathname.startsWith('/dashboard/support/')) && 'active'
             )}
           >
             <HelpCircle className="w-3.5 h-3.5" />
@@ -403,12 +407,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link
             href={profileHref}
             onClick={() => setSidebarOpen(false)}
-            className={cn(
-              'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200 text-xs font-medium',
-              isProfileActive
-                ? 'bg-emerald-50 text-emerald-800 font-semibold'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-            )}
+            className={cn('sidebar-link w-full', isProfileActive && 'active')}
           >
             <User className="w-3.5 h-3.5" />
             Profile
@@ -416,8 +415,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
         <button
           type="button"
-          onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200 text-xs font-medium"
+          onClick={() => { setSidebarOpen(false); handleLogout() }}
+          className="sidebar-link w-full text-slate-500 hover:bg-red-50 hover:text-red-600"
         >
           <LogOut className="w-3.5 h-3.5" />
           Sign Out
@@ -549,17 +548,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {userRole && (
               <div className={cn(
                 'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide',
-                userRole === 'admin' && 'bg-emerald-100 text-emerald-700',
+                userAdminRole === 'developer' && 'bg-violet-100 text-violet-700',
+                userAdminRole === 'super_admin' && 'bg-purple-100 text-purple-700',
+                userAdminRole === 'admin' && 'bg-brand-100 text-brand-700',
+                userAdminRole === 'user' && 'bg-slate-200 text-slate-700',
+                !userAdminRole && userRole === 'admin' && 'bg-brand-100 text-brand-700',
                 userRole === 'vendor' && 'bg-blue-100 text-blue-700',
-                userRole === 'user' && 'bg-slate-200 text-slate-700'
+                userRole === 'user' && !userAdminRole && 'bg-slate-200 text-slate-700',
               )}>
-                {userRole}
+                {userAdminRole ? userAdminRole.replace(/_/g, ' ') : userRole}
               </div>
             )}
-            <div className="text-right">
-              <span className="text-xs text-slate-500 truncate block">{userEmail}</span>
+            <div className="text-right min-w-0">
+              <span className="text-xs text-slate-500 truncate block max-w-[140px]">
+                {displayName || userEmail}
+              </span>
               {vendorInfo && (
-                <span className="text-xs text-slate-600 font-medium block">
+                <span className="text-xs text-slate-600 font-medium block truncate max-w-[140px]">
                   {vendorInfo.name}
                 </span>
               )}
@@ -571,8 +576,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <ServiceChargeBanner banner={serviceChargeBanner} />
         )}
 
-        {/* Page Content - responsive padding for phone/tablet */}
-        <div className="app-layout-content flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 bg-slate-50/90">
+        {/* Page Content — horizontal padding lives here; pages use .page-container for width */}
+        <div className="app-layout-content flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 bg-slate-50/90">
           {children}
         </div>
       </main>

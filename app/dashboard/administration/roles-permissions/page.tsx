@@ -12,7 +12,7 @@ const ACTION_LABELS: Record<PermissionAction, string> = {
 
 const ROLE_DESCRIPTIONS: Record<string, { color: string; desc: string }> = {
   super_admin: { color: 'text-purple-700 bg-purple-50 border-purple-200', desc: 'Unrestricted access to all modules including administration. Cannot be configured.' },
-  admin: { color: 'text-emerald-700 bg-emerald-50 border-emerald-200', desc: 'Standard administrator. Default permissions are assigned when creating an admin account. Customize per user.' },
+  admin: { color: 'text-brand-700 bg-brand-50 border-brand-200', desc: 'Standard administrator. Default permissions are assigned when creating an admin account. Customize per user.' },
   user: { color: 'text-slate-700 bg-slate-100 border-slate-200', desc: 'Staff member with limited read access by default. Permissions are set individually per account.' },
 }
 
@@ -45,7 +45,7 @@ export default function RolesPermissionsPage() {
   const groups = [...new Set(MODULES.map((m) => m.group))]
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="page-container">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center">
@@ -96,7 +96,7 @@ export default function RolesPermissionsPage() {
             <div key={preset.id} className="border border-slate-100 rounded-lg p-3">
               <p className="font-medium text-slate-700 text-sm">{preset.label}</p>
               <p className="text-xs text-slate-500 mt-1 mb-2">{preset.description}</p>
-              <p className="text-xs font-semibold text-emerald-700">{preset.permissions.length} permissions</p>
+              <p className="text-xs font-semibold text-brand-700">{preset.permissions.length} permissions</p>
             </div>
           ))}
         </div>
@@ -108,7 +108,7 @@ export default function RolesPermissionsPage() {
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div>
               <h2 className="font-semibold text-slate-800 text-sm capitalize">
-                Default permissions for: <span className="text-emerald-700">{selectedRole.replace('_', ' ')}</span>
+                Default permissions for: <span className="text-brand-700">{selectedRole.replace('_', ' ')}</span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 {rolePerms.size} permissions · These are defaults applied when creating a new {selectedRole} account.
@@ -116,7 +116,7 @@ export default function RolesPermissionsPage() {
             </div>
             <button
               onClick={copyPerms}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700 transition"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-brand-700 transition"
             >
               {copied ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
               {copied ? 'Copied!' : 'Copy list'}

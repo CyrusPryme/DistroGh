@@ -71,7 +71,7 @@ export default function SecurityCenterPage() {
   const maxEvents = data?.ip_activity.reduce((m, e) => Math.max(m, e.event_count), 1) ?? 1
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-8">
+    <div className="page-container">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Security Center</h1>

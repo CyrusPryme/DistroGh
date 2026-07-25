@@ -1,5 +1,6 @@
 ﻿'use client'
 
+import { useEffect } from 'react'
 import { AlertCircle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +26,23 @@ export function FormModal({
   error = null,
   children,
 }: FormModalProps) {
+  // Escape to close + lock body scroll while open
+  useEffect(() => {
+    if (!open) return
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !disableBackdropClose) onClose()
+    }
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, onClose, disableBackdropClose])
+
   if (!open) return null
 
   return (
@@ -35,7 +53,7 @@ export function FormModal({
       aria-labelledby="form-modal-title"
     >
       <div
-        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={disableBackdropClose ? undefined : onClose}
         aria-hidden
       />
@@ -46,7 +64,7 @@ export function FormModal({
         )}
       >
         <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div>
+          <div className="min-w-0 pr-2">
             <h2 id="form-modal-title" className="font-display font-semibold text-slate-900">
               {title}
             </h2>
@@ -58,7 +76,8 @@ export function FormModal({
             type="button"
             onClick={onClose}
             disabled={disableBackdropClose}
-            className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors disabled:opacity-40"
+            className="touch-target shrink-0 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors disabled:opacity-40"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -94,9 +113,8 @@ export function FormModalBody({
 
 export function FormModalFooter({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex shrink-0 gap-3 border-t border-slate-100 px-5 py-3 bg-white">
+    <div className="flex shrink-0 flex-wrap gap-3 border-t border-slate-100 px-5 py-3 bg-white">
       {children}
     </div>
   )
 }
-

@@ -23,6 +23,8 @@ const RETURN_REASON_LABELS: Record<string, string> = {
 }
 import type { ProductFormValues } from '@/lib/validations'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
 import { useSession } from '@/hooks/useSession'
 
 // Helper function for relative time display
@@ -168,7 +170,7 @@ function ProductsContent() {
     return (
       <div className="page-container flex items-center justify-center min-h-[40vh]">
         <div className="flex flex-col items-center gap-3 text-slate-500">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Loading products...</span>
         </div>
       </div>
@@ -176,34 +178,28 @@ function ProductsContent() {
   }
 
   return (
-    <div className="page-container space-y-6">
-      {toast && (
-        <div className={cn(
-          'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-          toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-        )}>
-          {toast.msg}
-        </div>
-      )}
+    <div className="page-container">
+      <PageToast
+        message={toast?.msg ?? null}
+        type={toast?.type}
+        onDismiss={() => setToast(null)}
+      />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Products</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {products.length} products in catalog
-            {filtered.length !== products.length && ` · ${filtered.length} match filters`}
-          </p>
-        </div>
-        {role === 'admin' && (
-          <button
-            onClick={() => { setEditProduct(null); setModalOpen(true) }}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Product
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="Products"
+        description={`${products.length} products in catalog${filtered.length !== products.length ? ` · ${filtered.length} match filters` : ''}`}
+        actions={
+          role === 'admin' ? (
+            <button
+              onClick={() => { setEditProduct(null); setModalOpen(true) }}
+              className="btn-primary"
+            >
+              <Plus className="w-4 h-4" />
+              Add Product
+            </button>
+          ) : undefined
+        }
+      />
 
       {/* Filters */}
       <div className="flex gap-3 flex-wrap">
@@ -430,7 +426,7 @@ function ProductsContent() {
 
 export default function ProductsPage() {
   return (
-    <Suspense fallback={<div className="page-container space-y-6"><div className="p-8 text-center text-slate-400">Loading products...</div></div>}>
+    <Suspense fallback={<div className="page-container"><div className="p-8 text-center text-slate-400">Loading products...</div></div>}>
       <ProductsContent />
     </Suspense>
   )
