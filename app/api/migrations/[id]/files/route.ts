@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { apiError } from '@/lib/api/respond'
 import { requirePermission } from '@/lib/auth/require'
-import { attachMigrationFile, listMigrationFiles, replaceMigrationFile, setFileEntityType } from '@/lib/migration/files'
+import { attachMigrationFile, listMigrationFiles, replaceMigrationFile, setFileEntityType, removeMigrationFile } from '@/lib/migration/files'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { enqueueJob } from '@/lib/migration/jobs'
 import { processMigrationJobs } from '@/lib/migration/process'
+import { getMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -36,6 +37,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const entityType = (form.get('entity_type') as MigrationEntityType | null) || null
     const replaceFileId = (form.get('replace_file_id') as string | null) || null
     const pool = getDbPool()
+
+    const project = await getMigrationProject(pool, id)
+    if (!project) {
+      return NextResponse.json({ success: false, error: 'Migration not found' }, { status: 404 })
+    }
+    if (isMigrationTerminal(project.status)) {
+      return NextResponse.json(
+        { success: false, error: 'Migration is finished. Start over before uploading new files.' },
+        { status: 400 }
+      )
+    }
+    if (project.status === 'importing') {
+      return NextResponse.json(
+        { success: false, error: 'Cannot upload files while import is running' },
+        { status: 400 }
+      )
+    }
 
     const saved = replaceFileId
       ? await replaceMigrationFile(pool, {
@@ -87,5 +105,45 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ success: true, data: { migration_id: id, file } })
   } catch (e) {
     return apiError(e, 'Failed to update file')
+  }
+}
+
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await requirePermission('historical_migrations', 'update')
+    const { id } = await ctx.params
+    const body = await req.json()
+    const fileId = String(body.file_id || '')
+    if (!fileId) {
+      return NextResponse.json({ success: false, error: 'file_id is required' }, { status: 400 })
+    }
+
+    const pool = getDbPool()
+    const project = await getMigrationProject(pool, id)
+    if (!project) {
+      return NextResponse.json({ success: false, error: 'Migration not found' }, { status: 404 })
+    }
+    if (project.status === 'importing') {
+      return NextResponse.json(
+        { success: false, error: 'Cannot remove files while import is running' },
+        { status: 400 }
+      )
+    }
+    if (['completed', 'rolled_back', 'archived'].includes(project.status)) {
+      return NextResponse.json(
+        { success: false, error: 'Cannot remove files from a finished migration' },
+        { status: 400 }
+      )
+    }
+
+    await removeMigrationFile(pool, {
+      migrationId: id,
+      fileId,
+      actorId: session.user_id,
+    })
+    const files = await listMigrationFiles(pool, id)
+    return NextResponse.json({ success: true, data: files })
+  } catch (e) {
+    return apiError(e, 'Failed to remove file')
   }
 }

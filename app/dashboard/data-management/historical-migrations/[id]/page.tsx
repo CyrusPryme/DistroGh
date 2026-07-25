@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, Play, CheckCircle2, AlertTriangle, RefreshCw, ShieldCheck,
-  FileSpreadsheet, ArrowRight, RotateCcw, XCircle,
+  FileSpreadsheet, ArrowRight, RotateCcw, XCircle, Trash2,
 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
@@ -140,7 +140,11 @@ export default function MigrationWizardPage() {
       })
       const j = await res.json()
       if (!j.success) throw new Error(j.error || 'Action failed')
-      const label = action === 'cancel' ? 'Migration cancelled' : `${action.replace(/_/g, ' ')} started`
+      const label = action === 'cancel'
+        ? 'Migration cancelled'
+        : action === 'restart'
+          ? 'Ready for new uploads'
+          : `${action.replace(/_/g, ' ')} started`
       setToast({ type: 'success', message: label })
       await load()
       if (action === 'validate' || action === 'preview') await loadStaging()
@@ -200,6 +204,26 @@ export default function MigrationWizardPage() {
     await load()
   }
 
+  const removeFile = async (fileId: string, filename: string) => {
+    if (!confirm(`Remove "${filename}" from this migration?`)) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/migrations/${id}/files`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: fileId }),
+      })
+      const j = await res.json()
+      if (!j.success) throw new Error(j.error || 'Failed to remove file')
+      setToast({ type: 'success', message: 'File removed' })
+      await load()
+    } catch (e) {
+      setToast({ type: 'error', message: e instanceof Error ? e.message : 'Failed to remove file' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const correctRow = async (row: StagingRow, field: string, value: string) => {
     await fetch(`/api/migrations/${id}/actions`, {
       method: 'POST',
@@ -217,6 +241,10 @@ export default function MigrationWizardPage() {
   const importJobs = useMemo(() => jobs.filter((j) => j.job_type === 'import'), [jobs])
   const isTerminal = project ? MIGRATION_TERMINAL_STATUSES.includes(project.status as (typeof MIGRATION_TERMINAL_STATUSES)[number]) : false
   const cancelReasonText = project?.error_summary?.cancel_reason
+  const needsRestart = project?.status === 'failed' && Boolean(cancelReasonText)
+  const canManageFiles = project
+    ? !['importing', 'completed', 'rolled_back', 'archived'].includes(project.status) && !needsRestart
+    : false
 
   const handleCancel = async () => {
     const reason = cancelReason.trim()
@@ -236,7 +264,7 @@ export default function MigrationWizardPage() {
       if (!j.success) throw new Error(j.error || 'Cancellation failed')
       setCancelOpen(false)
       setCancelReason('')
-      setToast({ type: 'success', message: 'Migration cancelled and marked as failed' })
+      setToast({ type: 'success', message: 'Migration cancelled — uploads cleared, ready for new files' })
       await load()
     } catch (e) {
       setCancelError(e instanceof Error ? e.message : 'Cancellation failed')
@@ -270,6 +298,16 @@ export default function MigrationWizardPage() {
                 Cancel migration
               </button>
             )}
+            {needsRestart && (
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={busy}
+                onClick={() => runAction('restart')}
+              >
+                Start over with new files
+              </button>
+            )}
             <button type="button" className="btn-secondary" onClick={load}>
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -278,16 +316,36 @@ export default function MigrationWizardPage() {
         }
       />
 
-      {project.status === 'failed' && cancelReasonText && (
-        <div className="data-card bg-red-50 border-red-200">
+      {(cancelReasonText && (project.status === 'failed' || project.status === 'draft')) && (
+        <div className={cn(
+          'data-card',
+          project.status === 'failed' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+        )}>
           <div className="flex items-start gap-3">
-            <XCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <XCircle className={cn(
+              'w-5 h-5 flex-shrink-0 mt-0.5',
+              project.status === 'failed' ? 'text-red-600' : 'text-amber-600'
+            )} />
             <div>
-              <h2 className="font-semibold text-red-900">Migration cancelled</h2>
-              <p className="text-sm text-red-800 mt-1">{cancelReasonText}</p>
+              <h2 className={cn(
+                'font-semibold',
+                project.status === 'failed' ? 'text-red-900' : 'text-amber-900'
+              )}>
+                {project.status === 'failed' ? 'Migration cancelled' : 'Previous attempt cancelled'}
+              </h2>
+              <p className={cn(
+                'text-sm mt-1',
+                project.status === 'failed' ? 'text-red-800' : 'text-amber-800'
+              )}>
+                {cancelReasonText}
+              </p>
               {project.error_summary?.cancelled_at && (
-                <p className="text-xs text-red-600 mt-2">
+                <p className={cn(
+                  'text-xs mt-2',
+                  project.status === 'failed' ? 'text-red-600' : 'text-amber-700'
+                )}>
                   Cancelled {new Date(project.error_summary.cancelled_at).toLocaleString()}
+                  {project.status === 'draft' ? ' · Upload new files below to continue.' : ''}
                 </p>
               )}
             </div>
@@ -303,7 +361,7 @@ export default function MigrationWizardPage() {
           setCancelError(null)
         }}
         title="Cancel migration"
-        description="This will stop all pending jobs and mark the migration as failed. This cannot be undone."
+        description="This stops all jobs, clears uploaded files, and logs the cancellation. You can upload new files immediately after."
         error={cancelError}
         disableBackdropClose={busy}
         maxWidthClass="max-w-lg"
@@ -372,6 +430,7 @@ export default function MigrationWizardPage() {
       {/* Stage 2 — Upload */}
       {(stage === 2 || stage === 1) && (
         <div className="space-y-4">
+          {canManageFiles ? (
           <div
             {...getRootProps()}
             className={cn(
@@ -384,11 +443,17 @@ export default function MigrationWizardPage() {
             <p className="font-medium text-slate-800">
               {uploading ? 'Uploading…' : 'Drag & drop Excel/CSV files here'}
             </p>
-            <p className="text-xs text-slate-500 mt-1">xlsx · xls · csv · multiple files · replace anytime</p>
+            <p className="text-xs text-slate-500 mt-1">xlsx · xls · csv · multiple files · remove and re-upload anytime</p>
             <p className="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
               All vendors in this migration are imported as <strong>admin-managed</strong> (no portal login).
             </p>
           </div>
+          ) : needsRestart ? (
+            <div className="data-card text-center py-10">
+              <p className="text-slate-600">Uploaded files from the cancelled attempt are still attached.</p>
+              <p className="text-sm text-slate-500 mt-1">Click <strong>Start over with new files</strong> to clear them and upload again.</p>
+            </div>
+          ) : null}
 
           <div className="data-card p-0 overflow-hidden">
             <table className="data-table">
@@ -399,11 +464,12 @@ export default function MigrationWizardPage() {
                   <th>Parse</th>
                   <th>Rows</th>
                   <th>Size</th>
+                  {canManageFiles && <th className="text-right">Remove</th>}
                 </tr>
               </thead>
               <tbody>
                 {files.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center text-slate-400 py-8">No files uploaded yet</td></tr>
+                  <tr><td colSpan={canManageFiles ? 6 : 5} className="text-center text-slate-400 py-8">No files uploaded yet</td></tr>
                 ) : files.map((f) => (
                   <tr key={f.id}>
                     <td className="flex items-center gap-2">
@@ -415,6 +481,7 @@ export default function MigrationWizardPage() {
                         className="form-input !py-1.5 text-xs"
                         value={f.entity_type ?? ''}
                         onChange={(e) => setEntity(f.id, e.target.value as MigrationEntityType)}
+                        disabled={!canManageFiles || busy}
                       >
                         <option value="">Detect / assign…</option>
                         {ENTITY_OPTIONS.map((e) => (
@@ -425,6 +492,19 @@ export default function MigrationWizardPage() {
                     <td className="text-xs">{f.parse_status}</td>
                     <td>{f.row_count}</td>
                     <td className="text-xs text-slate-500">{(f.size_bytes / 1024).toFixed(1)} KB</td>
+                    {canManageFiles && (
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => removeFile(f.id, f.original_filename)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Remove
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

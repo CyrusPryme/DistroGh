@@ -210,3 +210,111 @@ export async function setFileEntityType(
   }
   return rows[0] ? mapFile(rows[0]) : null
 }
+
+async function refreshFilesUploadedCount(db: Db, migrationId: string) {
+  await db.query(
+    `UPDATE public.migration_projects
+     SET files_uploaded = (
+       SELECT COUNT(*)::int FROM public.migration_files WHERE migration_id = $1 AND is_active
+     ),
+     last_activity_at = now(), updated_at = now()
+     WHERE id = $1`,
+    [migrationId]
+  )
+}
+
+/** Remove one uploaded file and its staging rows. */
+export async function removeMigrationFile(
+  db: Pool,
+  params: { migrationId: string; fileId: string; actorId?: string | null }
+): Promise<void> {
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `SELECT * FROM public.migration_files
+       WHERE id = $1 AND migration_id = $2 AND is_active`,
+      [params.fileId, params.migrationId]
+    )
+    if (!rows[0]) throw new Error('File not found')
+
+    await client.query(
+      `UPDATE public.migration_files
+       SET is_active = false, replaced_at = now(), parse_status = 'replaced'
+       WHERE id = $1`,
+      [params.fileId]
+    )
+    await client.query(
+      `DELETE FROM public.migration_staging_rows WHERE migration_id = $1 AND file_id = $2`,
+      [params.migrationId, params.fileId]
+    )
+    await refreshFilesUploadedCount(client, params.migrationId)
+    await writeMigrationAudit(client, {
+      migrationId: params.migrationId,
+      actorId: params.actorId,
+      action: 'migration.file_removed',
+      stage: 2,
+      details: { file_id: params.fileId, filename: rows[0].original_filename },
+    })
+    await client.query('COMMIT')
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+/** Clear all uploads and staging so the migration can start fresh. */
+export async function clearMigrationUploads(
+  db: Pool,
+  migrationId: string,
+  actorId?: string | null
+): Promise<number> {
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `UPDATE public.migration_files
+       SET is_active = false, replaced_at = now(), parse_status = 'replaced'
+       WHERE migration_id = $1 AND is_active
+       RETURNING id`,
+      [migrationId]
+    )
+    await client.query(`DELETE FROM public.migration_staging_rows WHERE migration_id = $1`, [migrationId])
+    await client.query(`DELETE FROM public.migration_entity_mappings WHERE migration_id = $1`, [migrationId])
+    await client.query(
+      `UPDATE public.migration_projects
+       SET files_uploaded = 0,
+           error_count = 0,
+           warning_count = 0,
+           validation_status = 'pending',
+           dependency_graph = '[]'::jsonb,
+           import_order = '[]'::jsonb,
+           preview_summary = '{}'::jsonb,
+           reconciliation = '{}'::jsonb,
+           progress_pct = 0,
+           current_stage = 2,
+           last_activity_at = now(),
+           updated_at = now()
+       WHERE id = $1`,
+      [migrationId]
+    )
+    if (rows.length) {
+      await writeMigrationAudit(client, {
+        migrationId,
+        actorId,
+        action: 'migration.uploads_cleared',
+        stage: 2,
+        details: { files_removed: rows.length },
+      })
+    }
+    await client.query('COMMIT')
+    return rows.length
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}

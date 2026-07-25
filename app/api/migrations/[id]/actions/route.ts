@@ -5,6 +5,7 @@ import { requirePermission } from '@/lib/auth/require'
 import { enqueueJob, listJobs, cancelMigrationJobs } from '@/lib/migration/jobs'
 import { buildPreviewSummary, processMigrationJobs } from '@/lib/migration/process'
 import { getMigrationProject, updateMigrationProject, isMigrationTerminal } from '@/lib/migration/projects'
+import { clearMigrationUploads } from '@/lib/migration/files'
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -19,6 +20,7 @@ type Action =
   | 'reconcile'
   | 'rollback'
   | 'cancel'
+  | 'restart'
   | 'archive'
   | 'process'
   | 'correct_row'
@@ -33,7 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const project = await getMigrationProject(pool, id)
     if (!project) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
 
-    if (action !== 'cancel' && isMigrationTerminal(project.status)) {
+    if (action !== 'cancel' && action !== 'restart' && isMigrationTerminal(project.status)) {
       return NextResponse.json(
         { success: false, error: 'Migration is no longer active' },
         { status: 400 }
@@ -102,23 +104,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
       const cancelledJobs = await cancelMigrationJobs(pool, id, reason)
       const cancelledAt = new Date().toISOString()
+      const filesRemoved = await clearMigrationUploads(pool, id, session.user_id)
+      const previousCancellation = {
+        reason,
+        cancelled_at: cancelledAt,
+        cancelled_by: session.user_id,
+        cancelled_at_stage: project.current_stage,
+        cancelled_jobs: cancelledJobs,
+        files_removed: filesRemoved,
+      }
       const updated = await updateMigrationProject(
         pool,
         id,
         {
-          status: 'failed',
+          status: 'draft',
+          current_stage: 2,
+          progress_pct: 0,
+          validation_status: 'pending',
           error_summary: {
             ...project.error_summary,
+            ...previousCancellation,
             cancel_reason: reason,
-            cancelled_at: cancelledAt,
-            cancelled_by: session.user_id,
-            cancelled_at_stage: project.current_stage,
-            cancelled_jobs: cancelledJobs,
           },
           wizard_state: {
             ...project.wizard_state,
-            cancelled_at: cancelledAt,
+            stage: 2,
+            previous_cancellation: previousCancellation,
             cancel_reason: reason,
+            cancelled_at: cancelledAt,
           },
         },
         session.user_id,
@@ -132,10 +145,43 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         details: {
           reason,
           cancelled_jobs: cancelledJobs,
+          files_removed: filesRemoved,
           previous_status: project.status,
         },
       })
-      return NextResponse.json({ success: true, data: { project: updated, cancelled_jobs: cancelledJobs } })
+      return NextResponse.json({
+        success: true,
+        data: { project: updated, cancelled_jobs: cancelledJobs, files_removed: filesRemoved },
+      })
+    }
+
+    if (action === 'restart') {
+      if (project.status !== 'failed' || !project.error_summary?.cancel_reason) {
+        return NextResponse.json(
+          { success: false, error: 'Only cancelled migrations can be restarted' },
+          { status: 400 }
+        )
+      }
+      await cancelMigrationJobs(pool, id, 'Restarting migration')
+      const filesRemoved = await clearMigrationUploads(pool, id, session.user_id)
+      const updated = await updateMigrationProject(
+        pool,
+        id,
+        {
+          status: 'draft',
+          current_stage: 2,
+          progress_pct: 0,
+          validation_status: 'pending',
+          wizard_state: {
+            ...project.wizard_state,
+            stage: 2,
+            restarted_at: new Date().toISOString(),
+          },
+        },
+        session.user_id,
+        'migration.restarted'
+      )
+      return NextResponse.json({ success: true, data: { project: updated, files_removed: filesRemoved } })
     }
 
     if (action === 'archive') {
