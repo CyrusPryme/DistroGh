@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, Play, CheckCircle2, AlertTriangle, RefreshCw, ShieldCheck,
@@ -14,6 +14,7 @@ import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/F
 import { cn } from '@/lib/utils'
 import { MIGRATION_STAGES, type MigrationEntityType } from '@/lib/migration/types'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
+import { canDeleteMigration } from '@/lib/migration/lifecycle'
 
 type Project = {
   id: string
@@ -69,6 +70,7 @@ const ENTITY_OPTIONS = Object.keys(ENTITY_LABELS) as MigrationEntityType[]
 
 export default function MigrationWizardPage() {
   const params = useParams()
+  const router = useRouter()
   const id = String(params.id)
   const [project, setProject] = useState<Project | null>(null)
   const [files, setFiles] = useState<MigFile[]>([])
@@ -81,6 +83,8 @@ export default function MigrationWizardPage() {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
@@ -251,6 +255,7 @@ export default function MigrationWizardPage() {
   const canManageFiles = project
     ? !['importing', 'completed', 'rolled_back', 'archived'].includes(project.status) && !needsRestart
     : false
+  const deletable = project ? canDeleteMigration(project) : false
 
   const handleCancel = async () => {
     const reason = cancelReason.trim()
@@ -274,6 +279,21 @@ export default function MigrationWizardPage() {
       await load()
     } catch (e) {
       setCancelError(e instanceof Error ? e.message : 'Cancellation failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleteError(null)
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/migrations/${id}`, { method: 'DELETE' })
+      const j = await res.json()
+      if (!j.success) throw new Error(j.error || 'Delete failed')
+      router.push('/dashboard/data-management/historical-migrations')
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Delete failed')
     } finally {
       setBusy(false)
     }
@@ -312,6 +332,20 @@ export default function MigrationWizardPage() {
                 onClick={() => runAction('restart')}
               >
                 Start over with new files
+              </button>
+            )}
+            {deletable && (
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={busy}
+                onClick={() => {
+                  setDeleteError(null)
+                  setDeleteOpen(true)
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete migration
               </button>
             )}
             <button type="button" className="btn-secondary" onClick={load}>
@@ -416,6 +450,48 @@ export default function MigrationWizardPage() {
           </button>
           <button type="button" className="btn-danger" disabled={busy} onClick={handleCancel}>
             {busy ? 'Cancelling…' : 'Cancel migration'}
+          </button>
+        </FormModalFooter>
+      </FormModal>
+
+      <FormModal
+        open={deleteOpen}
+        onClose={() => {
+          if (busy) return
+          setDeleteOpen(false)
+          setDeleteError(null)
+        }}
+        title="Delete migration"
+        description="This permanently removes the migration project, uploaded files, staging data, and job history. This cannot be undone."
+        error={deleteError}
+        disableBackdropClose={busy}
+        maxWidthClass="max-w-lg"
+      >
+        <FormModalBody>
+          <p className="text-sm text-slate-700">
+            Delete <strong>{project.name}</strong>?
+          </p>
+          {cancelReasonText && (
+            <p className="text-xs text-slate-500 mt-2">Cancellation reason: {cancelReasonText}</p>
+          )}
+          {importErrorText && !cancelReasonText && (
+            <p className="text-xs text-slate-500 mt-2 font-mono break-all">Last error: {importErrorText}</p>
+          )}
+        </FormModalBody>
+        <FormModalFooter>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={busy}
+            onClick={() => {
+              setDeleteOpen(false)
+              setDeleteError(null)
+            }}
+          >
+            Keep migration
+          </button>
+          <button type="button" className="btn-danger" disabled={busy} onClick={handleDelete}>
+            {busy ? 'Deleting…' : 'Delete permanently'}
           </button>
         </FormModalFooter>
       </FormModal>

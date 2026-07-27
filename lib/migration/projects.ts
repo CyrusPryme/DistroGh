@@ -6,16 +6,16 @@ import type {
 } from '@/lib/migration/types'
 import { MIGRATION_TERMINAL_STATUSES } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
+import { writeAuditLog } from '@/lib/rbac/audit'
+import { cancelMigrationJobs } from '@/lib/migration/jobs'
+import { canDeleteMigration, isMigrationUserCancelled } from '@/lib/migration/lifecycle'
+
+export { isMigrationUserCancelled, canDeleteMigration } from '@/lib/migration/lifecycle'
 
 type Db = Pool | PoolClient
 
 export function isMigrationTerminal(status: MigrationStatus): boolean {
   return MIGRATION_TERMINAL_STATUSES.includes(status)
-}
-
-/** User cancelled — no further work allowed. */
-export function isMigrationUserCancelled(project: MigrationProject): boolean {
-  return Boolean(project.error_summary?.cancel_reason)
 }
 
 /** Block migration work (import, reconcile, validate, etc.). Import failures stay recoverable. */
@@ -109,7 +109,12 @@ export async function listMigrationProjects(
   const limit = filter?.limit ?? 100
   const params: unknown[] = []
   const where: string[] = [`status <> 'archived'`]
-  if (filter?.status) {
+  if (filter?.status === 'failed') {
+    where.push(`(
+      status IN ('failed', 'cancelled')
+      OR (status = 'draft' AND error_summary->>'cancel_reason' IS NOT NULL)
+    )`)
+  } else if (filter?.status) {
     params.push(filter.status)
     where.push(`status = $${params.length}`)
   }
@@ -202,6 +207,50 @@ export async function updateMigrationProject(
     })
   }
   return project
+}
+
+export async function migrationHasProductionImports(db: Db, migrationId: string): Promise<boolean> {
+  const { rows } = await db.query(
+    `SELECT 1 FROM public.migration_staging_rows
+     WHERE migration_id = $1 AND production_id IS NOT NULL
+     LIMIT 1`,
+    [migrationId]
+  )
+  return Boolean(rows[0])
+}
+
+export async function deleteMigrationProject(
+  db: Db,
+  id: string,
+  actorId: string
+): Promise<void> {
+  const project = await getMigrationProject(db, id)
+  if (!project) throw new Error('Migration not found')
+  if (!canDeleteMigration(project)) {
+    throw new Error('Only failed or cancelled migrations can be deleted')
+  }
+  if (await migrationHasProductionImports(db, id)) {
+    throw new Error(
+      'This migration imported data into production. Roll back the import before deleting.'
+    )
+  }
+  if (['importing', 'analysing', 'verifying'].includes(project.status)) {
+    throw new Error('Cannot delete a migration while it is still running')
+  }
+
+  await cancelMigrationJobs(db, id, 'Migration deleted')
+  await writeAuditLog(db, {
+    actor_id: actorId,
+    action: 'migration.deleted',
+    module: 'historical_migrations',
+    target_id: id,
+    target_label: project.name,
+    metadata: {
+      status: project.status,
+      cancel_reason: project.error_summary?.cancel_reason ?? null,
+    },
+  })
+  await db.query(`DELETE FROM public.migration_projects WHERE id = $1`, [id])
 }
 
 export async function saveWizardState(

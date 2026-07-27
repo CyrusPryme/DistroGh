@@ -6,9 +6,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
-import { History, Plus, RefreshCw } from 'lucide-react'
+import { History, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MIGRATION_STAGES } from '@/lib/migration/types'
+import { canDeleteMigration } from '@/lib/migration/lifecycle'
 
 type Migration = {
   id: string
@@ -23,14 +24,20 @@ type Migration = {
   warning_count: number
   last_activity_at: string
   created_at: string
+  error_summary?: { cancel_reason?: string }
 }
 
 function statusTone(status: string) {
   if (status === 'completed') return 'bg-brand-50 text-brand-700 border-brand-200'
-  if (status === 'failed' || status === 'rolled_back') return 'bg-red-50 text-red-700 border-red-200'
+  if (status === 'failed' || status === 'rolled_back' || status === 'cancelled') return 'bg-red-50 text-red-700 border-red-200'
   if (status === 'importing' || status === 'analysing') return 'bg-blue-50 text-blue-700 border-blue-200'
   if (status === 'awaiting_correction') return 'bg-amber-50 text-amber-700 border-amber-200'
   return 'bg-slate-50 text-slate-700 border-slate-200'
+}
+
+function statusLabel(m: Migration) {
+  if (m.status === 'draft' && m.error_summary?.cancel_reason) return 'cancelled'
+  return m.status
 }
 
 function MigrationsList() {
@@ -46,6 +53,8 @@ function MigrationsList() {
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Migration | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -80,6 +89,23 @@ function MigrationsList() {
       setToast({ type: 'error', message: e instanceof Error ? e.message : 'Create failed' })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/migrations/${deleteTarget.id}`, { method: 'DELETE' })
+      const j = await res.json()
+      if (!j.success) throw new Error(j.error || 'Delete failed')
+      setToast({ type: 'success', message: `"${deleteTarget.name}" deleted` })
+      setDeleteTarget(null)
+      await load()
+    } catch (e) {
+      setToast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -120,25 +146,28 @@ function MigrationsList() {
               <th>Files</th>
               <th>Errors</th>
               <th>Last activity</th>
+              <th className="w-24" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center text-slate-400 py-10">Loading…</td></tr>
+              <tr><td colSpan={8} className="text-center text-slate-400 py-10">Loading…</td></tr>
             ) : items.length === 0 ? (
-              <tr><td colSpan={7} className="text-center text-slate-400 py-10">No migrations yet.</td></tr>
+              <tr><td colSpan={8} className="text-center text-slate-400 py-10">No migrations yet.</td></tr>
             ) : items.map((m) => {
               const stageLabel = MIGRATION_STAGES.find((s) => s.stage === m.current_stage)?.label ?? `Stage ${m.current_stage}`
+              const deletable = canDeleteMigration(m)
+              const label = statusLabel(m)
               return (
                 <tr key={m.id} className="cursor-pointer" onClick={() => router.push(`/dashboard/data-management/historical-migrations/${m.id}`)}>
                   <td>
-                    <Link href={`/dashboard/data-management/historical-migrations/${m.id}`} className="font-medium text-slate-800 hover:text-brand-700">
+                    <Link href={`/dashboard/data-management/historical-migrations/${m.id}`} className="font-medium text-slate-800 hover:text-brand-700" onClick={(e) => e.stopPropagation()}>
                       {m.name}
                     </Link>
                     {m.description && <p className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{m.description}</p>}
                   </td>
                   <td>
-                    <span className={cn('status-badge border', statusTone(m.status))}>{m.status.replace(/_/g, ' ')}</span>
+                    <span className={cn('status-badge border', statusTone(label))}>{label.replace(/_/g, ' ')}</span>
                   </td>
                   <td className="text-xs text-slate-600">{m.current_stage}. {stageLabel}</td>
                   <td>
@@ -152,6 +181,18 @@ function MigrationsList() {
                   <td>{m.files_uploaded}</td>
                   <td className={m.error_count ? 'text-red-600 font-medium' : 'text-slate-500'}>{m.error_count}</td>
                   <td className="text-xs text-slate-500">{new Date(m.last_activity_at).toLocaleString()}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    {deletable && (
+                      <button
+                        type="button"
+                        className="btn-ghost text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1"
+                        title="Delete migration"
+                        onClick={() => setDeleteTarget(m)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               )
             })}
@@ -174,6 +215,34 @@ function MigrationsList() {
           <button type="button" className="btn-secondary flex-1" onClick={() => setModal(false)}>Cancel</button>
           <button type="button" className="btn-primary flex-1" disabled={!name.trim() || saving} onClick={create}>
             {saving ? 'Creating…' : 'Create & open wizard'}
+          </button>
+        </FormModalFooter>
+      </FormModal>
+
+      <FormModal
+        open={Boolean(deleteTarget)}
+        onClose={() => { if (!deleting) setDeleteTarget(null) }}
+        title="Delete migration"
+        description="This permanently removes the migration project, uploaded files, staging data, and job history. This cannot be undone."
+        disableBackdropClose={deleting}
+        maxWidthClass="max-w-lg"
+      >
+        <FormModalBody>
+          <p className="text-sm text-slate-700">
+            Delete <strong>{deleteTarget?.name}</strong>?
+          </p>
+          {deleteTarget?.error_summary?.cancel_reason && (
+            <p className="text-xs text-slate-500 mt-2">
+              Cancellation reason: {deleteTarget.error_summary.cancel_reason}
+            </p>
+          )}
+        </FormModalBody>
+        <FormModalFooter>
+          <button type="button" className="btn-secondary flex-1" disabled={deleting} onClick={() => setDeleteTarget(null)}>
+            Keep
+          </button>
+          <button type="button" className="btn-danger flex-1" disabled={deleting} onClick={confirmDelete}>
+            {deleting ? 'Deleting…' : 'Delete permanently'}
           </button>
         </FormModalFooter>
       </FormModal>

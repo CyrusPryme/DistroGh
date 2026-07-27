@@ -3,6 +3,7 @@ import { getDbPool } from '@/lib/db'
 import { apiError } from '@/lib/api/respond'
 import { requirePermission } from '@/lib/auth/require'
 import {
+  deleteMigrationProject,
   getMigrationProject,
   saveWizardState,
   updateMigrationProject,
@@ -70,5 +71,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ success: true, data: project })
   } catch (e) {
     return apiError(e, 'Failed to update migration')
+  }
+}
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await requirePermission('historical_migrations', 'delete')
+    const { id } = await ctx.params
+    const pool = getDbPool()
+    await deleteMigrationProject(pool, id, session.user_id)
+    return NextResponse.json({ success: true })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Failed to delete migration'
+    const status = message === 'Migration not found' ? 404 : 400
+    return NextResponse.json({ success: false, error: message }, { status })
   }
 }
