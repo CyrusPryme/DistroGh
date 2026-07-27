@@ -8,14 +8,14 @@ import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { History, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { MIGRATION_STAGES } from '@/lib/migration/types'
+import { MIGRATION_STAGES, type MigrationStatus } from '@/lib/migration/types'
 import { canDeleteMigration } from '@/lib/migration/lifecycle'
 
 type Migration = {
   id: string
   name: string
   description: string | null
-  status: string
+  status: MigrationStatus
   current_stage: number
   progress_pct: number
   validation_status: string

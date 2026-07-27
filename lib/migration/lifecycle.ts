@@ -1,6 +1,7 @@
-import type { MigrationProject } from '@/lib/migration/types'
-
-type ProjectLike = Pick<MigrationProject, 'status' | 'error_summary'>
+type ProjectLike = {
+  status: string
+  error_summary?: Record<string, unknown> | null
+}
 
 /** User cancelled — no further work allowed. */
 export function isMigrationUserCancelled(project: ProjectLike): boolean {
