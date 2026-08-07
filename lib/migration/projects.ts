@@ -8,9 +8,19 @@ import { MIGRATION_TERMINAL_STATUSES } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { writeAuditLog } from '@/lib/rbac/audit'
 import { cancelMigrationJobs } from '@/lib/migration/jobs'
-import { canDeleteMigration, isMigrationUserCancelled } from '@/lib/migration/lifecycle'
+import { clearMigrationUploads } from '@/lib/migration/files'
+import {
+  canDeleteMigration,
+  canRestartMigration,
+  isMigrationUserCancelled,
+} from '@/lib/migration/lifecycle'
 
-export { isMigrationUserCancelled, canDeleteMigration } from '@/lib/migration/lifecycle'
+export {
+  isMigrationUserCancelled,
+  canDeleteMigration,
+  canRestartMigration,
+  needsMigrationRetry,
+} from '@/lib/migration/lifecycle'
 
 type Db = Pool | PoolClient
 
@@ -22,7 +32,58 @@ export function isMigrationTerminal(status: MigrationStatus): boolean {
 export function isMigrationWorkBlocked(project: MigrationProject): boolean {
   if (isMigrationUserCancelled(project)) return true
   if (project.status === 'failed') return false
+  if (project.status === 'rolled_back') return true
   return isMigrationTerminal(project.status)
+}
+
+/** Clear a stopped migration so corrected spreadsheets can be uploaded again. */
+export async function prepareMigrationRetry(
+  db: Pool,
+  migrationId: string,
+  actorId: string
+): Promise<MigrationProject | null> {
+  const project = await getMigrationProject(db, migrationId)
+  if (!project) throw new Error('Migration not found')
+  if (!canRestartMigration(project)) {
+    throw new Error('This migration cannot be reset for a new upload attempt')
+  }
+
+  await cancelMigrationJobs(db, migrationId, 'Preparing corrected file upload')
+  await clearMigrationUploads(db, migrationId, actorId)
+
+  const {
+    cancel_reason: _cancelReason,
+    cancelled_at: _cancelledAt,
+    import_error: _importError,
+    failed_at: _failedAt,
+    ...errorSummaryRest
+  } = project.error_summary
+
+  return updateMigrationProject(
+    db,
+    migrationId,
+    {
+      status: 'draft',
+      current_stage: 2,
+      progress_pct: 0,
+      validation_status: 'pending',
+      rollback_available: false,
+      error_summary: errorSummaryRest,
+      wizard_state: {
+        ...project.wizard_state,
+        stage: 2,
+        last_retry_at: new Date().toISOString(),
+        previous_attempt: {
+          retried_at: new Date().toISOString(),
+          previous_status: project.status,
+          cancel_reason: project.error_summary?.cancel_reason ?? null,
+          import_error: project.error_summary?.import_error ?? null,
+        },
+      },
+    },
+    actorId,
+    'migration.retried'
+  )
 }
 
 /** Stop background jobs (cancelled, completed, user-cancelled failed). */

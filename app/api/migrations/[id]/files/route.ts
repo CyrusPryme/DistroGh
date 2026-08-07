@@ -6,7 +6,8 @@ import { attachMigrationFile, listMigrationFiles, replaceMigrationFile, setFileE
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { enqueueJob } from '@/lib/migration/jobs'
 import { processMigrationJobs } from '@/lib/migration/process'
-import { getMigrationProject, isMigrationWorkBlocked, isMigrationUserCancelled } from '@/lib/migration/projects'
+import { getMigrationProject, isMigrationWorkBlocked } from '@/lib/migration/projects'
+import { needsMigrationRetry } from '@/lib/migration/lifecycle'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -44,10 +45,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     if (isMigrationWorkBlocked(project)) {
       let error = 'Cannot upload files to this migration.'
-      if (isMigrationUserCancelled(project)) {
-        error = 'This migration was cancelled. Click "Start over with new files" first.'
-      } else if (['completed', 'rolled_back', 'archived', 'cancelled'].includes(project.status)) {
-        error = 'This migration is finished. Start over with new files or create a new migration project.'
+      if (needsMigrationRetry(project)) {
+        error =
+          'This attempt was stopped. Click "Upload corrected files" to reset the workspace — you can then upload the same filenames again with your fixes.'
+      } else if (['completed', 'archived', 'cancelled'].includes(project.status)) {
+        error = 'This migration is finished. Create a new migration project to import again.'
       }
       return NextResponse.json({ success: false, error }, { status: 400 })
     }
@@ -58,10 +60,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       )
     }
 
-    const saved = replaceFileId
+    const activeFiles = await listMigrationFiles(pool, id)
+    const replaceTargetId =
+      replaceFileId ||
+      activeFiles.find((f) => f.original_filename.toLowerCase() === file.name.toLowerCase())?.id ||
+      null
+
+    const saved = replaceTargetId
       ? await replaceMigrationFile(pool, {
           migrationId: id,
-          replaceFileId,
+          replaceFileId: replaceTargetId,
           filename: file.name,
           mimeType: file.type,
           buffer,

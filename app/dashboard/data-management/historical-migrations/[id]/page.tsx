@@ -14,7 +14,7 @@ import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/F
 import { cn } from '@/lib/utils'
 import { MIGRATION_STAGES, type MigrationEntityType, type MigrationStatus } from '@/lib/migration/types'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
-import { canDeleteMigration } from '@/lib/migration/lifecycle'
+import { canDeleteMigration, needsMigrationRetry, canRestartMigration } from '@/lib/migration/lifecycle'
 
 type Project = {
   id: string
@@ -148,7 +148,7 @@ export default function MigrationWizardPage() {
       const label = action === 'cancel'
         ? 'Migration cancelled'
         : action === 'restart'
-          ? 'Ready for new uploads'
+          ? 'Workspace cleared — upload your corrected files'
           : `${action.replace(/_/g, ' ')} started`
       setToast({ type: 'success', message: label })
       await load()
@@ -247,13 +247,13 @@ export default function MigrationWizardPage() {
   const cancelReasonText = project?.error_summary?.cancel_reason
   const isUserCancelled = Boolean(cancelReasonText)
   const importErrorText = project?.error_summary?.import_error
+  const needsRetry = project ? needsMigrationRetry(project) : false
+  const canRetry = project ? canRestartMigration(project) : false
   const isLocked = project
-    ? ['completed', 'rolled_back', 'archived', 'cancelled'].includes(project.status) || isUserCancelled
+    ? ['completed', 'archived', 'cancelled'].includes(project.status) || needsRetry
     : false
-  const needsRestart = project?.status === 'failed' && isUserCancelled
-  const showStartOver = project?.status === 'failed'
   const canManageFiles = project
-    ? !['importing', 'completed', 'rolled_back', 'archived'].includes(project.status) && !needsRestart
+    ? !needsRetry && !['importing', 'completed', 'archived'].includes(project.status)
     : false
   const deletable = project ? canDeleteMigration(project) : false
 
@@ -275,7 +275,7 @@ export default function MigrationWizardPage() {
       if (!j.success) throw new Error(j.error || 'Cancellation failed')
       setCancelOpen(false)
       setCancelReason('')
-      setToast({ type: 'success', message: 'Migration cancelled — uploads cleared, ready for new files' })
+      setToast({ type: 'success', message: 'Migration cancelled — click Upload corrected files when your spreadsheets are ready' })
       await load()
     } catch (e) {
       setCancelError(e instanceof Error ? e.message : 'Cancellation failed')
@@ -324,14 +324,15 @@ export default function MigrationWizardPage() {
                 Cancel migration
               </button>
             )}
-            {showStartOver && (
+            {canRetry && (
               <button
                 type="button"
                 className="btn-primary"
                 disabled={busy}
                 onClick={() => runAction('restart')}
               >
-                Start over with new files
+                <RotateCcw className="w-4 h-4" />
+                Upload corrected files
               </button>
             )}
             {deletable && (
@@ -366,14 +367,56 @@ export default function MigrationWizardPage() {
               <p className="text-xs text-red-700 mt-2">
                 {importErrorText.includes('momo_network')
                   ? 'The mobile money network issue is fixed — click Process next job chunk to retry the import. Only upload new files if you changed the spreadsheet.'
-                  : <>Fix the data if needed, then use <strong>Process next job chunk</strong> to retry import. Use <strong>Start over with new files</strong> only if you want to replace all uploads.</>}
+                  : <>Fix the data if needed, then use <strong>Process next job chunk</strong> to retry import. Upload a corrected spreadsheet to replace an existing file, or use <strong>Upload corrected files</strong> to reset everything.</>}
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {(cancelReasonText && (project.status === 'failed' || project.status === 'draft')) && (
+      {(needsRetry && (cancelReasonText || project.status === 'rolled_back')) && (
+        <div className={cn(
+          'data-card',
+          project.status === 'rolled_back' ? 'bg-amber-50 border-amber-200' : 'bg-amber-50 border-amber-200'
+        )}>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <RotateCcw className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h2 className="font-semibold text-amber-900">
+                  {project.status === 'rolled_back' ? 'Migration rolled back' : 'Ready for corrected files'}
+                </h2>
+                <p className="text-sm text-amber-800 mt-1">
+                  {project.status === 'rolled_back'
+                    ? 'Production changes from this migration were undone. You can fix your spreadsheets and run the import again.'
+                    : 'Your previous attempt was stopped so you could fix mistakes in the source files.'}
+                </p>
+                {cancelReasonText && (
+                  <p className="text-sm text-amber-800 mt-2">
+                    Reason: {cancelReasonText}
+                  </p>
+                )}
+                <p className="text-xs text-amber-700 mt-2">
+                  Click <strong>Upload corrected files</strong> to clear the workspace, then upload again — the same filenames are fine.
+                </p>
+              </div>
+            </div>
+            {canRetry && (
+              <button
+                type="button"
+                className="btn-primary shrink-0"
+                disabled={busy}
+                onClick={() => runAction('restart')}
+              >
+                <RotateCcw className="w-4 h-4" />
+                Upload corrected files
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(cancelReasonText && !needsRetry && (project.status === 'failed' || project.status === 'draft')) && (
         <div className={cn(
           'data-card',
           project.status === 'failed' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
@@ -542,16 +585,30 @@ export default function MigrationWizardPage() {
             <p className="font-medium text-slate-800">
               {uploading ? 'Uploading…' : 'Drag & drop Excel/CSV files here'}
             </p>
-            <p className="text-xs text-slate-500 mt-1">xlsx · xls · csv · multiple files · remove and re-upload anytime</p>
+            <p className="text-xs text-slate-500 mt-1">xlsx · xls · csv · multiple files · re-uploading the same filename replaces the previous version</p>
             <p className="text-xs text-amber-700 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block max-w-xl mx-auto">
               Vendors: use <strong>momo_number</strong> (MoMo wallet for payouts) and <strong>contact_phone</strong> (business/contact line) as separate columns.
               All vendors import as <strong>admin-managed</strong> (no portal login).
             </p>
           </div>
-          ) : needsRestart ? (
+          ) : needsRetry ? (
             <div className="data-card text-center py-10">
-              <p className="text-slate-600">Uploaded files from the cancelled attempt are still attached.</p>
-              <p className="text-sm text-slate-500 mt-1">Click <strong>Start over with new files</strong> to clear them and upload again.</p>
+              <RotateCcw className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+              <p className="text-slate-700 font-medium">Upload area locked until you reset the workspace</p>
+              <p className="text-sm text-slate-500 mt-1 max-w-lg mx-auto">
+                Click <strong>Upload corrected files</strong> above, then drag the same spreadsheets back in with your fixes applied.
+              </p>
+              {canRetry && (
+                <button
+                  type="button"
+                  className="btn-primary mt-4"
+                  disabled={busy}
+                  onClick={() => runAction('restart')}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Upload corrected files
+                </button>
+              )}
             </div>
           ) : null}
 

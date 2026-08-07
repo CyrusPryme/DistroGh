@@ -46,7 +46,7 @@ export interface Vendor {
   verified_by?: string | null
   /** Admin message when requesting changes to FDA/facility docs; vendor sees on login */
   verification_feedback?: string | null
-  /** When admin removed this vendor's auth user from Supabase (manual cleanup) */
+  /** Legacy column from Supabase migration; no longer used. */
   auth_cleanup_done_at?: string | null
   /** Primary contact phone (vendor can update) */
   contact_phone?: string | null

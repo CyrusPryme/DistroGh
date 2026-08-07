@@ -4,8 +4,9 @@ import { apiError } from '@/lib/api/respond'
 import { requirePermission } from '@/lib/auth/require'
 import { enqueueJob, listJobs, cancelMigrationJobs, resetFailedMigrationJobs } from '@/lib/migration/jobs'
 import { buildPreviewSummary, processMigrationJobs } from '@/lib/migration/process'
-import { getMigrationProject, updateMigrationProject, isMigrationWorkBlocked, isMigrationTerminal } from '@/lib/migration/projects'
+import { getMigrationProject, updateMigrationProject, isMigrationWorkBlocked, isMigrationTerminal, prepareMigrationRetry, canRestartMigration } from '@/lib/migration/projects'
 import { clearMigrationUploads } from '@/lib/migration/files'
+import { needsMigrationRetry } from '@/lib/migration/lifecycle'
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -156,32 +157,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     if (action === 'restart') {
-      if (project.status !== 'failed') {
+      if (!canRestartMigration(project)) {
         return NextResponse.json(
-          { success: false, error: 'Only failed migrations can be restarted' },
+          { success: false, error: 'This migration cannot be reset for a new upload attempt' },
           { status: 400 }
         )
       }
-      await cancelMigrationJobs(pool, id, 'Restarting migration')
-      const filesRemoved = await clearMigrationUploads(pool, id, session.user_id)
-      const updated = await updateMigrationProject(
-        pool,
-        id,
-        {
-          status: 'draft',
-          current_stage: 2,
-          progress_pct: 0,
-          validation_status: 'pending',
-          wizard_state: {
-            ...project.wizard_state,
-            stage: 2,
-            restarted_at: new Date().toISOString(),
-          },
-        },
-        session.user_id,
-        'migration.restarted'
-      )
-      return NextResponse.json({ success: true, data: { project: updated, files_removed: filesRemoved } })
+      const updated = await prepareMigrationRetry(pool, id, session.user_id)
+      return NextResponse.json({ success: true, data: { project: updated } })
     }
 
     if (action === 'archive') {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canDeleteMigration, isMigrationUserCancelled } from '@/lib/migration/lifecycle'
+import { canDeleteMigration, canRestartMigration, isMigrationUserCancelled, needsMigrationRetry } from '@/lib/migration/lifecycle'
 import type { MigrationProject } from '@/lib/migration/types'
 
 function project(overrides: Partial<MigrationProject>): MigrationProject {
@@ -47,6 +47,24 @@ describe('migration lifecycle', () => {
       status: 'draft',
       error_summary: { cancel_reason: 'No longer needed' },
     }))).toBe(true)
+  })
+
+  it('detects when a retry is needed after cancel or rollback', () => {
+    expect(needsMigrationRetry(project({ status: 'rolled_back' }))).toBe(true)
+    expect(needsMigrationRetry(project({
+      status: 'draft',
+      error_summary: { cancel_reason: 'Wrong vendor list' },
+    }))).toBe(true)
+    expect(needsMigrationRetry(project({ status: 'failed', error_summary: { import_error: 'x' } }))).toBe(false)
+  })
+
+  it('allows restart only for cancelled or rolled-back attempts', () => {
+    expect(canRestartMigration(project({ status: 'rolled_back' }))).toBe(true)
+    expect(canRestartMigration(project({
+      status: 'draft',
+      error_summary: { cancel_reason: 'Fixing data' },
+    }))).toBe(true)
+    expect(canRestartMigration(project({ status: 'failed', error_summary: { import_error: 'x' } }))).toBe(false)
   })
 
   it('blocks delete for active or completed migrations', () => {

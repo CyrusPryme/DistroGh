@@ -309,22 +309,6 @@ export async function resetVendorPassword(vendorId: string, newPassword: string)
   return { success: true }
 }
 
-export async function getDeletedPendingAuthCleanup(): Promise<
-  { id: string; name: string; login_email: string | null; deleted_at: string }[]
-> {
-  await requireAdmin()
-  const pool = getDbPool()
-  const { rows } = await pool.query(
-    `
-    select id, name, login_email, deleted_at
-    from public.vendors
-    where deleted_at is not null and auth_cleanup_done_at is null
-    order by deleted_at desc
-    `
-  )
-  return rows as { id: string; name: string; login_email: string | null; deleted_at: string }[]
-}
-
 export async function softDeleteVendorCascade(vendorId: string): Promise<{ success: true }> {
   await requireAdmin()
   if (!vendorId?.trim()) throw new Error('Vendor ID required')
@@ -378,17 +362,6 @@ export async function softDeleteVendorCascade(vendorId: string): Promise<{ succe
   } finally {
     client.release()
   }
-  return { success: true }
-}
-
-export async function markVendorAuthCleanupDone(vendorId: string): Promise<{ success: true }> {
-  await requireAdmin()
-  if (!vendorId?.trim()) throw new Error('Vendor ID required')
-  const pool = getDbPool()
-  await pool.query(
-    `update public.vendors set auth_cleanup_done_at = now(), updated_at = now() where id = $1::uuid`,
-    [vendorId]
-  )
   return { success: true }
 }
 

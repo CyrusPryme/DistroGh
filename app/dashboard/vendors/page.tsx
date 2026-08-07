@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Phone, Edit2, Eye, Trash2, AlertCircle, Users, Clock, UserX, Loader2, CheckCircle, ShieldCheck } from 'lucide-react'
+import { Plus, Search, Phone, Edit2, Eye, Trash2, AlertCircle, Users, Clock, ShieldCheck } from 'lucide-react'
 import { canAdminActivateVendor, getVendorVerificationStage } from '@/lib/vendor-verification'
 import { VendorModal } from '@/components/vendors/VendorModal'
 import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
 import { vendorService } from '@/services/vendor.service'
-import { getDeletedPendingAuthCleanup, markVendorAuthCleanupDone, softDeleteVendorCascade, createVendorAdmin, updateVendorAdmin } from '@/app/dashboard/vendors/actions'
+import { softDeleteVendorCascade, createVendorAdmin, updateVendorAdmin } from '@/app/dashboard/vendors/actions'
 import { formatGHS, formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -44,9 +44,6 @@ export default function VendorsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  const [deletedPending, setDeletedPending] = useState<{ id: string; name: string; login_email: string | null; deleted_at: string }[]>([])
-  const [deletedLoading, setDeletedLoading] = useState(false)
-  const [markingDone, setMarkingDone] = useState<string | null>(null)
   const [vendorPage, setVendorPage] = useState(1)
 
   const load = async () => {
@@ -64,20 +61,7 @@ export default function VendorsPage() {
     }
   }
 
-  const loadDeletedPending = async () => {
-    setDeletedLoading(true)
-    try {
-      const data = await getDeletedPendingAuthCleanup()
-      setDeletedPending(data)
-    } catch {
-      setDeletedPending([])
-    } finally {
-      setDeletedLoading(false)
-    }
-  }
-
   useEffect(() => { load() }, [])
-  useEffect(() => { loadDeletedPending() }, [])
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
@@ -167,22 +151,8 @@ export default function VendorsPage() {
       await softDeleteVendorCascade(id)
       showToast('Vendor and related records soft deleted successfully')
       load()
-      loadDeletedPending()
     } catch (e: any) {
       showToast(e.message, 'error')
-    }
-  }
-
-  const handleMarkAuthCleanupDone = async (id: string) => {
-    setMarkingDone(id)
-    try {
-      await markVendorAuthCleanupDone(id)
-      setDeletedPending((prev) => prev.filter((v) => v.id !== id))
-      showToast('Marked as removed from Supabase')
-    } catch (e: any) {
-      showToast(e?.message ?? 'Failed to mark', 'error')
-    } finally {
-      setMarkingDone(null)
     }
   }
 
@@ -462,46 +432,6 @@ export default function VendorsPage() {
             />
           </div>
         )}
-      </div>
-
-      {/* Deleted vendors – Supabase cleanup (bottom right) */}
-      <div className="flex justify-end">
-        <div className="w-full max-w-md data-card">
-          <h3 className="font-display font-semibold text-slate-900 flex items-center gap-2 mb-2">
-            <UserX className="w-4 h-4 text-amber-600" />
-            Deleted vendors – remove from Supabase
-          </h3>
-          <p className="text-slate-500 text-xs mb-4">
-            Remove these users from Supabase Dashboard → Auth → Users, then mark as done.
-          </p>
-          {deletedLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
-            </div>
-          ) : deletedPending.length === 0 ? (
-            <p className="text-slate-400 text-sm py-4">No deleted vendors pending cleanup.</p>
-          ) : (
-            <ul className="space-y-2">
-              {deletedPending.map((v) => (
-                <li key={v.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-800 truncate">{v.name}</p>
-                    <code className="text-xs text-slate-500 truncate block">{v.login_email || '—'}</code>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleMarkAuthCleanupDone(v.id)}
-                    disabled={markingDone === v.id}
-                    className="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 rounded border border-brand-200 text-brand-700 text-xs font-medium hover:bg-brand-50 disabled:opacity-50"
-                  >
-                    {markingDone === v.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
-                    Done
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       </div>
 
       {/* Modal */}
