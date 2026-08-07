@@ -8,6 +8,7 @@ export async function GET() {
   const { rows } = await pool.query(
     `
     select * from public.vendors
+    where list_cleared_at is null
     order by (deleted_at is not null) asc, name asc
     `
   )

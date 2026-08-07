@@ -3,6 +3,7 @@
 import bcrypt from 'bcryptjs'
 import { getDbPool } from '@/lib/db'
 import { requireAdmin, getVendorBalanceAmount } from '@/lib/auth/require'
+import { writeAuditLog } from '@/lib/rbac/audit'
 import { recordVendorServiceChargePayment } from '@/lib/vendor-service-charge-enforce'
 import type { Vendor } from '@/types'
 import type { VendorFormValues } from '@/lib/validations'
@@ -310,13 +311,20 @@ export async function resetVendorPassword(vendorId: string, newPassword: string)
 }
 
 export async function softDeleteVendorCascade(vendorId: string): Promise<{ success: true }> {
-  await requireAdmin()
+  const { user } = await requireAdmin()
   if (!vendorId?.trim()) throw new Error('Vendor ID required')
 
   const pool = getDbPool()
   const client = await pool.connect()
   try {
     await client.query('begin')
+    const vendorRes = await client.query(
+      `select id, name, momo_number from public.vendors where id = $1::uuid and deleted_at is null`,
+      [vendorId]
+    )
+    const vendorRow = vendorRes.rows[0]
+    if (!vendorRow) throw new Error('Vendor not found')
+
     const { rows: productRows } = await client.query(
       `select id from public.products where vendor_id = $1::uuid and deleted_at is null`,
       [vendorId]
@@ -355,6 +363,18 @@ export async function softDeleteVendorCascade(vendorId: string): Promise<{ succe
       [vendorId]
     )
     if (!rowCount) throw new Error('Vendor not found')
+    await writeAuditLog(client, {
+      actor_id: user.id,
+      actor_email: user.email,
+      action: 'vendor_soft_deleted',
+      module: 'vendors',
+      target_id: vendorId,
+      target_label: vendorRow.name,
+      metadata: {
+        momo_number: vendorRow.momo_number,
+        products_affected: ids.length,
+      },
+    })
     await client.query('commit')
   } catch (e) {
     await client.query('rollback')

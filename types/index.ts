@@ -48,6 +48,8 @@ export interface Vendor {
   verification_feedback?: string | null
   /** Legacy column from Supabase migration; no longer used. */
   auth_cleanup_done_at?: string | null
+  /** Admin hid this deleted vendor from the vendors list; row kept for audit logs. */
+  list_cleared_at?: string | null
   /** Primary contact phone (vendor can update) */
   contact_phone?: string | null
   /** Business description (vendor can update) */

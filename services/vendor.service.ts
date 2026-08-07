@@ -80,6 +80,21 @@ export const vendorService = {
     })
   },
 
+  async clearFromList(id: string): Promise<void> {
+    await apiFetch<unknown>(`/api/vendors/${id}/clear-from-list`, {
+      method: 'POST',
+      fallbackError: 'Failed to clear vendor from list',
+    })
+  },
+
+  async clearAllDeletedFromList(): Promise<number> {
+    const result = await apiFetch<{ cleared: number }>('/api/vendors/clear-deleted', {
+      method: 'POST',
+      fallbackError: 'Failed to clear deleted vendors',
+    })
+    return result.cleared
+  },
+
   async delete(id: string): Promise<void> {
     return this.softDelete(id)
   },

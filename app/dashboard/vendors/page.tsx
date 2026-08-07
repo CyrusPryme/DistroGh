@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Phone, Edit2, Eye, Trash2, AlertCircle, Users, Clock, ShieldCheck } from 'lucide-react'
+import { Plus, Search, Phone, Edit2, Eye, Trash2, AlertCircle, Users, Clock, ShieldCheck, Archive } from 'lucide-react'
 import { canAdminActivateVendor, getVendorVerificationStage } from '@/lib/vendor-verification'
 import { VendorModal } from '@/components/vendors/VendorModal'
 import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
@@ -45,6 +45,7 @@ export default function VendorsPage() {
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [vendorPage, setVendorPage] = useState(1)
+  const [clearing, setClearing] = useState<string | null>(null)
 
   const load = async () => {
     try {
@@ -156,6 +157,36 @@ export default function VendorsPage() {
     }
   }
 
+  const handleClearFromList = async (id: string, name: string) => {
+    if (!confirm(`Remove "${name}" from this list? The vendor record stays in Audit Logs.`)) return
+    setClearing(id)
+    try {
+      await vendorService.clearFromList(id)
+      showToast(`"${name}" cleared from list`)
+      load()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to clear vendor', 'error')
+    } finally {
+      setClearing(null)
+    }
+  }
+
+  const handleClearAllDeleted = async () => {
+    const deleted = vendors.filter((v) => v.deleted_at)
+    if (!deleted.length) return
+    if (!confirm(`Clear ${deleted.length} deleted vendor(s) from this list? Records remain in Audit Logs.`)) return
+    setClearing('all')
+    try {
+      const count = await vendorService.clearAllDeletedFromList()
+      showToast(`${count} deleted vendor(s) cleared from list`)
+      load()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to clear vendors', 'error')
+    } finally {
+      setClearing(null)
+    }
+  }
+
   const filtered = vendors.filter(v => {
     const matchesSearch =
       v.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -190,6 +221,9 @@ export default function VendorsPage() {
     [vendors]
   )
 
+  const activeVendors = useMemo(() => vendors.filter((v) => !v.deleted_at), [vendors])
+  const deletedVendors = useMemo(() => vendors.filter((v) => v.deleted_at), [vendors])
+
   const momoColors = MOMO_NETWORK_COLORS
 
   return (
@@ -202,7 +236,7 @@ export default function VendorsPage() {
 
       <PageHeader
         title="Vendors"
-        description={`${vendors.length} registered vendors${filtered.length !== vendors.length ? ` · ${filtered.length} match search` : ''}`}
+        description={`${activeVendors.length} active vendor${activeVendors.length === 1 ? '' : 's'}${deletedVendors.length ? ` · ${deletedVendors.length} deleted pending clear` : ''}${filtered.length !== vendors.length ? ` · ${filtered.length} match search` : ''}`}
         actions={
           <button
             onClick={() => { setEditVendor(null); setModalOpen(true) }}
@@ -248,6 +282,27 @@ export default function VendorsPage() {
             <span className="font-semibold">{awaitingVendorDocs.length}</span> approved vendor
             {awaitingVendorDocs.length === 1 ? ' is' : 's are'} still uploading FDA / facility documents.
           </p>
+        </div>
+      )}
+
+      {deletedVendors.length > 0 && (
+        <div className="data-card border border-slate-200 bg-slate-50/80 py-3 px-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="text-sm text-slate-600">
+            <span className="font-semibold text-slate-800">{deletedVendors.length} deleted vendor{deletedVendors.length === 1 ? '' : 's'}</span>
+            {' '}still shown here. Clear them when done reviewing — history is kept in{' '}
+            <Link href="/dashboard/administration/audit-logs" className="text-brand-700 hover:underline font-medium">
+              Audit Logs
+            </Link>.
+          </div>
+          <button
+            type="button"
+            className="btn-secondary shrink-0"
+            disabled={clearing === 'all'}
+            onClick={handleClearAllDeleted}
+          >
+            <Archive className="w-4 h-4" />
+            {clearing === 'all' ? 'Clearing…' : 'Clear all deleted'}
+          </button>
         </div>
       )}
 
@@ -417,6 +472,17 @@ export default function VendorsPage() {
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
+                          {isDeleted && (
+                            <button
+                              type="button"
+                              disabled={clearing === vendor.id}
+                              onClick={() => handleClearFromList(vendor.id, vendor.name)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                              title="Clear from list (kept in Audit Logs)"
+                            >
+                              <Archive className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
