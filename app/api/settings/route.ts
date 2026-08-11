@@ -49,6 +49,9 @@ export async function PATCH(req: Request) {
   // Supports either { key, value } or { settings: { ...partial } }
   const key = body?.key != null ? String(body.key) : null
   if (key) {
+    if (!(key in DEFAULT_SETTINGS)) {
+      return NextResponse.json({ success: false, error: 'Unknown settings key.' }, { status: 400 })
+    }
     const value = body?.value
     await pool.query(
       `

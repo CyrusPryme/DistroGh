@@ -3,14 +3,22 @@ import { getDbPool } from '@/lib/db'
 import { requireSession, requireAdminSession } from '@/lib/auth/require'
 import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
 import { checkProductIntegrity, productIntegritySaveError } from '@/lib/product-integrity'
+import { writeAuditLog, actorFromSession } from '@/lib/rbac/audit'
+import { requiresLiveCategoryChangeConfirmation } from '@/lib/products/category-change'
 
 function normalizeSkuValue(s: unknown): string {
   return s != null ? String(s).trim() : ''
 }
 
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireSession()
+  const session = await requireSession()
   const { id } = await ctx.params
+
+  // A vendor session with no linked vendor_id must never fall through to an unscoped query.
+  if (session.role === 'vendor' && !session.vendor_id) {
+    return NextResponse.json({ success: true, data: null })
+  }
+
   const pool = getDbPool()
   const { rows } = await pool.query(
     `
@@ -26,25 +34,54 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
     from public.products p
     left join public.vendors v on v.id = p.vendor_id
     where p.id = $1::uuid and p.deleted_at is null
+      and ($2::uuid is null or p.vendor_id = $2::uuid)
     limit 1
     `,
-    [id]
+    [id, session.role === 'vendor' ? session.vendor_id ?? null : null]
   )
+  // Vendors get a 404 rather than 403 for other vendors' products, matching the not-found
+  // shape returned when the id simply doesn't exist (avoids confirming the id is valid).
   return NextResponse.json({ success: true, data: rows[0] ?? null })
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  const session = await requireAdminSession()
   const { id } = await ctx.params
   const body = await req.json().catch(() => null)
 
   const pool = getDbPool()
   const current = await pool.query(
-    `select vendor_price, distrogh_markup, wholesale_price from public.products where id = $1::uuid and deleted_at is null`,
+    `select vendor_price, distrogh_markup, wholesale_price, category from public.products where id = $1::uuid and deleted_at is null`,
     [id]
   )
   if (!current.rows[0]) {
     return NextResponse.json({ success: false, error: 'Product not found.' }, { status: 404 })
+  }
+
+  // Normal live editing: changing an existing product's category to a different one
+  // always requires explicit confirmation — this is the strict live-operation rule the
+  // Historical Migration Engine's auto-override behaviour must never weaken.
+  if (body && Object.prototype.hasOwnProperty.call(body, 'category')) {
+    const existingCategory = String(current.rows[0].category ?? '').trim() || null
+    const incomingCategory = body.category != null ? String(body.category).trim() || null : null
+    if (
+      requiresLiveCategoryChangeConfirmation({
+        existingCategory,
+        incomingCategory,
+        confirmed: body.category_change_confirmed === true,
+      })
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Changing this product's category will overwrite the existing category ("${existingCategory}" → "${incomingCategory}"). Confirm to proceed.`,
+          code: 'CATEGORY_CHANGE_CONFIRMATION_REQUIRED',
+          current_category: existingCategory,
+          incoming_category: incomingCategory,
+        },
+        { status: 409 }
+      )
+    }
   }
 
   const curVp = Number(current.rows[0].vendor_price ?? 0)
@@ -177,6 +214,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     `,
     values
   )
+
+  if (body && Object.prototype.hasOwnProperty.call(body, 'category')) {
+    const existingCategory = String(current.rows[0].category ?? '').trim() || null
+    const newCategory = rows[0]?.category ?? null
+    if (existingCategory !== newCategory) {
+      await writeAuditLog(pool, {
+        ...actorFromSession(session),
+        action: 'product_category_changed',
+        module: 'products',
+        target_id: id,
+        target_label: rows[0]?.name ?? null,
+        metadata: { previous_category: existingCategory, new_category: newCategory, source: 'LIVE_OPERATION' },
+      })
+    }
+  }
+
   return NextResponse.json({ success: true, data: rows[0] ?? null })
 }
 

@@ -3,14 +3,31 @@ import type { MigrationEntityType } from '@/lib/migration/types'
 import { toSqlDate } from '@/lib/utils'
 import { normalizeMomoNetwork } from '@/lib/migration/normalize'
 import { resolveVendorPhones } from '@/lib/migration/vendor-fields'
+import { resolveCategoryChange } from '@/lib/migration/category'
+import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination'
+import { findExistingProvenance, recordProvenance } from '@/lib/migration/provenance'
+import { writeMigrationAudit } from '@/lib/migration/audit'
+import { resolveHistoricalTransportCost } from '@/lib/migration/transport-cost'
 
 type StagingRow = {
   id: string
+  file_id: string | null
+  row_number: number
   normalized_data: Record<string, unknown>
   resolved_refs: Record<string, string>
   corrections: Record<string, unknown>
   intended_action: string
   production_id: string | null
+}
+
+export type WriterContext = {
+  migrationId: string
+  batchTag: string
+  actorId?: string | null
+  /** allowNewCategoryCreation defaults to true for historical migration. */
+  allowNewCategoryCreation?: boolean
+  /** file_id -> { checksum, sheet } for cross-project idempotency + provenance. */
+  fileMeta?: Map<string, { checksum: string; sheet: string }>
 }
 
 function dataOf(row: StagingRow): Record<string, unknown> {
@@ -27,17 +44,64 @@ function n(v: unknown, fallback = 0): number {
 }
 
 /**
- * Import one staging row into production inside an open transaction.
- * Returns production UUID or null if skipped.
+ * "Entities that always INSERT" duplicate themselves if the same source row is imported
+ * twice (re-run of the same migration project on a fresh file re-upload, or a brand new
+ * migration project pointed at the same spreadsheet). Guard those writers with a
+ * cross-project idempotency check keyed on file checksum + sheet + row number.
  */
-export async function importStagingRow(
+async function checkIdempotency(
   client: PoolClient,
   entity: MigrationEntityType,
   row: StagingRow,
-  ctx: { migrationId: string; batchTag: string }
+  ctx: WriterContext
+): Promise<string | null> {
+  const meta = row.file_id ? ctx.fileMeta?.get(row.file_id) : undefined
+  if (!meta) return null
+  const existing = await findExistingProvenance(client, {
+    entityType: entity,
+    sourceFileChecksum: meta.checksum,
+    sourceSheet: meta.sheet,
+    sourceRowNumber: row.row_number,
+  })
+  return existing?.productionId ?? null
+}
+
+async function markProvenance(
+  client: PoolClient,
+  entity: MigrationEntityType,
+  row: StagingRow,
+  ctx: WriterContext,
+  productionId: string | null
+): Promise<void> {
+  const meta = row.file_id ? ctx.fileMeta?.get(row.file_id) : undefined
+  if (!meta) return
+  await recordProvenance(client, {
+    entityType: entity,
+    sourceFileChecksum: meta.checksum,
+    sourceSheet: meta.sheet,
+    sourceRowNumber: row.row_number,
+    migrationId: ctx.migrationId,
+    productionId,
+  })
+}
+
+const IDEMPOTENT_ENTITIES: Set<MigrationEntityType> = new Set([
+  'deliveries', 'sales', 'intakes', 'returns', 'deductions', 'payouts',
+])
+
+async function writeRow(
+  client: PoolClient,
+  entity: MigrationEntityType,
+  row: StagingRow,
+  ctx: WriterContext
 ): Promise<{ productionId: string | null; action: 'create' | 'update' | 'skip' }> {
   if (row.intended_action === 'skip') return { productionId: row.production_id, action: 'skip' }
   if (row.production_id) return { productionId: row.production_id, action: 'skip' }
+
+  if (IDEMPOTENT_ENTITIES.has(entity)) {
+    const already = await checkIdempotency(client, entity, row, ctx)
+    if (already) return { productionId: already, action: 'skip' }
+  }
 
   const d = dataOf(row)
 
@@ -120,41 +184,108 @@ export async function importStagingRow(
       if (!vendorId) throw new Error(`Vendor missing for product ${s(d.name)}`)
 
       const barcode = s(d.barcode)
+      let existingProductId: string | null = null
       if (barcode) {
         const byBc = await client.query(
-          `SELECT id FROM public.products
+          `SELECT id, category FROM public.products
            WHERE deleted_at IS NULL AND lower(trim(barcode)) = lower($1) LIMIT 1`,
           [barcode]
         )
-        if (byBc.rows[0]) return { productionId: byBc.rows[0].id, action: 'update' }
+        if (byBc.rows[0]) existingProductId = byBc.rows[0].id
+      }
+      let existingCategory: string | null = null
+      if (!existingProductId) {
+        const existing = await client.query(
+          `SELECT id, category FROM public.products
+           WHERE deleted_at IS NULL AND vendor_id = $1 AND lower(trim(name)) = lower($2) LIMIT 1`,
+          [vendorId, s(d.name)]
+        )
+        if (existing.rows[0]) {
+          existingProductId = existing.rows[0].id
+          existingCategory = existing.rows[0].category
+        }
+      } else {
+        const cur = await client.query(`SELECT category FROM public.products WHERE id = $1`, [existingProductId])
+        existingCategory = cur.rows[0]?.category ?? null
       }
 
-      const existing = await client.query(
-        `SELECT id FROM public.products
-         WHERE deleted_at IS NULL AND vendor_id = $1 AND lower(trim(name)) = lower($2) LIMIT 1`,
-        [vendorId, s(d.name)]
-      )
-      if (existing.rows[0]) return { productionId: existing.rows[0].id, action: 'update' }
+      // Category rule: never replace a valid category with NULL just because the
+      // incoming historical row has none; auto-override differences with full provenance.
+      const categoryResult = await resolveCategoryChange(client, {
+        existingCategory,
+        incomingCategoryRaw: s(d.category) || null,
+        allowNewCategoryCreation: ctx.allowNewCategoryCreation !== false,
+      })
+
+      if (existingProductId) {
+        if (categoryResult.outcome === 'overridden' || categoryResult.outcome === 'populated') {
+          await client.query(
+            `UPDATE public.products SET category = $2, updated_at = now() WHERE id = $1`,
+            [existingProductId, categoryResult.resolvedCategory]
+          )
+          await client.query(
+            `INSERT INTO public.migration_category_changes
+              (migration_id, product_id, staging_row_id, previous_category, new_category, outcome,
+               source_file_id, source_row_number, changed_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [
+              ctx.migrationId, existingProductId, row.id,
+              categoryResult.previousCategory, categoryResult.resolvedCategory, categoryResult.outcome,
+              row.file_id, row.row_number, ctx.actorId ?? null,
+            ]
+          )
+          await writeMigrationAudit(client, {
+            migrationId: ctx.migrationId,
+            actorId: ctx.actorId,
+            action: 'migration.category_overridden',
+            stage: 8,
+            details: {
+              product_id: existingProductId,
+              previous_category: categoryResult.previousCategory,
+              new_category: categoryResult.resolvedCategory,
+              outcome: categoryResult.outcome,
+              source_row_number: row.row_number,
+              source_file_id: row.file_id,
+            },
+          })
+        }
+        return { productionId: existingProductId, action: 'update' }
+      }
+
+      if (categoryResult.outcome === 'unmatchable') {
+        throw new Error(`Product "${s(d.name)}" category "${s(d.category)}" could not be matched or created`)
+      }
 
       const vendorPrice = n(d.vendor_price)
       const selling = n(d.supermarket_selling_price, vendorPrice)
       const markup = Math.max(0, selling - vendorPrice)
+      const sellingPrice = selling > 0 ? selling : vendorPrice + markup
       const ins = await client.query(
         `INSERT INTO public.products
-          (vendor_id, name, barcode, sku, category, vendor_price, markup_amount, supermarket_selling_price)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          (vendor_id, name, barcode, sku, category, vendor_price, distrogh_markup, supermarket_selling_price, selling_price)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING id`,
         [
           vendorId,
           s(d.name),
           barcode || null,
           s(d.sku) || null,
-          s(d.category) || null,
+          categoryResult.resolvedCategory,
           vendorPrice,
           markup,
           selling,
+          sellingPrice,
         ]
       )
+      if (categoryResult.createdNewCategory) {
+        await writeMigrationAudit(client, {
+          migrationId: ctx.migrationId,
+          actorId: ctx.actorId,
+          action: 'migration.category_created',
+          stage: 8,
+          details: { category: categoryResult.resolvedCategory, product_name: s(d.name), source_row_number: row.row_number },
+        })
+      }
       return { productionId: ins.rows[0].id, action: 'create' }
     }
 
@@ -380,19 +511,19 @@ export async function importStagingRow(
     case 'deliveries': {
       // Header+lines grouped externally in processImportEntity for efficiency.
       // Single-row fallback creates a 1-item run.
-      const supermarketName = s(d.supermarket_name || d.name || d.store)
-      const branch = s(d.branch)
-      let supermarketId = row.resolved_refs.supermarket_id
-      if (!supermarketId) {
-        const sm = await client.query(
-          `SELECT id FROM public.supermarkets
-           WHERE deleted_at IS NULL AND lower(name)=lower($1)
-             AND lower(coalesce(branch,''))=lower($2) LIMIT 1`,
-          [supermarketName, branch]
-        )
-        supermarketId = sm.rows[0]?.id
+      //
+      // Historical routing rule: a delivery's branch is NOT a required unique business
+      // destination. Some historical deliveries went to a central warehouse/distribution
+      // point and were redistributed internally — that downstream hop is not part of this
+      // DistroGH transaction. Resolve destination_type instead of fabricating a branch.
+      let supermarketId: string | null = row.resolved_refs.supermarket_id ?? null
+      let destination: Awaited<ReturnType<typeof resolveDeliveryDestination>>
+      if (supermarketId) {
+        destination = { destinationType: 'BRANCH', supermarketId, destinationReference: null, branchTextProvidedButUnmatched: false }
+      } else {
+        destination = await resolveDeliveryDestination(client, d)
+        supermarketId = destination.supermarketId
       }
-      if (!supermarketId) throw new Error('Delivery missing supermarket')
 
       let productId = row.resolved_refs.product_id
       if (!productId) {
@@ -404,14 +535,28 @@ export async function importStagingRow(
       }
       if (!productId) throw new Error('Delivery missing product')
 
+      // Transport cost: preserve exactly what the historical source recorded. NULL means
+      // "the historical source did not provide a transport cost" — never coerced to 0.
+      const transportCost = resolveHistoricalTransportCost(d.transport_cost)
+
       const run = await client.query(
-        `INSERT INTO public.delivery_runs (supermarket_id, delivery_date, total_transport_cost, notes)
-         VALUES ($1,$2::date,$3,$4) RETURNING id`,
+        `INSERT INTO public.delivery_runs
+          (supermarket_id, delivery_date, total_transport_cost, notes,
+           source, destination_type, destination_reference,
+           migration_id, source_file_id, source_row_number, migrated_by, migrated_at)
+         VALUES ($1,$2::date,$3,$4,'HISTORICAL_MIGRATION',$5,$6,$7,$8,$9,$10,now())
+         RETURNING id`,
         [
           supermarketId,
           toSqlDate(s(d.delivery_date) || new Date()),
-          n(d.transport_cost),
+          transportCost,
           `migration:${ctx.migrationId}`,
+          destination.destinationType,
+          destination.destinationReference,
+          ctx.migrationId,
+          row.file_id,
+          row.row_number,
+          ctx.actorId ?? null,
         ]
       )
       await client.query(
@@ -419,6 +564,32 @@ export async function importStagingRow(
          VALUES ($1,$2,$3)`,
         [run.rows[0].id, productId, n(d.quantity ?? d.qty)]
       )
+
+      if (destination.destinationType !== 'BRANCH') {
+        await writeMigrationAudit(client, {
+          migrationId: ctx.migrationId,
+          actorId: ctx.actorId,
+          action: 'migration.delivery_without_branch',
+          stage: 8,
+          details: {
+            delivery_run_id: run.rows[0].id,
+            destination_type: destination.destinationType,
+            destination_reference: destination.destinationReference,
+            source_row_number: row.row_number,
+            source_file_id: row.file_id,
+          },
+        })
+      }
+      if (transportCost == null) {
+        await writeMigrationAudit(client, {
+          migrationId: ctx.migrationId,
+          actorId: ctx.actorId,
+          action: 'migration.delivery_missing_transport_cost',
+          stage: 8,
+          details: { delivery_run_id: run.rows[0].id, source_row_number: row.row_number, source_file_id: row.file_id },
+        })
+      }
+
       return { productionId: run.rows[0].id, action: 'create' }
     }
 
@@ -439,7 +610,7 @@ export async function importStagingRow(
       const commission = Math.max(0, total - vendorDue)
       const ins = await client.query(
         `INSERT INTO public.sales
-          (product_id, supermarket_id, quantity_sold, unit_price, total_sales, vendor_due, commission_amount,
+          (product_id, supermarket_id, qty_sold, unit_price, total_sales, vendor_due, commission_amount,
            week_start, week_end, import_batch_id, imported_at, developer_fee)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8::date,$9::date,$10,now(),0)
          RETURNING id`,
@@ -462,4 +633,26 @@ export async function importStagingRow(
     default:
       return { productionId: null, action: 'skip' }
   }
+}
+
+/**
+ * Import one staging row into production inside an open transaction.
+ * Returns production UUID or null if skipped.
+ *
+ * Wraps writeRow() with cross-project idempotency provenance so re-running the same
+ * migration — or a brand new migration pointed at the same spreadsheet — never
+ * duplicates financially-significant records (deliveries, sales, intakes, returns,
+ * deductions, payouts).
+ */
+export async function importStagingRow(
+  client: PoolClient,
+  entity: MigrationEntityType,
+  row: StagingRow,
+  ctx: WriterContext
+): Promise<{ productionId: string | null; action: 'create' | 'update' | 'skip' }> {
+  const result = await writeRow(client, entity, row, ctx)
+  if (IDEMPOTENT_ENTITIES.has(entity) && result.action !== 'skip') {
+    await markProvenance(client, entity, row, ctx, result.productionId)
+  }
+  return result
 }

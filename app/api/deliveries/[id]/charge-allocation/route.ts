@@ -13,10 +13,11 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
     const { rows: runRows } = await pool.query(
       `
       select dr.total_transport_cost, dr.delivery_date, dr.confirmed_at,
+        dr.destination_type, dr.destination_reference,
         sm.name as supermarket_name,
         coalesce(sm.branch, '') as supermarket_branch
       from public.delivery_runs dr
-      join public.supermarkets sm on sm.id = dr.supermarket_id
+      left join public.supermarkets sm on sm.id = dr.supermarket_id
       where dr.id = $1::uuid and dr.deleted_at is null
       limit 1
       `,
@@ -48,9 +49,9 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
       }
 
       const branch = String(run.supermarket_branch ?? '').trim()
-      const supermarketLabel = branch
-        ? `${String(run.supermarket_name)} — ${branch}`
-        : String(run.supermarket_name ?? '')
+      const supermarketLabel = run.supermarket_name
+        ? (branch ? `${String(run.supermarket_name)} — ${branch}` : String(run.supermarket_name))
+        : `${String(run.destination_type ?? 'UNKNOWN_HISTORICAL')}${run.destination_reference ? `: ${run.destination_reference}` : ''}`
 
       return NextResponse.json({
         success: true,

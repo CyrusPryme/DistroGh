@@ -10,6 +10,8 @@ import {
 import { ArrowLeft, PowerOff, Loader2, CheckCircle, XCircle } from 'lucide-react'
 import { formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 
 type Request = Awaited<ReturnType<typeof getDeactivationRequests>>[number]
 
@@ -18,7 +20,7 @@ export default function DeactivationRequestsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
   const [acting, setActing] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
   const [reqPage, setReqPage] = useState(1)
 
   const load = async () => {
@@ -44,11 +46,6 @@ export default function DeactivationRequestsPage() {
     () => getPageSlice(requests, reqPage, DEFAULT_PAGE_SIZE),
     [requests, reqPage]
   )
-
-  const showToast = (msg: string, type: 'success' | 'error') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const handleApprove = async (id: string) => {
     setActing(id)
@@ -86,16 +83,7 @@ export default function DeactivationRequestsPage() {
 
   return (
     <div className="page-container space-y-6">
-      {toast && (
-        <div
-          className={cn(
-            'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium',
-            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       <div className="flex items-center justify-between">
         <Link

@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 
 type DeletedRecord = { id: string; label: string; deleted_at: string }
 type TableMeta = { key: string; label: string }
-type Toast = { type: 'success' | 'error'; message: string } | null
 
 export default function DataRecoveryPage() {
   const [tables, setTables] = useState<TableMeta[]>([])
@@ -14,11 +14,11 @@ export default function DataRecoveryPage() {
   const [records, setRecords] = useState<DeletedRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<string | null>(null)
-  const [toast, setToast] = useState<Toast>(null)
-
-  const showToast = (type: 'success' | 'error', message: string) => {
-    setToast({ type, message }); setTimeout(() => setToast(null), 4000)
-  }
+  const { toast, showToast: showToastMsgFirst, dismissToast } = useToast(4000)
+  const showToast = useCallback(
+    (type: 'success' | 'error', message: string) => showToastMsgFirst(message, type),
+    [showToastMsgFirst]
+  )
 
   const load = async (table = activeTable) => {
     setLoading(true)
@@ -52,7 +52,7 @@ export default function DataRecoveryPage() {
 
   return (
     <div className="page-container">
-      <PageToast message={toast?.message ?? null} type={toast?.type} />
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       <div>
         <h1 className="text-xl font-bold text-slate-900">Data Recovery</h1>

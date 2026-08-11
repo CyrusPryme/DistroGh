@@ -28,7 +28,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const pool = getDbPool()
     const { rows } = await pool.query(
       `SELECT id, entity_type, row_number, raw_data, normalized_data, validation_status,
-              errors, warnings, match_suggestions, corrections, resolved_refs,
+              errors, warnings, infos, match_suggestions, corrections, resolved_refs,
               intended_action, production_id, file_id
        FROM public.migration_staging_rows
        WHERE ${where.join(' AND ')}

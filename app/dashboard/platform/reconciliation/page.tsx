@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 
 type ReconRun = {
   id: string
@@ -27,8 +28,6 @@ type ReconRun = {
   created_at: string
 }
 
-type Toast = { type: 'success' | 'error'; message: string } | null
-
 const STATUS_COLOR: Record<string, string> = {
   balanced: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   warning:  'bg-amber-100 text-amber-700 border-amber-200',
@@ -41,12 +40,13 @@ export default function ReconciliationPage() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [toast, setToast] = useState<Toast>(null)
+  const { toast, showToast: showToastMsgFirst, dismissToast } = useToast(4000)
   const [form, setForm] = useState({ period_type: 'monthly', period_start: '', period_end: '', notes: '' })
 
-  const showToast = (type: 'success' | 'error', message: string) => {
-    setToast({ type, message }); setTimeout(() => setToast(null), 4000)
-  }
+  const showToast = useCallback(
+    (type: 'success' | 'error', message: string) => showToastMsgFirst(message, type),
+    [showToastMsgFirst]
+  )
 
   const loadRuns = async () => {
     setLoading(true)
@@ -88,7 +88,7 @@ export default function ReconciliationPage() {
 
   return (
     <div className="page-container">
-      <PageToast message={toast?.message ?? null} type={toast?.type} />
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       <div>
         <h1 className="text-xl font-bold text-slate-900">Reconciliation</h1>

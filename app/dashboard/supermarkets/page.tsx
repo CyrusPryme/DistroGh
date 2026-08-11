@@ -9,6 +9,7 @@ import { useSession } from '@/hooks/useSession'
 import { formatGHS, formatNumber } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { useToast } from '@/hooks/useToast'
 import type { Supermarket } from '@/types'
 import type { SupermarketFormValues } from '@/lib/validations'
 
@@ -22,7 +23,7 @@ export default function SupermarketsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editSupermarket, setEditSupermarket] = useState<Supermarket | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const { toast, showToast } = useToast(3000)
 
   const load = async () => {
     try {
@@ -55,15 +56,14 @@ export default function SupermarketsPage() {
       }
       if (editSupermarket) {
         await supermarketService.update(editSupermarket.id, payload)
-        setToast('Supermarket updated')
+        showToast('Supermarket updated')
       } else {
         await supermarketService.create(payload)
-        setToast('Supermarket added')
+        showToast('Supermarket added')
       }
       setModalOpen(false)
       setEditSupermarket(null)
       await load()
-      setTimeout(() => setToast(null), 3000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save supermarket')
     } finally {
@@ -102,7 +102,7 @@ export default function SupermarketsPage() {
 
       {toast && (
         <div className="p-3 rounded-xl bg-brand-50 border border-brand-200 text-brand-800 text-sm font-medium">
-          {toast}
+          {toast.message}
         </div>
       )}
 

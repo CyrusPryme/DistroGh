@@ -150,8 +150,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         values.push(value)
       }
 
+      const PAYOUT_STATUSES = ['pending', 'processing', 'completed', 'failed'] as const
       if (body && Object.prototype.hasOwnProperty.call(body, 'status')) {
-        setField('status', String(body.status ?? '').trim())
+        const nextStatus = String(body.status ?? '').trim()
+        if (!(PAYOUT_STATUSES as readonly string[]).includes(nextStatus)) {
+          await client.query('rollback')
+          return NextResponse.json(
+            { success: false, error: `status must be one of: ${PAYOUT_STATUSES.join(', ')}` },
+            { status: 400 }
+          )
+        }
+        setField('status', nextStatus)
       }
       if (body && Object.prototype.hasOwnProperty.call(body, 'amount_paid')) {
         const nextPaid = roundMoney(Number(body.amount_paid ?? 0))
@@ -174,7 +183,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         setField('momo_txn_id', v)
       }
       if (body && Object.prototype.hasOwnProperty.call(body, 'deleted_at')) {
-        setField('deleted_at', body.deleted_at ? String(body.deleted_at) : null)
+        // Only clearing (restore) is allowed here — soft-deleting must go through DELETE,
+        // never an arbitrary client-supplied timestamp.
+        if (body.deleted_at !== null) {
+          await client.query('rollback')
+          return NextResponse.json(
+            { success: false, error: 'deleted_at can only be cleared (restore), not set, via PATCH.' },
+            { status: 400 }
+          )
+        }
+        setField('deleted_at', null)
       }
 
       const status = body?.status != null ? String(body.status).trim() : null

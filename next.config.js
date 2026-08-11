@@ -8,6 +8,12 @@ if (process.env.VERCEL_URL) {
   allowedOrigins.add(process.env.VERCEL_URL)
 }
 
+// Stable production alias (distinct from VERCEL_URL, which is per-deployment) — set
+// automatically by Vercel for the project's assigned production domain.
+if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+  allowedOrigins.add(process.env.VERCEL_PROJECT_PRODUCTION_URL)
+}
+
 // Custom domain or explicit app URL from Vercel env: NEXT_PUBLIC_APP_URL=https://...
 if (process.env.NEXT_PUBLIC_APP_URL) {
   try {
@@ -17,8 +23,9 @@ if (process.env.NEXT_PUBLIC_APP_URL) {
   }
 }
 
-// Likely production host for DistroGh repo (update if Vercel assigns a different name)
-allowedOrigins.add('distrogh.vercel.app')
+// Actual production host for this project (with hyphen — not "distrogh.vercel.app").
+// Kept as a hardcoded fallback in case the env vars above aren't set for some reason.
+allowedOrigins.add('distro-gh.vercel.app')
 
 const nextConfig = {
   experimental: {

@@ -121,6 +121,7 @@ export interface StagingRow {
   validation_status: RowValidationStatus
   errors: Array<{ code: string; message: string }>
   warnings: Array<{ code: string; message: string }>
+  infos: Array<{ code: string; message: string }>
   match_suggestions: Array<{ id: string; label: string; confidence: number }>
   corrections: Record<string, unknown>
   resolved_refs: Record<string, string>

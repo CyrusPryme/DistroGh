@@ -47,7 +47,7 @@ export default function WelcomePage() {
             <Mail className="w-8 h-8 text-red-600" />
           </div>
           <h1 className="text-2xl font-bold text-red-800 mb-4">Setup Required</h1>
-          <p className="text-red-600 mb-6">We couldn't verify your vendor account. Please contact support.</p>
+          <p className="text-red-600 mb-6">We couldn&apos;t verify your vendor account. Please contact support.</p>
           <button
             onClick={() => router.push('/login')}
             className="w-full px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
@@ -73,7 +73,7 @@ export default function WelcomePage() {
           </p>
           
           <div className="bg-blue-50 rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-semibold text-blue-900 mb-2">What's Next?</h2>
+            <h2 className="text-lg font-semibold text-blue-900 mb-2">What&apos;s Next?</h2>
             <div className="space-y-4">
               <button
                 onClick={() => router.push('/dashboard')}

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 
 type ConfigItem = {
   key: string
@@ -13,8 +14,6 @@ type ConfigItem = {
   is_sensitive: boolean
   updated_at: string
 }
-
-type Toast = { type: 'success' | 'error'; message: string } | null
 
 const CATEGORY_COLORS: Record<string, string> = {
   finance:  'bg-emerald-50 border-emerald-200',
@@ -30,11 +29,11 @@ export default function ConfigurationPage() {
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState<Set<string>>(new Set())
-  const [toast, setToast] = useState<Toast>(null)
-
-  const showToast = (type: 'success' | 'error', message: string) => {
-    setToast({ type, message }); setTimeout(() => setToast(null), 4000)
-  }
+  const { toast, showToast: showToastMsgFirst, dismissToast } = useToast(4000)
+  const showToast = useCallback(
+    (type: 'success' | 'error', message: string) => showToastMsgFirst(message, type),
+    [showToastMsgFirst]
+  )
 
   const load = async () => {
     setLoading(true)
@@ -100,7 +99,7 @@ export default function ConfigurationPage() {
 
   return (
     <div className="page-container">
-      <PageToast message={toast?.message ?? null} type={toast?.type} />
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       <div className="flex items-center justify-between">
         <div>

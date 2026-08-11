@@ -44,6 +44,7 @@ export async function GET(req: Request) {
       and ($4::date is null or r.return_date >= $4::date)
       and ($5::date is null or r.return_date <= $5::date)
     order by r.return_date desc, r.created_at desc
+    limit 20000
     `,
     [product_id, supermarket_id, vendor_id, from, to]
   )

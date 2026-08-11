@@ -50,6 +50,11 @@ export default function VendorDashboardPage() {
       setVendor(v ?? null)
       const s = (v as { status?: string })?.status
       if (s === 'suspended' || s === 'pending_verification') setLoading(false)
+    }).catch((e: unknown) => {
+      // Without this, a failed fetch left `vendor` null forever and the page spun
+      // indefinitely (isLoading depends on vendor being populated).
+      setError(e instanceof Error ? e.message : 'Failed to load vendor profile')
+      setLoading(false)
     })
   }, [sessionLoading, vendorId])
 
@@ -110,7 +115,7 @@ export default function VendorDashboardPage() {
     Qty: p.total_qty,
   }))
 
-  const isLoading = sessionLoading || loading || (vendorId != null && vendor == null)
+  const isLoading = sessionLoading || loading || (vendorId != null && vendor == null && !error)
   if (isLoading) {
     return (
       <div className="page-container flex items-center justify-center min-h-[50vh]">
@@ -129,6 +134,20 @@ export default function VendorDashboardPage() {
           <Package className="w-14 h-14 text-slate-300 mx-auto mb-4" />
           <h2 className="font-display text-xl font-semibold text-slate-700">No vendor assigned</h2>
           <p className="text-slate-500 text-sm mt-2">Your account is not linked to a vendor. Contact your administrator.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error && !vendor) {
+    return (
+      <div className="page-container">
+        <div className="flex items-center gap-3 p-6 bg-red-50 rounded-xl border border-red-200">
+          <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+          <div>
+            <p className="font-semibold text-red-700">Failed to load dashboard</p>
+            <p className="text-sm text-red-600 mt-0.5">{error}</p>
+          </div>
         </div>
       </div>
     )

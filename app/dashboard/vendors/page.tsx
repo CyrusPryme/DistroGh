@@ -12,6 +12,7 @@ import { formatGHS, formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 import { MOMO_NETWORK_COLORS } from '@/lib/utils'
 import type { Vendor, VendorBalance } from '@/types'
 import type { VendorFormValues } from '@/lib/validations'
@@ -43,7 +44,7 @@ export default function VendorsPage() {
   const [editVendor, setEditVendor] = useState<Vendor | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
   const [vendorPage, setVendorPage] = useState(1)
   const [clearing, setClearing] = useState<string | null>(null)
 
@@ -63,11 +64,6 @@ export default function VendorsPage() {
   }
 
   useEffect(() => { load() }, [])
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const uploadFdaFile = async (
     vendorId: string,
@@ -229,9 +225,9 @@ export default function VendorsPage() {
   return (
     <div className="page-container">
       <PageToast
-        message={toast?.msg ?? null}
+        message={toast?.message ?? null}
         type={toast?.type}
-        onDismiss={() => setToast(null)}
+        onDismiss={dismissToast}
       />
 
       <PageHeader

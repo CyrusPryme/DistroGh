@@ -44,7 +44,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         `
         select dr.*, sm.name as supermarket_name, coalesce(sm.branch, '') as supermarket_branch
         from public.delivery_runs dr
-        join public.supermarkets sm on sm.id = dr.supermarket_id
+        left join public.supermarkets sm on sm.id = dr.supermarket_id
         where dr.id = $1::uuid and dr.deleted_at is null
         for update
         `,
@@ -58,6 +58,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (run.confirmed_at) {
         await client.query('rollback')
         return NextResponse.json({ success: false, error: 'This delivery has already been confirmed' }, { status: 400 })
+      }
+      if (!run.supermarket_id) {
+        await client.query('rollback')
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This historical delivery has no linked branch (destination: '
+              + `${run.destination_type ?? 'UNKNOWN_HISTORICAL'}${run.destination_reference ? ` — ${run.destination_reference}` : ''}) `
+              + 'and cannot be confirmed as a live stock movement.',
+          },
+          { status: 400 }
+        )
       }
 
       const totalTransportCost =
@@ -122,7 +134,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       await client.query('commit')
 
       const { rows } = await pool.query(
-        `select ${RUN_SELECT} from public.delivery_runs dr join public.supermarkets sm on sm.id = dr.supermarket_id where dr.id = $1`,
+        `select ${RUN_SELECT} from public.delivery_runs dr left join public.supermarkets sm on sm.id = dr.supermarket_id where dr.id = $1`,
         [id]
       )
 

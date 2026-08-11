@@ -34,6 +34,7 @@ export async function GET(req: Request) {
       and ($3::date is null or i.received_date >= $3::date)
       and ($4::date is null or i.received_date <= $4::date)
     order by i.received_date desc, i.created_at desc
+    limit 20000
     `,
     [vendorId, productId && productId.trim() ? productId : null, from && from.trim() ? from : null, to && to.trim() ? to : null]
   )
@@ -52,22 +53,44 @@ export async function POST(req: Request) {
   const received_date = (payloads[0]?.received_date ?? new Date().toISOString().slice(0, 10)).toString().slice(0, 10)
   const reference = (payloads[0]?.reference ?? null) ? String(payloads[0].reference).trim() : null
 
-  const values: any[] = []
-  const tuples: string[] = []
-  let i = 1
+  const candidates: { vendor_id: string; product_id: string; qty: number }[] = []
   for (const p of payloads) {
     const vendor_id = String(p.vendor_id ?? '').trim()
     const product_id = String(p.product_id ?? '').trim()
     const qty = Number(p.quantity_received ?? 0)
     if (!vendor_id || !product_id || qty <= 0) continue
-    tuples.push(`($${i++}::uuid, $${i++}::uuid, $${i++}::int, $${i++}::date, $${i++}::text)`)
-    values.push(vendor_id, product_id, Math.floor(qty), received_date, reference)
+    candidates.push({ vendor_id, product_id, qty: Math.floor(qty) })
   }
-  if (tuples.length === 0) {
+  if (candidates.length === 0) {
     return NextResponse.json({ success: false, error: 'No valid intake rows provided.' }, { status: 400 })
   }
 
   const pool = getDbPool()
+
+  // Guard against corrupting stock math: every product_id must actually belong to the
+  // vendor_id it's paired with (a mismatched pair would attribute another vendor's stock).
+  const productIds = [...new Set(candidates.map((c) => c.product_id))]
+  const { rows: productRows } = await pool.query(
+    `select id, vendor_id from public.products where id = any($1::uuid[]) and deleted_at is null`,
+    [productIds]
+  )
+  const productVendorMap = new Map(productRows.map((r: { id: string; vendor_id: string }) => [r.id, r.vendor_id]))
+  const mismatched = candidates.find((c) => productVendorMap.get(c.product_id) !== c.vendor_id)
+  if (mismatched) {
+    return NextResponse.json(
+      { success: false, error: 'One or more products do not belong to the specified vendor.' },
+      { status: 400 }
+    )
+  }
+
+  const values: any[] = []
+  const tuples: string[] = []
+  let i = 1
+  for (const c of candidates) {
+    tuples.push(`($${i++}::uuid, $${i++}::uuid, $${i++}::int, $${i++}::date, $${i++}::text)`)
+    values.push(c.vendor_id, c.product_id, c.qty, received_date, reference)
+  }
+
   await pool.query(
     `
     insert into public.intakes (vendor_id, product_id, quantity_received, received_date, reference)

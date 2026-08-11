@@ -76,6 +76,7 @@ export async function GET(req: Request) {
     from public.vendor_applications
     ${whereSql}
     order by created_at desc
+    limit 20000
     `,
     params
   )

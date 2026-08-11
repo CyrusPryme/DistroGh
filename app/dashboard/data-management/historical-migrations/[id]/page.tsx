@@ -26,7 +26,20 @@ type Project = {
   validation_status: string
   dependency_graph: Array<{ entity: string; depends_on: string[]; rank: number }>
   import_order: string[]
-  preview_summary: { entities?: Array<Record<string, unknown>> }
+  preview_summary: {
+    entities?: Array<Record<string, unknown>>
+    delivery_exceptions?: { total: number; no_branch: number; no_transport_cost: number }
+    category_changes?: { products_with_category_value: number; new_categories: number }
+    financial_discrepancies?: Array<{
+      entity_type: string
+      category: string
+      expected_value: number | null
+      actual_value: number | null
+      difference: number | null
+      severity: 'info' | 'warning' | 'error'
+      details?: Record<string, unknown>
+    }>
+  }
   reconciliation: Record<string, { expected: number; imported: number; status: string }>
   error_count: number
   warning_count: number
@@ -62,6 +75,7 @@ type StagingRow = {
   validation_status: string
   errors: Array<{ code: string; message: string }>
   warnings: Array<{ code: string; message: string }>
+  infos: Array<{ code: string; message: string }>
   normalized_data: Record<string, unknown>
   corrections: Record<string, unknown>
 }
@@ -756,8 +770,17 @@ export default function MigrationWizardPage() {
                         {row.validation_status}
                       </span>
                     </td>
-                    <td className="text-xs text-slate-600 max-w-xs">
-                      {[...(row.errors || []), ...(row.warnings || [])].map((i) => i.message).join('; ') || '—'}
+                    <td className="text-xs text-slate-600 max-w-xs space-y-0.5">
+                      {row.errors?.length ? (
+                        <p className="text-red-600">{row.errors.map((i) => i.message).join('; ')}</p>
+                      ) : null}
+                      {row.warnings?.length ? (
+                        <p className="text-amber-600">{row.warnings.map((i) => i.message).join('; ')}</p>
+                      ) : null}
+                      {row.infos?.length ? (
+                        <p className="text-slate-400">{row.infos.map((i) => i.message).join('; ')}</p>
+                      ) : null}
+                      {!row.errors?.length && !row.warnings?.length && !row.infos?.length ? '—' : null}
                     </td>
                     <td>
                       {row.entity_type === 'vendors' ? (
@@ -842,7 +865,105 @@ export default function MigrationWizardPage() {
               </tbody>
             </table>
           </div>
-          <button type="button" className="btn-primary" disabled={busy || project.error_count > 0} onClick={() => saveStage(7)}>
+
+          {(project.preview_summary?.delivery_exceptions || project.preview_summary?.category_changes) && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {project.preview_summary?.delivery_exceptions && (
+                <div className="data-card p-4 space-y-2">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" /> Delivery exceptions
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    Historical deliveries with no branch:{' '}
+                    <span className="font-medium text-slate-900">{project.preview_summary.delivery_exceptions.no_branch}</span> records
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    Historical deliveries with no transport cost:{' '}
+                    <span className="font-medium text-slate-900">{project.preview_summary.delivery_exceptions.no_transport_cost}</span> records
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    These are accepted historical records (branch/warehouse redistribution not part of the original
+                    delivery transaction; transport cost not recorded in source) — never fabricated.
+                  </p>
+                </div>
+              )}
+              {project.preview_summary?.category_changes && (
+                <div className="data-card p-4 space-y-2">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" /> Product category changes
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    Products with an incoming category value (populate/unchanged/override):{' '}
+                    <span className="font-medium text-slate-900">
+                      {project.preview_summary.category_changes.products_with_category_value}
+                    </span>{' '}
+                    records
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    New categories detected:{' '}
+                    <span className="font-medium text-slate-900">{project.preview_summary.category_changes.new_categories}</span>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Exact per-product overrides (previous → new category, with source row) are recorded per-row in
+                    the audit log and are reversible via migration rollback.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!!project.preview_summary?.financial_discrepancies?.length && (
+            <div className="data-card p-0 overflow-hidden">
+              <div className="px-4 py-2 border-b border-slate-100">
+                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-500" /> Financial integrity discrepancies
+                </h3>
+              </div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Entity</th>
+                    <th>Category</th>
+                    <th>Expected</th>
+                    <th>Actual</th>
+                    <th>Difference</th>
+                    <th>Severity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {project.preview_summary.financial_discrepancies.map((d, idx) => (
+                    <tr key={idx}>
+                      <td>{d.entity_type}</td>
+                      <td>{d.category.replace(/_/g, ' ')}</td>
+                      <td>{d.expected_value ?? '—'}</td>
+                      <td>{d.actual_value ?? '—'}</td>
+                      <td>{d.difference ?? '—'}</td>
+                      <td
+                        className={cn(
+                          d.severity === 'error' && 'text-red-600',
+                          d.severity === 'warning' && 'text-amber-600',
+                          d.severity === 'info' && 'text-slate-500'
+                        )}
+                      >
+                        {d.severity}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={
+              busy ||
+              project.error_count > 0 ||
+              !!project.preview_summary?.financial_discrepancies?.some((d) => d.severity === 'error')
+            }
+            onClick={() => saveStage(7)}
+          >
             Proceed to approval <ArrowRight className="w-4 h-4" />
           </button>
         </div>

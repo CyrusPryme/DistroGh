@@ -8,6 +8,8 @@ import { importStagingRow } from '@/lib/migration/writers'
 import { updateMigrationProject, getMigrationProject, isMigrationAborted } from '@/lib/migration/projects'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import type { MigrationEntityType } from '@/lib/migration/types'
+import { refreshFinancialDiscrepancies } from '@/lib/migration/financial-integrity'
+import { clearProvenanceForMigration } from '@/lib/migration/provenance'
 
 async function runAnalyse(pool: Pool, migrationId: string, actorId?: string | null) {
   await updateMigrationProject(pool, migrationId, { status: 'analysing', current_stage: 3 }, actorId)
@@ -60,7 +62,7 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
   const cursor = Number(job.last_cursor || 0)
 
   const { rows } = await pool.query(
-    `SELECT id, normalized_data, resolved_refs, corrections, intended_action, production_id, row_number
+    `SELECT id, normalized_data, resolved_refs, corrections, intended_action, production_id, row_number, file_id
      FROM public.migration_staging_rows
      WHERE migration_id = $1
        AND entity_type = $2
@@ -82,6 +84,21 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
     return { done: true, processed: 0 }
   }
 
+  const fileIds = [...new Set(rows.map((r) => r.file_id).filter(Boolean))]
+  const fileMeta = new Map<string, { checksum: string; sheet: string }>()
+  if (fileIds.length) {
+    const { rows: fileRows } = await pool.query(
+      `SELECT id, checksum_sha256, sheet_names FROM public.migration_files WHERE id = ANY($1::uuid[])`,
+      [fileIds]
+    )
+    for (const f of fileRows) {
+      fileMeta.set(String(f.id), {
+        checksum: String(f.checksum_sha256 ?? f.id),
+        sheet: Array.isArray(f.sheet_names) && f.sheet_names[0] ? String(f.sheet_names[0]) : '',
+      })
+    }
+  }
+
   const client = await pool.connect()
   let lastRow = cursor
   let created = 0
@@ -98,13 +115,15 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
           entityType,
           {
             id: row.id,
+            file_id: row.file_id ?? null,
+            row_number: Number(row.row_number),
             normalized_data: row.normalized_data,
             resolved_refs: row.resolved_refs ?? {},
             corrections: row.corrections ?? {},
             intended_action: row.intended_action,
             production_id: row.production_id,
           },
-          { migrationId, batchTag: jobId.slice(0, 8) }
+          { migrationId, batchTag: jobId.slice(0, 8), actorId: project?.approved_by ?? project?.created_by ?? null, fileMeta }
         )
         if (result.action === 'create') created++
         if (result.action === 'update') updated++
@@ -217,7 +236,7 @@ async function runReconcile(pool: Pool, migrationId: string) {
   return { reconciliation, allBalanced }
 }
 
-async function runRollback(pool: Pool, migrationId: string, actorId?: string | null) {
+export async function runRollback(pool: Pool, migrationId: string, actorId?: string | null) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -255,16 +274,63 @@ async function runRollback(pool: Pool, migrationId: string, actorId?: string | n
         const res = await client.query(`DELETE FROM public.vendor_deductions WHERE id = ANY($1::uuid[])`, [ids])
         affected += res.rowCount ?? 0
       }
+      // Categories have no deleted_at column. Only hard-delete rows this migration created
+      // AND that no surviving (non-deleted) product still references — never remove a
+      // category that is in use, even if this migration happened to create it.
+      if (entity === 'categories') {
+        const res = await client.query(
+          `DELETE FROM public.categories c
+           WHERE c.id = ANY($1::uuid[])
+             AND NOT EXISTS (
+               SELECT 1 FROM public.products p
+               WHERE p.deleted_at IS NULL AND lower(trim(p.category)) = lower(trim(c.name))
+             )`,
+          [ids]
+        )
+        affected += res.rowCount ?? 0
+      }
+    }
+
+    // Restore previous product categories exactly as they were before this migration
+    // touched them — never leave a product with a NULL/blank category on rollback.
+    const { rows: categoryChanges } = await client.query(
+      `SELECT id, product_id, previous_category
+       FROM public.migration_category_changes
+       WHERE migration_id = $1 AND rolled_back_at IS NULL
+       ORDER BY changed_at DESC`,
+      [migrationId]
+    )
+    const restoredProducts = new Set<string>()
+    for (const change of categoryChanges) {
+      if (restoredProducts.has(change.product_id)) continue // most-recent change per product wins
+      restoredProducts.add(change.product_id)
+      await client.query(
+        `UPDATE public.products SET category = $2, updated_at = now()
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [change.product_id, change.previous_category]
+      )
+    }
+    if (categoryChanges.length) {
+      await client.query(
+        `UPDATE public.migration_category_changes SET rolled_back_at = now()
+         WHERE migration_id = $1 AND rolled_back_at IS NULL`,
+        [migrationId]
+      )
+      affected += restoredProducts.size
     }
 
     await client.query(
       `UPDATE public.migration_staging_rows SET production_id = NULL, imported_at = NULL WHERE migration_id = $1`,
       [migrationId]
     )
+    // Rolled-back production rows are soft-deleted, so the idempotency ledger must not
+    // keep claiming "already migrated" — otherwise a legitimate re-import after fixing
+    // the source data would be silently skipped forever.
+    await clearProvenanceForMigration(client, migrationId)
     await client.query(
       `INSERT INTO public.migration_rollback_log (migration_id, scope, rows_affected, details, performed_by)
        VALUES ($1,'full',$2,$3::jsonb,$4)`,
-      [migrationId, affected, JSON.stringify({ phases: phases.length }), actorId ?? null]
+      [migrationId, affected, JSON.stringify({ phases: phases.length, categories_restored: restoredProducts.size }), actorId ?? null]
     )
     await client.query('COMMIT')
   } catch (e) {
@@ -368,6 +434,74 @@ export async function processMigrationJobs(pool: Pool, opts?: { maxJobs?: number
   return results
 }
 
+/**
+ * DELIVERY EXCEPTIONS + PRODUCT CATEGORY CHANGES, computed from staged (not-yet-committed)
+ * rows so admins see them before approving the import — never a surprise after commit.
+ */
+async function buildDeliveryExceptionsPreview(pool: Pool, migrationId: string) {
+  const { rows: deliveryRows } = await pool.query(
+    `SELECT id, normalized_data, corrections
+     FROM public.migration_staging_rows
+     WHERE migration_id = $1 AND entity_type = 'deliveries'
+       AND validation_status IN ('valid','warning','corrected') AND intended_action <> 'skip'`,
+    [migrationId]
+  )
+  let noBranch = 0
+  let noTransportCost = 0
+  for (const row of deliveryRows) {
+    const d = { ...(row.normalized_data as object), ...(row.corrections as object) } as Record<string, unknown>
+    const branch = String(d.branch ?? '').trim()
+    const supermarketName = String(d.supermarket_name ?? d.name ?? d.store ?? '').trim()
+    if (!branch && !supermarketName) noBranch++
+    const tc = d.transport_cost
+    if (tc == null || String(tc).trim() === '') noTransportCost++
+  }
+  return { total: deliveryRows.length, no_branch: noBranch, no_transport_cost: noTransportCost }
+}
+
+async function buildCategoryChangesPreview(pool: Pool, migrationId: string) {
+  const { rows: productRows } = await pool.query(
+    `SELECT id, normalized_data, corrections
+     FROM public.migration_staging_rows
+     WHERE migration_id = $1 AND entity_type = 'products'
+       AND validation_status IN ('valid','warning','corrected') AND intended_action <> 'skip'`,
+    [migrationId]
+  )
+  const { rows: categoryRows } = await pool.query(
+    `SELECT id FROM public.migration_staging_rows
+     WHERE migration_id = $1 AND entity_type = 'categories'
+       AND validation_status IN ('valid','warning','corrected') AND intended_action <> 'skip'`,
+    [migrationId]
+  )
+
+  const { rows: existingCategories } = await pool.query(`SELECT lower(name) AS name FROM public.categories`)
+  const knownNames = new Set(existingCategories.map((r: { name: string }) => r.name))
+
+  let willChange = 0
+  let newCategories = 0
+  const seenNewCategoryNames = new Set<string>()
+  for (const row of productRows) {
+    const d = { ...(row.normalized_data as object), ...(row.corrections as object) } as Record<string, unknown>
+    const incoming = String(d.category ?? '').trim()
+    if (!incoming) continue
+    const normalized = incoming.replace(/\s+/g, ' ').toLowerCase()
+    if (!knownNames.has(normalized) && !seenNewCategoryNames.has(normalized)) {
+      seenNewCategoryNames.add(normalized)
+      newCategories++
+    }
+    // Whether this specific product's category actually *changes* can only be known once
+    // matched against production; this preview count is "products supplying a category
+    // value", a conservative upper bound surfaced alongside the exact per-row detail
+    // available in the correction workspace.
+    willChange++
+  }
+
+  return {
+    products_with_category_value: willChange,
+    new_categories: newCategories + categoryRows.length,
+  }
+}
+
 export async function buildPreviewSummary(pool: Pool, migrationId: string) {
   const { rows } = await pool.query(
     `SELECT entity_type,
@@ -383,9 +517,15 @@ export async function buildPreviewSummary(pool: Pool, migrationId: string) {
     [migrationId]
   )
   const project = await getMigrationProject(pool, migrationId)
+  const deliveryExceptions = await buildDeliveryExceptionsPreview(pool, migrationId)
+  const categoryChanges = await buildCategoryChangesPreview(pool, migrationId)
+  const financialDiscrepancies = await refreshFinancialDiscrepancies(pool, migrationId)
   const summary = {
     entities: rows,
     import_order: project?.import_order ?? [],
+    delivery_exceptions: deliveryExceptions,
+    category_changes: categoryChanges,
+    financial_discrepancies: financialDiscrepancies,
     generated_at: new Date().toISOString(),
   }
   await updateMigrationProject(pool, migrationId, {

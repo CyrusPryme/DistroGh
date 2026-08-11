@@ -16,7 +16,7 @@
     "generate:sample-sales": "node scripts/generate-sample-sales.mjs",
     "generate:static-sample": "node scripts/generate-static-sample.mjs",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run"

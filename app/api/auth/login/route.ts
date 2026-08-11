@@ -5,6 +5,36 @@ import { createSessionCookie, type SessionRole } from '@/lib/auth/session'
 import { writeAuditLog } from '@/lib/rbac/audit'
 import { ipFromRequest } from '@/lib/rbac/audit'
 
+// Basic brute-force throttle. Not a substitute for a dedicated rate-limiting service, but
+// closes the previous total absence of any limit on login attempts. Keyed by both email and
+// IP so it catches both password-spraying a single account and credential-stuffing an IP
+// across many accounts. Backed by audit_logs (already indexed on created_at/action) rather
+// than new infrastructure, since this app has no shared cache/Redis available.
+const RATE_LIMIT_WINDOW_MINUTES = 15
+const MAX_FAILED_ATTEMPTS_PER_EMAIL = 8
+const MAX_FAILED_ATTEMPTS_PER_IP = 20
+
+async function isRateLimited(
+  pool: ReturnType<typeof getDbPool>,
+  email: string,
+  ip: string | null
+): Promise<boolean> {
+  const { rows } = await pool.query(
+    `
+    select
+      count(*) filter (where actor_email = $1) as by_email,
+      count(*) filter (where $2::text is not null and ip_address = $2::text) as by_ip
+    from public.audit_logs
+    where action = 'login_failed'
+      and created_at > now() - ($3 || ' minutes')::interval
+    `,
+    [email, ip, RATE_LIMIT_WINDOW_MINUTES]
+  )
+  const byEmail = Number(rows[0]?.by_email ?? 0)
+  const byIp = Number(rows[0]?.by_ip ?? 0)
+  return byEmail >= MAX_FAILED_ATTEMPTS_PER_EMAIL || byIp >= MAX_FAILED_ATTEMPTS_PER_IP
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null)
@@ -16,6 +46,15 @@ export async function POST(req: Request) {
     }
 
     const pool = getDbPool()
+    const ip = ipFromRequest(req)
+
+    if (await isRateLimited(pool, email, ip)) {
+      return NextResponse.json(
+        { success: false, error: 'Too many failed login attempts. Please try again in a few minutes.' },
+        { status: 429 }
+      )
+    }
+
     const { rows } = await pool.query(
       `
       select
@@ -38,11 +77,19 @@ export async function POST(req: Request) {
 
     const row = rows[0]
     if (!row) {
+      await writeAuditLog(pool, { actor_email: email, action: 'login_failed', module: 'auth', ip_address: ip })
       return NextResponse.json({ success: false, error: 'Invalid email or password.' }, { status: 401 })
     }
 
     const ok = await bcrypt.compare(password, row.password_hash)
     if (!ok) {
+      await writeAuditLog(pool, {
+        actor_id: row.user_id,
+        actor_email: email,
+        action: 'login_failed',
+        module: 'auth',
+        ip_address: ip,
+      })
       return NextResponse.json({ success: false, error: 'Invalid email or password.' }, { status: 401 })
     }
 
@@ -127,7 +174,7 @@ export async function POST(req: Request) {
       actor_email: email,
       action: 'login',
       module: 'auth',
-      ip_address: ipFromRequest(req),
+      ip_address: ip,
     })
 
     return NextResponse.json({ success: true, role, admin_role, vendor_id: row.vendor_id ?? null })

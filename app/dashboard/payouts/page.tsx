@@ -12,6 +12,7 @@ import { MOMO_NETWORK_COLORS, PAYOUT_STATUS_STYLES } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import {
   getPayoutDisplayStatus,
@@ -52,7 +53,7 @@ export default function PayoutsPage() {
   const [paymentAmount, setPaymentAmount] = useState('')
   const [txnId, setTxnId] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(4000)
   const [activeTab, setActiveTab] = useState<'balances' | 'pending' | 'history'>('balances')
   const [weekStart, setWeekStart] = useState(getWeekRange().week_start)
   const [weekEnd, setWeekEnd] = useState(getWeekRange().week_end)
@@ -90,11 +91,6 @@ export default function PayoutsPage() {
   useEffect(() => {
     load()
   }, [load])
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 4000)
-  }
 
   const openPaymentDialog = (payout: Payout) => {
     const vendor = payout.vendor as { name?: string } | undefined
@@ -316,9 +312,9 @@ export default function PayoutsPage() {
   return (
     <div className="page-container">
       <PageToast
-        message={toast?.msg ?? null}
+        message={toast?.message ?? null}
         type={toast?.type}
-        onDismiss={() => setToast(null)}
+        onDismiss={dismissToast}
       />
 
       <FormModal

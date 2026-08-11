@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 
 type DevAccount = {
   user_id: string
@@ -17,24 +18,23 @@ type DevAccount = {
   created_at: string
 }
 
-type Toast = { type: 'success' | 'error'; message: string } | null
 type ModalMode = 'create' | 'edit' | 'reset_password' | null
 
 export default function DeveloperAccountsPage() {
   const [accounts, setAccounts] = useState<DevAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [toast, setToast] = useState<Toast>(null)
+  const { toast, showToast: showToastMsgFirst, dismissToast } = useToast(4000)
   const [modal, setModal] = useState<ModalMode>(null)
   const [selected, setSelected] = useState<DevAccount | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', phone: '', password: '', notes: '' })
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showToast = (type: 'success' | 'error', message: string) => {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 4000)
-  }
+  const showToast = useCallback(
+    (type: 'success' | 'error', message: string) => showToastMsgFirst(message, type),
+    [showToastMsgFirst]
+  )
 
   // Stable load — accepts query string explicitly so it never recreates on search changes
   const load = useCallback(async (q: string) => {
@@ -121,7 +121,7 @@ export default function DeveloperAccountsPage() {
 
   return (
     <div className="page-container">
-      <PageToast message={toast?.message ?? null} type={toast?.type} />
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       <div className="flex items-center justify-between">
         <div>

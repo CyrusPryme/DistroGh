@@ -37,9 +37,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     values.push(value)
   }
 
-  if (body && Object.prototype.hasOwnProperty.call(body, 'vendor_id')) setField('vendor_id', String(body.vendor_id ?? '').trim())
-  if (body && Object.prototype.hasOwnProperty.call(body, 'amount')) setField('amount', Number(body.amount ?? 0))
-  if (body && Object.prototype.hasOwnProperty.call(body, 'reason')) setField('reason', String(body.reason ?? '').trim())
+  if (body && Object.prototype.hasOwnProperty.call(body, 'vendor_id')) {
+    const v = String(body.vendor_id ?? '').trim()
+    if (!v) return NextResponse.json({ success: false, error: 'vendor_id is required' }, { status: 400 })
+    setField('vendor_id', v)
+  }
+  if (body && Object.prototype.hasOwnProperty.call(body, 'amount')) {
+    const amount = Number(body.amount ?? 0)
+    if (Number.isNaN(amount) || amount <= 0) {
+      return NextResponse.json({ success: false, error: 'amount must be greater than 0' }, { status: 400 })
+    }
+    setField('amount', amount)
+  }
+  if (body && Object.prototype.hasOwnProperty.call(body, 'reason')) {
+    const reason = String(body.reason ?? '').trim()
+    if (!reason) return NextResponse.json({ success: false, error: 'reason is required' }, { status: 400 })
+    setField('reason', reason)
+  }
   if (body && Object.prototype.hasOwnProperty.call(body, 'deduction_date')) {
     const v = body.deduction_date && String(body.deduction_date).trim() ? String(body.deduction_date).trim() : null
     setField('deduction_date', v)

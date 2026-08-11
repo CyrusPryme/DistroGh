@@ -26,6 +26,7 @@ import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/sha
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { useSession } from '@/hooks/useSession'
+import { useToast } from '@/hooks/useToast'
 
 // Helper function for relative time display
 function formatRelativeTime(dateString: string): string {
@@ -55,7 +56,7 @@ function ProductsContent() {
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
   const [returnsList, setReturnsList] = useState<ProductReturn[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -93,11 +94,6 @@ function ProductsContent() {
     if (!canLoad) return
     load()
   }, [canLoad, role, vendorId, sessionLoading])
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const handleSubmit = async (data: ProductFormValues, extras?: { imageFiles?: File[] }) => {
     setSubmitting(true)
@@ -180,9 +176,9 @@ function ProductsContent() {
   return (
     <div className="page-container">
       <PageToast
-        message={toast?.msg ?? null}
+        message={toast?.message ?? null}
         type={toast?.type}
-        onDismiss={() => setToast(null)}
+        onDismiss={dismissToast}
       />
 
       <PageHeader

@@ -20,6 +20,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
+import { useToast } from '@/hooks/useToast'
 import type { Intake, Vendor, Product } from '@/types'
 
 export default function ReceivingPage() {
@@ -34,7 +35,7 @@ export default function ReceivingPage() {
   const [filterVendor, setFilterVendor] = useState('')
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
   const [showStock, setShowStock] = useState(true)
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
   const [stockPage, setStockPage] = useState(1)
@@ -99,11 +100,6 @@ export default function ReceivingPage() {
     [intakes, intakePage]
   )
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
-
   const productsForVendor = form.vendor_id
     ? products.filter((p) => p.vendor_id === form.vendor_id)
     : products
@@ -165,9 +161,9 @@ export default function ReceivingPage() {
   return (
     <div className="page-container">
         <PageToast
-          message={toast?.msg ?? null}
+          message={toast?.message ?? null}
           type={toast?.type}
-          onDismiss={() => setToast(null)}
+          onDismiss={dismissToast}
         />
 
         <PageHeader

@@ -235,13 +235,14 @@ function DeliveriesContent() {
   const [form, setForm] = useState<{
     supermarket_id: string
     delivery_date: string
-    total_transport_cost: number
+    /** '' = not yet entered by the user — must never be silently submitted as 0. */
+    total_transport_cost: number | ''
     notes: string
     items: RunItemRow[]
   }>({
     supermarket_id: '',
     delivery_date: new Date().toISOString().slice(0, 10),
-    total_transport_cost: 0,
+    total_transport_cost: '',
     notes: '',
     items: [{ product_id: '', quantity_delivered: 1 }],
   })
@@ -356,6 +357,10 @@ function DeliveriesContent() {
       showToast('Please select a supermarket.', 'error')
       return
     }
+    if (form.total_transport_cost === '' || form.total_transport_cost == null) {
+      showToast('Transport cost is required for new deliveries — enter 0 if there genuinely was none.', 'error')
+      return
+    }
     const validItems = form.items.filter((i) => i.product_id && i.quantity_delivered > 0)
     if (validItems.length === 0) {
       showToast('Add at least one product with quantity.', 'error')
@@ -381,7 +386,7 @@ function DeliveriesContent() {
       const payload: CreateDeliveryRunPayload = {
         supermarket_id: form.supermarket_id,
         delivery_date: form.delivery_date,
-        total_transport_cost: Number(form.total_transport_cost) || 0,
+        total_transport_cost: Number(form.total_transport_cost),
         notes: form.notes.trim() || undefined,
         items: validItems.map((i) => ({ product_id: i.product_id, quantity_delivered: i.quantity_delivered })),
       }
@@ -392,7 +397,7 @@ function DeliveriesContent() {
       setForm({
         supermarket_id: '',
         delivery_date: new Date().toISOString().slice(0, 10),
-        total_transport_cost: 0,
+        total_transport_cost: '',
         notes: '',
         items: [{ product_id: '', quantity_delivered: 1 }],
       })
@@ -795,8 +800,8 @@ function DeliveriesContent() {
                       type="number"
                       step="0.01"
                       min={0}
-                      value={form.total_transport_cost === 0 ? '' : form.total_transport_cost}
-                      onChange={(e) => setForm((prev) => ({ ...prev, total_transport_cost: Number(e.target.value) || 0 }))}
+                      value={form.total_transport_cost}
+                      onChange={(e) => setForm((prev) => ({ ...prev, total_transport_cost: e.target.value === '' ? '' : Number(e.target.value) }))}
                       className="form-input"
                       placeholder="0"
                     />

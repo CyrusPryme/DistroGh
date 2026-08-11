@@ -10,9 +10,9 @@ export async function GET(req: Request) {
     const pool = getDbPool()
     const url = new URL(req.url)
 
-    const search   = url.searchParams.get('search')?.trim() ?? ''
-    const module   = url.searchParams.get('module')?.trim() ?? ''
-    const action   = url.searchParams.get('action')?.trim() ?? ''
+    const search      = url.searchParams.get('search')?.trim() ?? ''
+    const moduleParam = url.searchParams.get('module')?.trim() ?? ''
+    const action      = url.searchParams.get('action')?.trim() ?? ''
     const dateFrom = url.searchParams.get('date_from')?.trim() ?? ''
     const dateTo   = url.searchParams.get('date_to')?.trim() ?? ''
     const page     = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10))
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
       values.push(`%${search.toLowerCase()}%`)
       i++
     }
-    if (module) { conditions.push(`al.module = $${i++}`); values.push(module) }
+    if (moduleParam) { conditions.push(`al.module = $${i++}`); values.push(moduleParam) }
     if (action) { conditions.push(`al.action = $${i++}`); values.push(action) }
     if (dateFrom) { conditions.push(`al.created_at >= $${i++}`); values.push(dateFrom) }
     if (dateTo)   { conditions.push(`al.created_at < ($${i++}::date + interval '1 day')`); values.push(dateTo) }

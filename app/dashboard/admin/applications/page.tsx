@@ -18,10 +18,15 @@ export default function VendorApplicationsPage() {
   const [applications, setApplications] = useState<VendorApplication[]>([])
   const [vendorById, setVendorById] = useState<Map<string, Vendor>>(new Map())
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // `loadError` (initial fetch failure — nothing to show, full-page error) is kept separate
+  // from `actionError` (an approve/reject/remove failure) — an action failure must not wipe
+  // out the already-loaded table, it should just surface as a dismissible banner.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [processing, setProcessing] = useState<string | null>(null)
   const [approvedCreds, setApprovedCreds] = useState<ApprovedCreds | null>(null)
   const [appPage, setAppPage] = useState(1)
+  const [copiedField, setCopiedField] = useState<'email' | 'password' | null>(null)
 
   const visibleApplications = useMemo(
     () => applications.filter((a) => a.status !== 'rejected'),
@@ -44,8 +49,9 @@ export default function VendorApplicationsPage() {
       ])
       setApplications(data)
       setVendorById(new Map(vendors.filter((v) => !v.deleted_at).map((v) => [v.id, v])))
+      setLoadError(null)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load applications')
+      setLoadError(e instanceof Error ? e.message : 'Failed to load applications')
     } finally {
       setLoading(false)
     }
@@ -53,7 +59,7 @@ export default function VendorApplicationsPage() {
 
   const handleApproveApplication = async (application: VendorApplication) => {
     setProcessing(application.id)
-    setError(null)
+    setActionError(null)
     setApprovedCreds(null)
 
     try {
@@ -67,15 +73,16 @@ export default function VendorApplicationsPage() {
       await loadApplications()
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Failed to approve application'
-      setError(`Failed to approve application: ${message}`)
+      setActionError(`Failed to approve application: ${message}`)
     } finally {
       setProcessing(null)
     }
   }
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, field: 'email' | 'password') => {
     navigator.clipboard.writeText(text).then(() => {
-      if (typeof window !== 'undefined') (window as any).__copied = true
+      setCopiedField(field)
+      setTimeout(() => setCopiedField((f) => (f === field ? null : f)), 2000)
     })
   }
 
@@ -85,7 +92,7 @@ export default function VendorApplicationsPage() {
     }
 
     setProcessing(application.id)
-    setError(null)
+    setActionError(null)
 
     try {
       await vendorApplicationService.deleteApplication(application.id)
@@ -97,7 +104,7 @@ export default function VendorApplicationsPage() {
         stack: e.stack,
         code: e.code
       })
-      setError(`Failed to reject application: ${e.message}`)
+      setActionError(`Failed to reject application: ${e.message}`)
     } finally {
       setProcessing(null)
     }
@@ -110,13 +117,13 @@ export default function VendorApplicationsPage() {
     }
 
     setProcessing(application.id)
-    setError(null)
+    setActionError(null)
 
     try {
       await removeVendorApplication(application.id)
       setApplications((prev) => prev.filter((a) => a.id !== application.id))
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to remove application')
+      setActionError(e instanceof Error ? e.message : 'Failed to remove application')
     } finally {
       setProcessing(null)
     }
@@ -158,11 +165,11 @@ export default function VendorApplicationsPage() {
     )
   }
 
-  if (error) {
+  if (loadError) {
     return (
       <div className="page-container">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-600">{error}</p>
+          <p className="text-red-600">{loadError}</p>
         </div>
       </div>
     )
@@ -180,6 +187,19 @@ export default function VendorApplicationsPage() {
         </div>
       </div>
 
+      {actionError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start justify-between gap-3">
+          <p className="text-red-600 text-sm">{actionError}</p>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-red-400 hover:text-red-600 text-xs font-medium shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Post-approval: show login credentials once - compact */}
       {approvedCreds && (
         <div className="data-card border-2 border-emerald-200 bg-emerald-50/80 py-3 px-4 space-y-2">
@@ -192,8 +212,18 @@ export default function VendorApplicationsPage() {
             <div className="flex gap-1.5 items-center">
               <label className="text-xs font-medium text-slate-500 w-20 shrink-0">Login email</label>
               <code className="flex-1 min-w-0 rounded bg-white border border-slate-200 px-2 py-1 text-xs font-mono truncate">{approvedCreds.loginEmail}</code>
-              <button type="button" onClick={() => copyToClipboard(approvedCreds.loginEmail)} className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50" title="Copy">
-                <Copy className="w-3.5 h-3.5 text-slate-600" />
+              <button
+                type="button"
+                onClick={() => copyToClipboard(approvedCreds.loginEmail, 'email')}
+                className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50"
+                title={copiedField === 'email' ? 'Copied!' : 'Copy'}
+                aria-label={copiedField === 'email' ? 'Copied login email' : 'Copy login email'}
+              >
+                {copiedField === 'email' ? (
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                )}
               </button>
             </div>
             <div className="flex gap-1.5 items-center">
@@ -202,8 +232,18 @@ export default function VendorApplicationsPage() {
                 <KeyRound className="w-3 h-3 text-amber-600 shrink-0" />
                 <span className="truncate">{approvedCreds.initialPassword}</span>
               </code>
-              <button type="button" onClick={() => copyToClipboard(approvedCreds.initialPassword)} className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50" title="Copy">
-                <Copy className="w-3.5 h-3.5 text-slate-600" />
+              <button
+                type="button"
+                onClick={() => copyToClipboard(approvedCreds.initialPassword, 'password')}
+                className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50"
+                title={copiedField === 'password' ? 'Copied!' : 'Copy'}
+                aria-label={copiedField === 'password' ? 'Copied password' : 'Copy password'}
+              >
+                {copiedField === 'password' ? (
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                )}
               </button>
             </div>
           </div>

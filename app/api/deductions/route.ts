@@ -23,6 +23,7 @@ export async function GET(req: Request) {
       and ($2::date is null or d.deduction_date >= $2::date)
       and ($3::date is null or d.deduction_date <= $3::date)
     order by d.deduction_date desc, d.created_at desc
+    limit 20000
     `,
     [vendor_id, from, to]
   )

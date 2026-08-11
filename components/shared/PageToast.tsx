@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -11,10 +11,25 @@ export type PageToastProps = {
   onDismiss?: () => void
 }
 
+const noopSubscribe = () => () => {}
+
+/**
+ * True once hydrated on the client. Using useSyncExternalStore (rather than a
+ * useState+useEffect "mounted" flag) avoids an extra render pass while still
+ * returning `false` for the server-rendered snapshot, so `createPortal` is only
+ * invoked once `document` is guaranteed to exist.
+ */
+function useIsClient() {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false
+  )
+}
+
 /** Fixed toast rendered above modals (z-[100]) via portal. */
 export function PageToast({ message, type = 'success', onDismiss }: PageToastProps) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const mounted = useIsClient()
 
   // Auto-dismiss after 4s when dismiss handler is provided
   useEffect(() => {

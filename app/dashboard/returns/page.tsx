@@ -25,6 +25,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
+import { useToast } from '@/hooks/useToast'
 import type { ProductReturn, ReturnReason, Product, Supermarket } from '@/types'
 
 const REASON_LABELS: Record<ReturnReason, string> = {
@@ -48,7 +49,7 @@ function ReturnsContent() {
   const [filterSupermarket, setFilterSupermarket] = useState(searchParams?.get('supermarket_id') ?? '')
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
   const [returnsPage, setReturnsPage] = useState(1)
 
   const [form, setForm] = useState<CreateReturnPayload>({
@@ -99,11 +100,6 @@ function ReturnsContent() {
     () => getPageSlice(returns, returnsPage, DEFAULT_PAGE_SIZE),
     [returns, returnsPage]
   )
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const handleProductSelect = (productId: string) => {
     const product = products.find((p) => p.id === productId)
@@ -181,9 +177,9 @@ function ReturnsContent() {
   return (
     <div className="page-container">
       <PageToast
-        message={toast?.msg ?? null}
+        message={toast?.message ?? null}
         type={toast?.type}
-        onDismiss={() => setToast(null)}
+        onDismiss={dismissToast}
       />
 
       <PageHeader

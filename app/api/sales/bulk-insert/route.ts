@@ -63,6 +63,12 @@ export async function POST(req: Request) {
   try {
     await client.query('begin')
 
+    // Serialize concurrent requests for the same batch: without this, two overlapping
+    // requests could both pass the "already processed?" check before either commits its
+    // insert (TOCTOU), double-importing the batch. The lock is transaction-scoped and
+    // released automatically on commit/rollback.
+    await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [batchId])
+
     const existing = await client.query(
       `select 1 from public.sales where import_batch_id = $1 limit 1`,
       [batchId]
@@ -245,6 +251,9 @@ export async function POST(req: Request) {
     } catch {
       // ignore
     }
+    // Previously this failure was only ever visible to the client — log server-side too so
+    // failed imports are debuggable from ops without needing to reproduce the client request.
+    console.error('[API Error] Failed to import sales:', e)
     return NextResponse.json({ success: false, error: e?.message ?? 'Failed to import sales' }, { status: 500 })
   } finally {
     client.release()

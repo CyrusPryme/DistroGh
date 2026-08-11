@@ -26,6 +26,8 @@ import {
 import { cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { useSession } from '@/hooks/useSession'
+import { useToast } from '@/hooks/useToast'
+import { PageToast } from '@/components/shared/PageToast'
 
 export default function SettingsPage() {
   const { role, loading: sessionLoading } = useSession({ requireAuth: true })
@@ -33,7 +35,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
 
   const [categoryAddName, setCategoryAddName] = useState('')
   const [categoryEditingId, setCategoryEditingId] = useState<string | null>(null)
@@ -50,11 +52,6 @@ export default function SettingsPage() {
     () => getPageSlice(categories, categoryPage, DEFAULT_PAGE_SIZE),
     [categories, categoryPage]
   )
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const load = async () => {
     setLoading(true)
@@ -179,16 +176,7 @@ export default function SettingsPage() {
 
   return (
     <div className="page-container space-y-8">
-        {toast && (
-          <div
-            className={cn(
-              'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-            )}
-          >
-            {toast.msg}
-          </div>
-        )}
+        <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
         <div>
           <h1 className="font-display text-2xl font-bold text-slate-900 flex items-center gap-2">

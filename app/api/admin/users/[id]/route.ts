@@ -51,6 +51,25 @@ export async function PATCH(req: Request, ctx: Ctx) {
       return NextResponse.json({ success: false, error: 'You cannot suspend your own account.' }, { status: 400 })
     }
 
+    // `super_admin` and `developer` accounts are only ever created via the dedicated seed
+    // scripts (see scripts/seed-super-admin.mjs, scripts/seed-developer.mjs) — never through
+    // this API. Without this check, any super_admin could PATCH another account's admin_role
+    // to `developer` and grant it unrestricted platform access (privilege escalation).
+    if (body && Object.prototype.hasOwnProperty.call(body, 'admin_role') && !['admin', 'user'].includes(admin_role)) {
+      return NextResponse.json(
+        { success: false, error: 'Role must be admin or user.' },
+        { status: 400 }
+      )
+    }
+
+    if (
+      body &&
+      Object.prototype.hasOwnProperty.call(body, 'status') &&
+      !['active', 'suspended'].includes(status)
+    ) {
+      return NextResponse.json({ success: false, error: 'Invalid status value.' }, { status: 400 })
+    }
+
     const client = await pool.connect()
     try {
       await client.query('BEGIN')

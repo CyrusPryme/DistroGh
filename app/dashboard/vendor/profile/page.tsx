@@ -16,6 +16,8 @@ import {
 import { DISTROGH_CONTACT } from '@/lib/constants'
 import type { Vendor } from '@/types'
 import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
+import { useToast } from '@/hooks/useToast'
+import { PageToast } from '@/components/shared/PageToast'
 
 const MOMO_NETWORKS = ['MTN', 'Vodafone', 'AirtelTigo'] as const
 
@@ -34,7 +36,7 @@ export default function VendorProfilePage() {
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [savingBusiness, setSavingBusiness] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(3500)
 
   useEffect(() => {
     if (sessionLoading) return
@@ -60,11 +62,6 @@ export default function VendorProfilePage() {
       })
       .finally(() => setLoading(false))
   }, [sessionLoading, vendorId])
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
 
   const handleSaveBusiness = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -151,16 +148,7 @@ export default function VendorProfilePage() {
 
   return (
     <div className="page-container space-y-6">
-      {toast && (
-        <div
-          className={cn(
-            'fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       <div className="flex items-center justify-between">
         <Link

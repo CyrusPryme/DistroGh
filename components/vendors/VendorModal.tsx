@@ -174,6 +174,7 @@ export function VendorModal({
             type="button"
             onClick={onClose}
             className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>

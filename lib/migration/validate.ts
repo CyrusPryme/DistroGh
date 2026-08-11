@@ -4,6 +4,8 @@ import { normalizeMomoNetwork, momoNetworkWasNormalized } from '@/lib/migration/
 import { validateVendorPhones } from '@/lib/migration/vendor-fields'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { updateMigrationProject } from '@/lib/migration/projects'
+import { normalizeCategoryName } from '@/lib/migration/category'
+import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination'
 
 function str(v: unknown): string {
   return v == null ? '' : String(v).trim()
@@ -81,14 +83,19 @@ function validateRow(
       break
     }
     case 'deliveries': {
-      if (!str(data.supermarket_name) && !str(data.name) && !str(data.store)) {
-        errors.push({ code: 'MISSING_SUPERMARKET', message: 'supermarket_name is required' })
-      }
+      // Branch/supermarket is NOT a required unique business destination for historical
+      // deliveries redistributed from a central warehouse — destination is resolved
+      // (BRANCH / WAREHOUSE / DISTRIBUTION_POINT / UNKNOWN_HISTORICAL) in the outer
+      // validateMigrationStaging pass, where production data is available to match against.
       if (!str(data.product_name) && !str(data.product) && !str(data.barcode)) {
         errors.push({ code: 'MISSING_PRODUCT', message: 'product_name or barcode is required' })
       }
       const q = num(data.quantity ?? data.qty)
       if (q == null || q <= 0) errors.push({ code: 'INVALID_QTY', message: 'quantity must be > 0' })
+      const delDate = str(data.delivery_date)
+      if (delDate && Number.isNaN(new Date(delDate).getTime())) {
+        errors.push({ code: 'INVALID_DATE', message: 'delivery_date is not a valid date' })
+      }
       break
     }
     case 'sales': {
@@ -148,12 +155,17 @@ export async function validateMigrationStaging(
   const vendorByName = new Map(vendors.map((v: { id: string; name: string }) => [v.name, v.id]))
 
   const { rows: products } = await pool.query(
-    `SELECT id, lower(trim(name)) AS name, lower(trim(coalesce(barcode,''))) AS barcode
+    `SELECT id, vendor_id, category, lower(trim(name)) AS name, lower(trim(coalesce(barcode,''))) AS barcode
      FROM public.products WHERE deleted_at IS NULL`
   )
   const productByName = new Map(products.map((p: { id: string; name: string }) => [p.name, p.id]))
   const productByBarcode = new Map(
     products.filter((p: { barcode: string }) => p.barcode).map((p: { id: string; barcode: string }) => [p.barcode, p.id])
+  )
+  type ProductRow = { id: string; vendor_id: string; category: string | null; name: string; barcode: string }
+  const productByBarcodeFull = new Map((products as ProductRow[]).filter((p) => p.barcode).map((p) => [p.barcode, p]))
+  const productByVendorAndName = new Map(
+    (products as ProductRow[]).map((p) => [`${p.vendor_id}::${p.name}`, p])
   )
 
   const { rows: staging } = await pool.query(
@@ -189,6 +201,7 @@ export async function validateMigrationStaging(
     // Soft FK suggestions
     const suggestions: Array<{ id: string; label: string; confidence: number }> = []
     const resolved: Record<string, string> = {}
+    const infos: Issue[] = []
 
     if (['products', 'intakes', 'sales', 'returns', 'deliveries', 'deductions', 'payouts', 'service_charges', 'opening_balances', 'vendor_documents'].includes(entity)) {
       const vn = str(data.vendor_name || data.vendor || data.NAME || data.name).toLowerCase()
@@ -200,6 +213,7 @@ export async function validateMigrationStaging(
         }
       } else if (vn && vendorByName.has(vn)) {
         resolved.vendor_id = vendorByName.get(vn)!
+        infos.push({ code: 'VENDOR_MATCHED', message: `Existing vendor matched: "${vn}"` })
       } else if (vn && entity !== 'sales') {
         warnings.push({ code: 'VENDOR_NOT_FOUND', message: `Vendor "${vn}" not found in production (may be created from staging)` })
       }
@@ -209,9 +223,63 @@ export async function validateMigrationStaging(
       const barcode = str(data.barcode || data.code).toLowerCase()
       const pname = str(data.product_name || data.product || data.description).toLowerCase()
       const pid = (barcode && productByBarcode.get(barcode)) || (pname && productByName.get(pname))
-      if (pid) resolved.product_id = pid
-      else if (pname || barcode) {
+      if (pid) {
+        resolved.product_id = pid
+        infos.push({ code: 'PRODUCT_MATCHED', message: 'Existing product matched' })
+      } else if (pname || barcode) {
         warnings.push({ code: 'PRODUCT_NOT_FOUND', message: 'Product not found in production (may be created from staging)' })
+      }
+    }
+
+    // Historical delivery destination + transport cost: never an ERROR unless the row is
+    // otherwise unsafe (bad product/qty/date, handled in validateRow above).
+    if (entity === 'deliveries' && !errors.length) {
+      const destination = await resolveDeliveryDestination(pool, data)
+      if (destination.supermarketId) resolved.supermarket_id = destination.supermarketId
+      if (destination.destinationType === 'UNKNOWN_HISTORICAL') {
+        warnings.push({
+          code: 'DELIVERY_DESTINATION_UNKNOWN',
+          message: 'No branch, warehouse, or distribution destination could be identified — accepted as an unknown historical destination.',
+        })
+      } else if (destination.destinationType !== 'BRANCH') {
+        warnings.push({
+          code: 'DELIVERY_BRANCH_NOT_PROVIDED',
+          message: `Branch not provided — accepted as historical ${destination.destinationType === 'WAREHOUSE' ? 'warehouse' : 'distribution'} delivery (${destination.destinationReference ?? 'unnamed'}).`,
+        })
+      }
+      const tc = data.transport_cost
+      if (tc == null || str(tc) === '') {
+        warnings.push({
+          code: 'DELIVERY_TRANSPORT_COST_MISSING',
+          message: 'Historical transport cost missing — will be recorded as "Not Recorded (Historical)", not zero.',
+        })
+      }
+    }
+
+    // Product category change detection — never silent, never lost.
+    if (entity === 'products' && !errors.length) {
+      const barcode = str(data.barcode).toLowerCase()
+      const vendorId = resolved.vendor_id
+      const name = str(data.name).toLowerCase()
+      const existingProduct =
+        (barcode && productByBarcodeFull.get(barcode)) ||
+        (vendorId && name ? productByVendorAndName.get(`${vendorId}::${name}`) : undefined)
+      const incomingCategory = str(data.category)
+      if (existingProduct) {
+        const existingCategory = existingProduct.category?.trim() || null
+        if (!incomingCategory) {
+          // Incoming missing -> existing category is preserved untouched (INFO, not a change).
+          if (existingCategory) infos.push({ code: 'CATEGORY_PRESERVED', message: `Category preserved (${existingCategory}) — incoming row had no category` })
+        } else if (existingCategory && normalizeCategoryName(existingCategory) === normalizeCategoryName(incomingCategory)) {
+          infos.push({ code: 'CATEGORY_UNCHANGED', message: `Category unchanged (${existingCategory})` })
+        } else if (!existingCategory) {
+          warnings.push({ code: 'CATEGORY_POPULATED', message: `Category will be set to "${incomingCategory}" (previously not set)` })
+        } else {
+          warnings.push({
+            code: 'CATEGORY_WILL_BE_OVERRIDDEN',
+            message: `Category will be overwritten: "${existingCategory}" -> "${incomingCategory}" (Source: Historical Migration)`,
+          })
+        }
       }
     }
 
@@ -225,6 +293,7 @@ export async function validateMigrationStaging(
            validation_status = $3,
            errors = $4::jsonb,
            warnings = $5::jsonb,
+           infos = $9::jsonb,
            match_suggestions = $6::jsonb,
            resolved_refs = $7::jsonb,
            intended_action = CASE WHEN $8::uuid IS NOT NULL THEN 'update' ELSE 'create' END,
@@ -239,6 +308,7 @@ export async function validateMigrationStaging(
         JSON.stringify(suggestions),
         JSON.stringify(resolved),
         resolved.vendor_id || resolved.product_id || null,
+        JSON.stringify(infos),
       ]
     )
   }

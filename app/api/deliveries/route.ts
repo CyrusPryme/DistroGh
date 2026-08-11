@@ -4,6 +4,7 @@ import { requireAdminSession, requireSession } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { DELIVERY_RUN_LIST_SELECT, DELIVERY_RUN_SELECT } from '@/lib/delivery-run-sql'
 import { assertSufficientStockForDelivery } from '@/lib/delivery-stock'
+import { validateLiveTransportCost } from '@/lib/migration/transport-cost'
 
 const RUN_SELECT = DELIVERY_RUN_LIST_SELECT
 
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
         `
         select ${RUN_SELECT}
         from public.delivery_runs dr
-        join public.supermarkets sm on sm.id = dr.supermarket_id
+        left join public.supermarkets sm on sm.id = dr.supermarket_id
         where dr.deleted_at is null
           and dr.confirmed_at is not null
           and exists (
@@ -41,6 +42,7 @@ export async function GET(req: Request) {
           and ($3::date is null or dr.delivery_date >= $3::date)
           and ($4::date is null or dr.delivery_date <= $4::date)
         order by dr.delivery_date desc
+        limit 20000
         `,
         [vendor_id, supermarket_id, from, to]
       )
@@ -55,13 +57,14 @@ export async function GET(req: Request) {
       `
       select ${RUN_SELECT}
       from public.delivery_runs dr
-      join public.supermarkets sm on sm.id = dr.supermarket_id
+      left join public.supermarkets sm on sm.id = dr.supermarket_id
       where dr.deleted_at is null
         and ($1::uuid is null or dr.supermarket_id = $1::uuid)
         and ($2::date is null or dr.delivery_date >= $2::date)
         and ($3::date is null or dr.delivery_date <= $3::date)
         and ($4::boolean is false or dr.confirmed_at is not null)
       order by dr.delivery_date desc
+      limit 20000
       `,
       [supermarket_id, from, to, confirmed_only]
     )
@@ -77,13 +80,21 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => null)
     const supermarket_id = (body?.supermarket_id ?? '').toString().trim()
     const delivery_date = (body?.delivery_date ?? new Date().toISOString().slice(0, 10)).toString()
-    const total_transport_cost = Number(body?.total_transport_cost ?? 0)
     const notes = body?.notes?.trim() || null
     const items = Array.isArray(body?.items) ? body.items : []
 
     if (!supermarket_id) {
       return NextResponse.json({ success: false, error: 'supermarket_id is required' }, { status: 400 })
     }
+
+          // LIVE deliveries always require a transport cost — historical migration is the only
+          // context where this may be NULL. Reject null/empty/undefined/non-numeric explicitly
+          // rather than silently defaulting to 0 (0 is a valid recorded cost; "not provided" is not).
+          const transportCostCheck = validateLiveTransportCost(body?.total_transport_cost)
+          if (!transportCostCheck.ok) {
+            return NextResponse.json({ success: false, error: transportCostCheck.error }, { status: 400 })
+          }
+          const total_transport_cost = transportCostCheck.value
 
     const validItems = items
       .map((i: any) => ({
@@ -99,8 +110,9 @@ export async function POST(req: Request) {
 
       const { rows: runRows } = await client.query(
         `
-        insert into public.delivery_runs (supermarket_id, delivery_date, total_transport_cost, notes)
-        values ($1::uuid, $2::date, $3, $4)
+        insert into public.delivery_runs
+          (supermarket_id, delivery_date, total_transport_cost, notes, source, destination_type)
+        values ($1::uuid, $2::date, $3, $4, 'LIVE_OPERATION', 'BRANCH')
         returning *
         `,
         [supermarket_id, delivery_date, total_transport_cost, notes]
@@ -125,7 +137,7 @@ export async function POST(req: Request) {
       await client.query('commit')
 
       const { rows } = await pool.query(
-        `select ${DELIVERY_RUN_SELECT} from public.delivery_runs dr join public.supermarkets sm on sm.id = dr.supermarket_id where dr.id = $1`,
+        `select ${DELIVERY_RUN_SELECT} from public.delivery_runs dr left join public.supermarkets sm on sm.id = dr.supermarket_id where dr.id = $1`,
         [run.id]
       )
       return NextResponse.json({ success: true, data: rows[0] ?? run }, { status: 201 })

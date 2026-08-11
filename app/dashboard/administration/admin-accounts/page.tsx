@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { MODULES, ROLE_PRESETS, type PermissionAction } from '@/lib/auth/permissions'
 import { PageToast } from '@/components/shared/PageToast'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { useToast } from '@/hooks/useToast'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -261,7 +262,7 @@ function AdminUserModal({
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">{isEdit ? `Editing: ${user!.email}` : 'New administrator or user account'}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition">
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition" aria-label="Close">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -405,13 +406,12 @@ export default function AdminAccountsPage() {
   const [filterRole, setFilterRole] = useState('')
   const [modal, setModal] = useState<'create' | AdminUser | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [toast, setToast] = useState<Toast | null>(null)
+  const { toast, showToast: showToastMsgFirst, dismissToast } = useToast(4000)
+  const showToast = useCallback(
+    (type: Toast['type'], message: string) => showToastMsgFirst(message, type),
+    [showToastMsgFirst]
+  )
   const [deleting, setDeleting] = useState<string | null>(null)
-
-  const showToast = (type: Toast['type'], message: string) => {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 4000)
-  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -474,7 +474,7 @@ export default function AdminAccountsPage() {
 
   return (
     <div className="page-container">
-      {toast && <PageToast type={toast.type} message={toast.message} onDismiss={() => setToast(null)} />}
+      {toast && <PageToast type={toast.type} message={toast.message} onDismiss={dismissToast} />}
 
       <PageHeader
         icon={

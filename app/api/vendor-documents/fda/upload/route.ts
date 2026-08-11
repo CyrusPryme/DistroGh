@@ -124,6 +124,7 @@ export async function POST(req: Request) {
       },
     })
   } catch (e) {
+    console.error('[API Error] FDA document upload failed:', e)
     const message = e instanceof Error ? e.message : 'Upload failed'
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }

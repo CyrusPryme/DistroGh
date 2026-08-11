@@ -36,6 +36,8 @@ import {
   clearSalesImportDraft,
 } from '@/lib/sales-import-session'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 import type { ImportPreview, ParsedSaleRow, Supermarket, Vendor } from '@/types'
 
 function toSupermarketLookup(list: Supermarket[]) {
@@ -70,7 +72,7 @@ export default function SalesImportPage() {
   const [supermarketModalOpen, setSupermarketModalOpen] = useState(false)
   const [supermarketPrefill, setSupermarketPrefill] = useState<Partial<SupermarketFormValues> | null>(null)
   const [addingSupermarket, setAddingSupermarket] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const { toast, showToast, dismissToast } = useToast(4000)
   const [sessionReady, setSessionReady] = useState(false)
   const [resumedSession, setResumedSession] = useState(false)
   const sessionRestoredRef = useRef(false)
@@ -79,11 +81,6 @@ export default function SalesImportPage() {
   const [changeLinkKeys, setChangeLinkKeys] = useState<Set<string>>(new Set())
 
   const defaultReportMonth = getDefaultReportMonth()
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 4000)
-  }
 
   const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<ImportSettingsValues>({
     resolver: zodResolver(importSettingsSchema),
@@ -511,16 +508,7 @@ export default function SalesImportPage() {
 
   return (
     <div className="page-container max-w-4xl space-y-6">
-      {toast && (
-        <div
-          className={cn(
-            'fixed top-4 right-4 z-[60] px-4 py-3 rounded-xl shadow-modal text-sm font-medium animate-slide-up',
-            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
 
       {/* Header */}
       <div>

@@ -15,10 +15,16 @@ function errorResponse(err: unknown) {
  */
 export async function GET(req: Request) {
   try {
-    await requireSession()
+    const session = await requireSession()
     const url = new URL(req.url)
     const format = (url.searchParams.get('format') ?? 'by_supermarket').toString()
     const supermarketId = url.searchParams.get('supermarket_id')?.toString().trim() || null
+
+    // Vendors may only see stock positions for their own products, never other vendors'.
+    if (session.role === 'vendor' && !session.vendor_id) {
+      return NextResponse.json({ success: true, data: [] })
+    }
+    const vendorId = session.role === 'vendor' ? session.vendor_id : null
 
     const pool = getDbPool()
 
@@ -33,9 +39,10 @@ export async function GET(req: Request) {
         join public.supermarkets s on s.id = si.supermarket_id and s.deleted_at is null
         join public.products p on p.id = si.product_id and p.deleted_at is null
         where ($1::uuid is null or si.supermarket_id = $1::uuid)
+          and ($2::uuid is null or p.vendor_id = $2::uuid)
         order by si.supermarket_id asc, si.product_id asc
         `,
-        [supermarketId]
+        [supermarketId, vendorId]
       )
       return NextResponse.json({ success: true, data: rows })
     }
@@ -54,9 +61,10 @@ export async function GET(req: Request) {
       join public.products p on p.id = si.product_id and p.deleted_at is null
       where si.quantity >= 1
         and ($1::uuid is null or si.supermarket_id = $1::uuid)
+        and ($2::uuid is null or p.vendor_id = $2::uuid)
       order by s.name asc, p.name asc
       `,
-      [supermarketId]
+      [supermarketId, vendorId]
     )
     return NextResponse.json({ success: true, data: rows })
   } catch (err) {

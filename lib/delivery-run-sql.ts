@@ -24,7 +24,9 @@ export const DELIVERY_RUN_VENDOR_CHARGES_JSON = `
 /** Lighter list query — defers vendor_charges until detail/confirm. */
 export const DELIVERY_RUN_LIST_SELECT = `
   dr.*,
-  json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location, 'branch', sm.branch, 'store_code', sm.store_code) as supermarket,
+  case when sm.id is null then null else
+    json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location, 'branch', sm.branch, 'store_code', sm.store_code)
+  end as supermarket,
   coalesce(
     (
       select json_agg(
@@ -47,7 +49,9 @@ export const DELIVERY_RUN_LIST_SELECT = `
 
 export const DELIVERY_RUN_SELECT = `
   dr.*,
-  json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location, 'branch', sm.branch, 'store_code', sm.store_code) as supermarket,
+  case when sm.id is null then null else
+    json_build_object('id', sm.id, 'name', sm.name, 'location', sm.location, 'branch', sm.branch, 'store_code', sm.store_code)
+  end as supermarket,
   coalesce(
     (
       select json_agg(

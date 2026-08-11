@@ -102,7 +102,7 @@ function LoginPageContent() {
     }
   }
 
-  const useDemoAccount = async (email: string, password: string) => {
+  const signInWithDemoAccount = async (email: string, password: string) => {
     setAuthError(null)
     setIsLoggingIn(true)
     try {
@@ -272,7 +272,7 @@ function LoginPageContent() {
                 <button
                   key={account.email}
                   type="button"
-                  onClick={() => useDemoAccount(account.email, account.password)}
+                  onClick={() => signInWithDemoAccount(account.email, account.password)}
                   disabled={isLoggingIn}
                   className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed group"
                 >

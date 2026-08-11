@@ -54,6 +54,7 @@ export async function GET(req: Request) {
       and ($1::uuid is null or p.vendor_id = $1::uuid)
       and ($2::text is null or p.status = $2::text)
     order by p.created_at desc
+    limit 20000
     `,
     [vendorId, status]
   )

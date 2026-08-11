@@ -14,6 +14,7 @@ import {
   resolveWholesalePrice,
 } from '@/lib/product-pricing'
 import { mergeCategoryOptions, resolveCategoryOption } from '@/lib/product-categories'
+import { requiresLiveCategoryChangeConfirmation } from '@/lib/products/category-change'
 import { settingsService } from '@/services/settings.service'
 import { CurrencyInputPrefix } from '@/components/shared/CurrencyInputPrefix'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
@@ -246,8 +247,27 @@ export function ProductModal({
               payload.vendor_price,
               isWholesalePriceSpecified(payload.wholesale_price) ? payload.wholesale_price : null
             )
+
+            // Live product editing always requires explicit confirmation before a
+            // category change overwrites the existing one — never silent, unlike the
+            // Historical Migration Engine's audited automatic override.
+            const existingCategory = initialData?.category ?? null
+            const incomingCategory = payload.category ?? null
+            const isRealCategoryChange =
+              Boolean(initialData) &&
+              requiresLiveCategoryChangeConfirmation({ existingCategory, incomingCategory })
+            if (isRealCategoryChange) {
+              const ok = confirm(
+                `Changing this product's category will overwrite the existing category.\n\n"${existingCategory}" → "${incomingCategory}"\n\nContinue?`
+              )
+              if (!ok) return
+            }
+
             try {
-              await onSubmit(payload)
+              await onSubmit({
+                ...payload,
+                ...(isRealCategoryChange ? { category_change_confirmed: true } : {}),
+              } as ProductFormValues)
             } catch (e: unknown) {
               setSubmitError(e instanceof Error ? e.message : 'Failed to save product')
             }
