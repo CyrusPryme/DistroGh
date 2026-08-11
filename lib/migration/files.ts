@@ -295,6 +295,8 @@ export async function clearMigrationUploads(
            reconciliation = '{}'::jsonb,
            progress_pct = 0,
            current_stage = 2,
+           last_parsed_at = NULL,
+           last_validated_at = NULL,
            last_activity_at = now(),
            updated_at = now()
        WHERE id = $1`,

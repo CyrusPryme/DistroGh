@@ -103,6 +103,16 @@ export async function POST(req: Request) {
       }))
       .filter((i: { product_id: string; quantity_delivered: number }) => i.product_id && i.quantity_delivered > 0)
 
+    // The UI already guards this, but the API must too: creating a delivery run with zero
+    // real line items would "succeed" while moving no stock at all — a silent no-op dressed up
+    // as a real delivery record.
+    if (validItems.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'At least one product with a quantity greater than 0 is required' },
+        { status: 400 }
+      )
+    }
+
     const pool = getDbPool()
     const client = await pool.connect()
     try {

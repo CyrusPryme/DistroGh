@@ -29,10 +29,15 @@ type ReconRun = {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  balanced: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  warning:  'bg-amber-100 text-amber-700 border-amber-200',
-  mismatch: 'bg-red-100 text-red-700 border-red-200',
-  pending:  'bg-slate-100 text-slate-600 border-slate-200',
+  balanced:    'bg-emerald-100 text-emerald-700 border-emerald-200',
+  warning:     'bg-amber-100 text-amber-700 border-amber-200',
+  mismatch:    'bg-red-100 text-red-700 border-red-200',
+  pending:     'bg-slate-100 text-slate-600 border-slate-200',
+  no_activity: 'bg-slate-100 text-slate-600 border-slate-200',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  no_activity: 'NO ACTIVITY',
 }
 
 export default function ReconciliationPage() {
@@ -69,7 +74,12 @@ export default function ReconciliationPage() {
       })
       const data = await res.json()
       if (!data.success) { showToast('error', data.error ?? 'Failed'); return }
-      showToast('success', `Reconciliation complete: ${data.data.status}.`)
+      showToast(
+        'success',
+        data.data.status === 'no_activity'
+          ? 'Reconciliation complete: no sales activity in this period — nothing to check.'
+          : `Reconciliation complete: ${data.data.status}.`
+      )
       setForm(f => ({ ...f, notes: '' }))
       loadRuns()
     } catch { showToast('error', 'Network error') } finally { setRunning(false) }
@@ -151,7 +161,7 @@ export default function ReconciliationPage() {
               >
                 <div className="flex items-center gap-4">
                   <span className={cn('px-2.5 py-1 rounded-full text-xs font-semibold border', STATUS_COLOR[run.status] ?? 'bg-slate-100 text-slate-600')}>
-                    {run.status.toUpperCase()}
+                    {STATUS_LABEL[run.status] ?? run.status.toUpperCase()}
                   </span>
                   <span className="font-medium text-slate-800">
                     {run.period_type[0].toUpperCase()+run.period_type.slice(1)}: {fmtDate(run.period_start)} → {fmtDate(run.period_end)}

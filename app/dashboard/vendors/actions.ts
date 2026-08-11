@@ -1,6 +1,7 @@
 'use server'
 
 import bcrypt from 'bcryptjs'
+import type { PoolClient } from 'pg'
 import { getDbPool } from '@/lib/db'
 import { requireAdmin, getVendorBalanceAmount } from '@/lib/auth/require'
 import { writeAuditLog } from '@/lib/rbac/audit'
@@ -310,6 +311,77 @@ export async function resetVendorPassword(vendorId: string, newPassword: string)
   return { success: true }
 }
 
+/**
+ * Runs the vendor soft-delete cascade using an already-open transaction client. Callers own the
+ * begin/commit/rollback so this can be composed with other writes (e.g. approving a deactivation
+ * request) that must succeed or fail together — running the cascade in its own separate
+ * transaction and then updating a related row afterwards risks the vendor ending up deleted
+ * while the related row is left referring to a state that never happened.
+ */
+async function runSoftDeleteVendorCascade(
+  client: PoolClient,
+  user: { id: string; email: string },
+  vendorId: string
+): Promise<void> {
+  const vendorRes = await client.query(
+    `select id, name, momo_number from public.vendors where id = $1::uuid and deleted_at is null`,
+    [vendorId]
+  )
+  const vendorRow = vendorRes.rows[0]
+  if (!vendorRow) throw new Error('Vendor not found')
+
+  const { rows: productRows } = await client.query(
+    `select id from public.products where vendor_id = $1::uuid and deleted_at is null`,
+    [vendorId]
+  )
+  const ids = productRows.map((p: { id: string }) => p.id)
+
+  if (ids.length > 0) {
+    await client.query(
+      `update public.sales set deleted_at = now(), updated_at = now() where product_id = any($1::uuid[]) and deleted_at is null`,
+      [ids]
+    )
+    await client.query(
+      `update public.product_returns set deleted_at = now(), updated_at = now() where product_id = any($1::uuid[]) and deleted_at is null`,
+      [ids]
+    )
+  }
+
+  await client.query(
+    `update public.products set deleted_at = now(), updated_at = now() where vendor_id = $1::uuid and deleted_at is null`,
+    [vendorId]
+  )
+  await client.query(
+    `update public.payouts set deleted_at = now(), updated_at = now() where vendor_id = $1::uuid and deleted_at is null`,
+    [vendorId]
+  )
+  await client.query(
+    `update public.intakes set deleted_at = now() where vendor_id = $1::uuid and deleted_at is null`,
+    [vendorId]
+  )
+  await client.query(
+    `update public.profiles set vendor_id = null, role = 'user', updated_at = now() where vendor_id = $1::uuid`,
+    [vendorId]
+  )
+  const { rowCount } = await client.query(
+    `update public.vendors set deleted_at = now(), updated_at = now() where id = $1::uuid and deleted_at is null`,
+    [vendorId]
+  )
+  if (!rowCount) throw new Error('Vendor not found')
+  await writeAuditLog(client, {
+    actor_id: user.id,
+    actor_email: user.email,
+    action: 'vendor_soft_deleted',
+    module: 'vendors',
+    target_id: vendorId,
+    target_label: vendorRow.name,
+    metadata: {
+      momo_number: vendorRow.momo_number,
+      products_affected: ids.length,
+    },
+  })
+}
+
 export async function softDeleteVendorCascade(vendorId: string): Promise<{ success: true }> {
   const { user } = await requireAdmin()
   if (!vendorId?.trim()) throw new Error('Vendor ID required')
@@ -318,63 +390,7 @@ export async function softDeleteVendorCascade(vendorId: string): Promise<{ succe
   const client = await pool.connect()
   try {
     await client.query('begin')
-    const vendorRes = await client.query(
-      `select id, name, momo_number from public.vendors where id = $1::uuid and deleted_at is null`,
-      [vendorId]
-    )
-    const vendorRow = vendorRes.rows[0]
-    if (!vendorRow) throw new Error('Vendor not found')
-
-    const { rows: productRows } = await client.query(
-      `select id from public.products where vendor_id = $1::uuid and deleted_at is null`,
-      [vendorId]
-    )
-    const ids = productRows.map((p: { id: string }) => p.id)
-
-    if (ids.length > 0) {
-      await client.query(
-        `update public.sales set deleted_at = now(), updated_at = now() where product_id = any($1::uuid[]) and deleted_at is null`,
-        [ids]
-      )
-      await client.query(
-        `update public.product_returns set deleted_at = now(), updated_at = now() where product_id = any($1::uuid[]) and deleted_at is null`,
-        [ids]
-      )
-    }
-
-    await client.query(
-      `update public.products set deleted_at = now(), updated_at = now() where vendor_id = $1::uuid and deleted_at is null`,
-      [vendorId]
-    )
-    await client.query(
-      `update public.payouts set deleted_at = now(), updated_at = now() where vendor_id = $1::uuid and deleted_at is null`,
-      [vendorId]
-    )
-    await client.query(
-      `update public.intakes set deleted_at = now() where vendor_id = $1::uuid and deleted_at is null`,
-      [vendorId]
-    )
-    await client.query(
-      `update public.profiles set vendor_id = null, role = 'user', updated_at = now() where vendor_id = $1::uuid`,
-      [vendorId]
-    )
-    const { rowCount } = await client.query(
-      `update public.vendors set deleted_at = now(), updated_at = now() where id = $1::uuid and deleted_at is null`,
-      [vendorId]
-    )
-    if (!rowCount) throw new Error('Vendor not found')
-    await writeAuditLog(client, {
-      actor_id: user.id,
-      actor_email: user.email,
-      action: 'vendor_soft_deleted',
-      module: 'vendors',
-      target_id: vendorId,
-      target_label: vendorRow.name,
-      metadata: {
-        momo_number: vendorRow.momo_number,
-        products_affected: ids.length,
-      },
-    })
+    await runSoftDeleteVendorCascade(client, user, vendorId)
     await client.query('commit')
   } catch (e) {
     await client.query('rollback')
@@ -439,16 +455,29 @@ export async function approveDeactivationRequest(requestId: string): Promise<{ s
     return { error: 'Vendor still has outstanding balance. Clear obligations before approving.' }
   }
 
-  await softDeleteVendorCascade(req.vendor_id)
-  await pool.query(
-    `
-    update public.vendor_deactivation_requests
-    set status = 'approved', reviewed_at = now(), reviewed_by = $2::uuid,
-        admin_notes = 'Approved. Vendor soft-deleted.'
-    where id = $1::uuid
-    `,
-    [requestId, user.id]
-  )
+  // The cascade and the request's own status update must commit or fail together — otherwise a
+  // vendor could end up soft-deleted while its deactivation request is stuck showing "pending"
+  // forever (and a retry would then fail against an already-deleted vendor).
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    await runSoftDeleteVendorCascade(client, user, req.vendor_id)
+    await client.query(
+      `
+      update public.vendor_deactivation_requests
+      set status = 'approved', reviewed_at = now(), reviewed_by = $2::uuid,
+          admin_notes = 'Approved. Vendor soft-deleted.'
+      where id = $1::uuid
+      `,
+      [requestId, user.id]
+    )
+    await client.query('commit')
+  } catch (e) {
+    await client.query('rollback')
+    throw e
+  } finally {
+    client.release()
+  }
   return { success: true }
 }
 

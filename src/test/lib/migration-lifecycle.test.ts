@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { canDeleteMigration, canRestartMigration, isMigrationUserCancelled, needsMigrationRetry } from '@/lib/migration/lifecycle'
+import {
+  canDeleteMigration,
+  canRestartMigration,
+  isMigrationUserCancelled,
+  needsMigrationRetry,
+  needsRevalidation,
+} from '@/lib/migration/lifecycle'
 import type { MigrationProject } from '@/lib/migration/types'
 
 function project(overrides: Partial<MigrationProject>): MigrationProject {
@@ -30,6 +36,8 @@ function project(overrides: Partial<MigrationProject>): MigrationProject {
     last_activity_at: '',
     completed_at: null,
     archived_at: null,
+    last_parsed_at: null,
+    last_validated_at: null,
     ...overrides,
   }
 }
@@ -72,5 +80,27 @@ describe('migration lifecycle', () => {
     expect(canDeleteMigration(project({ status: 'importing' }))).toBe(false)
     expect(canDeleteMigration(project({ status: 'completed' }))).toBe(false)
     expect(canDeleteMigration(project({ status: 'rolled_back' }))).toBe(false)
+  })
+
+  it('never needs revalidation when files have never been parsed', () => {
+    expect(needsRevalidation(project({ last_parsed_at: null, last_validated_at: null }))).toBe(false)
+  })
+
+  it('needs revalidation when parsed but never validated', () => {
+    expect(needsRevalidation(project({ last_parsed_at: '2026-01-01T00:00:10Z', last_validated_at: null }))).toBe(true)
+  })
+
+  it('needs revalidation when a re-parse happened after the last validation (the "phantom success" bug)', () => {
+    expect(needsRevalidation(project({
+      last_parsed_at: '2026-01-01T00:00:20Z',
+      last_validated_at: '2026-01-01T00:00:10Z',
+    }))).toBe(true)
+  })
+
+  it('does not need revalidation when the last validation happened after the last parse', () => {
+    expect(needsRevalidation(project({
+      last_parsed_at: '2026-01-01T00:00:10Z',
+      last_validated_at: '2026-01-01T00:00:20Z',
+    }))).toBe(false)
   })
 })

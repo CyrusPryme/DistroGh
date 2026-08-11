@@ -21,6 +21,12 @@ export async function deleteSalesBatch(batchId: string): Promise<{ success: bool
         `select supermarket_id, product_id, qty_sold from public.sales where import_batch_id = $1`,
         [batchId]
       )
+      if (sales.length === 0) {
+        // No rows for this batch means there is nothing to undo — reporting success here would
+        // look exactly like a real undo happened when in fact nothing was restored or deleted.
+        await client.query('rollback')
+        return { success: false, error: 'No sales found for this import batch — nothing to delete.' }
+      }
 
       const byKey = new Map<string, number>()
       for (const s of sales) {

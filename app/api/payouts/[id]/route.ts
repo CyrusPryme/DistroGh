@@ -7,6 +7,7 @@ import {
   payoutAmountDue,
   payoutAmountPaid,
   payoutBalanceRemaining,
+  payoutIsFullyPaid,
   resolvePayoutStatusAfterPayment,
 } from '@/lib/payout-amounts'
 import { roundMoney } from '@/lib/utils'
@@ -151,6 +152,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       }
 
       const PAYOUT_STATUSES = ['pending', 'processing', 'completed', 'failed'] as const
+      const amountDue = payoutAmountDue(current)
+      let effectiveAmountPaid = payoutAmountPaid(current)
+      if (body && Object.prototype.hasOwnProperty.call(body, 'amount_paid')) {
+        const nextPaid = roundMoney(Number(body.amount_paid ?? 0))
+        if (nextPaid > amountDue + 0.001) {
+          await client.query('rollback')
+          return NextResponse.json(
+            { success: false, error: 'Amount paid cannot exceed amount due' },
+            { status: 400 }
+          )
+        }
+        effectiveAmountPaid = nextPaid
+        setField('amount_paid', nextPaid)
+      }
       if (body && Object.prototype.hasOwnProperty.call(body, 'status')) {
         const nextStatus = String(body.status ?? '').trim()
         if (!(PAYOUT_STATUSES as readonly string[]).includes(nextStatus)) {
@@ -160,22 +175,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
             { status: 400 }
           )
         }
-        setField('status', nextStatus)
-      }
-      if (body && Object.prototype.hasOwnProperty.call(body, 'amount_paid')) {
-        const nextPaid = roundMoney(Number(body.amount_paid ?? 0))
-        const amountDue = payoutAmountDue(current)
-        if (nextPaid > amountDue + 0.001) {
+        // A payout must never be marked 'completed' (whether alone or alongside an amount_paid
+        // in the same request) unless the resulting paid amount actually covers what's due —
+        // otherwise this is a stale/false completion flag, and downstream reconciliation sums
+        // "completed" payouts as real money paid out.
+        if (nextStatus === 'completed' && !payoutIsFullyPaid({ amount_due: amountDue, amount_paid: effectiveAmountPaid })) {
           await client.query('rollback')
           return NextResponse.json(
-            { success: false, error: 'Amount paid cannot exceed amount due' },
+            {
+              success: false,
+              error: 'Cannot mark this payout as completed — amount paid does not cover the amount due. Record a payment instead.',
+            },
             { status: 400 }
           )
         }
-        setField('amount_paid', nextPaid)
-        if (!body || !Object.prototype.hasOwnProperty.call(body, 'status')) {
-          setField('status', resolvePayoutStatusAfterPayment(amountDue, nextPaid))
-        }
+        setField('status', nextStatus)
+      } else if (Object.prototype.hasOwnProperty.call(body ?? {}, 'amount_paid')) {
+        setField('status', resolvePayoutStatusAfterPayment(amountDue, effectiveAmountPaid))
       }
       if (body && Object.prototype.hasOwnProperty.call(body, 'momo_txn_id')) {
         const v =

@@ -20,7 +20,8 @@ export async function POST(req: Request) {
     // ── Gather actuals from DB ────────────────────────────────────────────────
     const [salesRow, returnsRow, deductRow, payoutRow, transportRow, balanceRow] = await Promise.all([
       pool.query(
-        `SELECT ROUND(SUM(s.total_sales)::numeric,2) as total_sales,
+        `SELECT COUNT(*)::int as sale_count,
+                ROUND(SUM(s.total_sales)::numeric,2) as total_sales,
                 ROUND(SUM(s.vendor_due)::numeric,2) as vendor_due,
                 ROUND(SUM(s.developer_fee)::numeric,2) as developer_revenue,
                 ROUND(SUM(s.commission_amount)::numeric,2) as distrogh_revenue
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
     ])
 
     const sr = salesRow.rows[0]
+    const saleCount         = Number(sr?.sale_count ?? 0)
     const totalSales        = Number(sr?.total_sales ?? 0)
     const totalVendorDue    = Number(sr?.vendor_due ?? 0)
     const totalDevRevenue   = Number(sr?.developer_revenue ?? 0)
@@ -114,8 +116,14 @@ export async function POST(req: Request) {
 
     // Determine status
     const threshold = 0.01
-    let status: 'balanced' | 'warning' | 'mismatch'
-    if (Math.abs(variance) <= threshold) {
+    let status: 'balanced' | 'warning' | 'mismatch' | 'no_activity'
+    if (saleCount === 0) {
+      // No sales in this period means expected/actual both collapse toward 0, which would
+      // otherwise read as a coincidental "balanced" — the same degenerate 0≈0 pass-through the
+      // historical migration engine hit. Report it honestly as nothing-to-check instead of
+      // implying a real reconciliation happened and passed.
+      status = 'no_activity'
+    } else if (Math.abs(variance) <= threshold) {
       status = 'balanced'
     } else if (Math.abs(variance) <= threshold * 100) {
       status = 'warning'

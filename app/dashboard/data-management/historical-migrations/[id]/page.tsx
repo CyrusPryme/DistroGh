@@ -10,11 +10,12 @@ import {
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { PageLoading } from '@/components/shared/PageLoading'
+import { BusyOverlay } from '@/components/shared/BusyOverlay'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { cn } from '@/lib/utils'
 import { MIGRATION_STAGES, type MigrationEntityType, type MigrationStatus } from '@/lib/migration/types'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
-import { canDeleteMigration, needsMigrationRetry, canRestartMigration } from '@/lib/migration/lifecycle'
+import { canDeleteMigration, needsMigrationRetry, canRestartMigration, needsRevalidation } from '@/lib/migration/lifecycle'
 
 type Project = {
   id: string
@@ -46,6 +47,8 @@ type Project = {
   rollback_available: boolean
   files_uploaded: number
   error_summary?: { cancel_reason?: string; cancelled_at?: string; import_error?: string; failed_at?: string }
+  last_parsed_at?: string | null
+  last_validated_at?: string | null
 }
 
 type MigFile = {
@@ -82,6 +85,20 @@ type StagingRow = {
 
 const ENTITY_OPTIONS = Object.keys(ENTITY_LABELS) as MigrationEntityType[]
 
+const ACTION_BUSY_LABELS: Record<string, { label: string; sublabel?: string }> = {
+  analyse: { label: 'Analysing relationships…', sublabel: 'Mapping entities and building the import order.' },
+  parse: { label: 'Parsing files…', sublabel: 'Reading rows from your uploaded spreadsheets.' },
+  validate: { label: 'Validating data…', sublabel: 'Checking every row for errors and warnings.' },
+  preview: { label: 'Building preview…' },
+  approve: { label: 'Approving migration…' },
+  start_import: { label: 'Starting import…', sublabel: 'Writing staged data to production. Please don\u2019t close this tab.' },
+  reconcile: { label: 'Reconciling…', sublabel: 'Verifying imported counts match expectations.' },
+  rollback: { label: 'Rolling back…', sublabel: 'Undoing production changes from this migration.' },
+  restart: { label: 'Resetting workspace…', sublabel: 'Clearing uploads so you can start fresh.' },
+  process: { label: 'Processing…' },
+  correct_row: { label: 'Saving correction…' },
+}
+
 export default function MigrationWizardPage() {
   const params = useParams()
   const router = useRouter()
@@ -92,6 +109,7 @@ export default function MigrationWizardPage() {
   const [staging, setStaging] = useState<StagingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [busyLabel, setBusyLabel] = useState<{ label: string; sublabel?: string } | null>(null)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -150,6 +168,7 @@ export default function MigrationWizardPage() {
   }, [project?.current_stage, loadStaging])
 
   const runAction = async (action: string, extra: Record<string, unknown> = {}) => {
+    setBusyLabel(ACTION_BUSY_LABELS[action] ?? { label: 'Working…' })
     setBusy(true)
     try {
       const res = await fetch(`/api/migrations/${id}/actions`, {
@@ -171,6 +190,7 @@ export default function MigrationWizardPage() {
       setToast({ type: 'error', message: e instanceof Error ? e.message : 'Action failed' })
     } finally {
       setBusy(false)
+      setBusyLabel(null)
     }
   }
 
@@ -225,6 +245,7 @@ export default function MigrationWizardPage() {
 
   const removeFile = async (fileId: string, filename: string) => {
     if (!confirm(`Remove "${filename}" from this migration?`)) return
+    setBusyLabel({ label: 'Removing file…' })
     setBusy(true)
     try {
       const res = await fetch(`/api/migrations/${id}/files`, {
@@ -240,6 +261,7 @@ export default function MigrationWizardPage() {
       setToast({ type: 'error', message: e instanceof Error ? e.message : 'Failed to remove file' })
     } finally {
       setBusy(false)
+      setBusyLabel(null)
     }
   }
 
@@ -270,6 +292,10 @@ export default function MigrationWizardPage() {
     ? !needsRetry && !['importing', 'completed', 'archived'].includes(project.status)
     : false
   const deletable = project ? canDeleteMigration(project) : false
+  // Files were re-parsed after the last successful validation — the staging rows are back to
+  // 'pending' and haven't actually been checked in their current form. Approving or starting an
+  // import in this state used to silently import nothing while reporting "completed".
+  const staleValidation = project ? needsRevalidation(project) : false
 
   const handleCancel = async () => {
     const reason = cancelReason.trim()
@@ -278,6 +304,7 @@ export default function MigrationWizardPage() {
       return
     }
     setCancelError(null)
+    setBusyLabel({ label: 'Cancelling migration…', sublabel: 'Stopping jobs and clearing uploaded files.' })
     setBusy(true)
     try {
       const res = await fetch(`/api/migrations/${id}/actions`, {
@@ -295,11 +322,13 @@ export default function MigrationWizardPage() {
       setCancelError(e instanceof Error ? e.message : 'Cancellation failed')
     } finally {
       setBusy(false)
+      setBusyLabel(null)
     }
   }
 
   const handleDelete = async () => {
     setDeleteError(null)
+    setBusyLabel({ label: 'Deleting migration…', sublabel: 'Removing uploads, staging data, and job history.' })
     setBusy(true)
     try {
       const res = await fetch(`/api/migrations/${id}`, { method: 'DELETE' })
@@ -310,6 +339,7 @@ export default function MigrationWizardPage() {
       setDeleteError(e instanceof Error ? e.message : 'Delete failed')
     } finally {
       setBusy(false)
+      setBusyLabel(null)
     }
   }
 
@@ -318,6 +348,11 @@ export default function MigrationWizardPage() {
   return (
     <div className="space-y-6">
       <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={() => setToast(null)} />
+      <BusyOverlay
+        active={uploading || (busy && !cancelOpen && !deleteOpen)}
+        label={uploading ? 'Uploading files…' : busyLabel?.label ?? 'Working…'}
+        sublabel={uploading ? 'Please wait while your files are attached to this migration.' : busyLabel?.sublabel}
+      />
 
       <PageHeader
         title={project.name}
@@ -982,19 +1017,50 @@ export default function MigrationWizardPage() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button type="button" className="btn-primary" disabled={busy} onClick={() => runAction('approve')}>
-              <CheckCircle2 className="w-4 h-4" /> Approve migration
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={busy || !['approved', 'ready'].includes(project.status)}
-              onClick={() => runAction('start_import')}
-            >
-              <Play className="w-4 h-4" /> Start import
-            </button>
-          </div>
+
+          {staleValidation && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-900">Re-validation required</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Files were re-parsed after the last successful validation, so the current data hasn&apos;t actually
+                  been checked yet. Approve and Start import are disabled until you validate again.
+                </p>
+              </div>
+              <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={() => runAction('validate')}>
+                <RefreshCw className="w-4 h-4" /> Validate now
+              </button>
+            </div>
+          )}
+
+          {['approved', 'ready'].includes(project.status) ? (
+            <div className="flex items-start gap-3 bg-brand-50 border border-brand-200 rounded-lg px-4 py-3">
+              <CheckCircle2 className="w-5 h-5 text-brand-700 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-brand-900">Approved — ready to import</p>
+                <p className="text-xs text-brand-700 mt-0.5">
+                  This migration has been approved. Starting the import writes data to production; this cannot be
+                  cancelled mid-run without a rollback.
+                </p>
+              </div>
+              <button type="button" className="btn-primary shrink-0" disabled={busy || staleValidation} onClick={() => runAction('start_import')}>
+                <Play className="w-4 h-4" /> Start import
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-800">Step 1 of 2 — Approve this migration</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Once approved, you'll get a Start import button here to begin writing to production.
+                </p>
+              </div>
+              <button type="button" className="btn-primary shrink-0" disabled={busy || staleValidation} onClick={() => runAction('approve')}>
+                <CheckCircle2 className="w-4 h-4" /> Approve migration
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1044,7 +1110,7 @@ export default function MigrationWizardPage() {
                     'status-badge border',
                     r.status === 'balanced' ? 'bg-brand-50 text-brand-700 border-brand-200' : 'bg-red-50 text-red-700 border-red-200'
                   )}>
-                    {r.status}
+                    {r.status === 'unvalidated' ? 'not validated' : r.status}
                   </span>
                 </div>
               ))}

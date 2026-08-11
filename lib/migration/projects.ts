@@ -20,6 +20,7 @@ export {
   canDeleteMigration,
   canRestartMigration,
   needsMigrationRetry,
+  needsRevalidation,
 } from '@/lib/migration/lifecycle'
 
 type Db = Pool | PoolClient
@@ -69,6 +70,8 @@ export async function prepareMigrationRetry(
       validation_status: 'pending',
       rollback_available: false,
       error_summary: errorSummaryRest,
+      last_parsed_at: null,
+      last_validated_at: null,
       wizard_state: {
         ...project.wizard_state,
         stage: 2,
@@ -120,6 +123,8 @@ function mapProject(r: Record<string, unknown>): MigrationProject {
     last_activity_at: String(r.last_activity_at),
     completed_at: r.completed_at ? String(r.completed_at) : null,
     archived_at: r.archived_at ? String(r.archived_at) : null,
+    last_parsed_at: r.last_parsed_at ? String(r.last_parsed_at) : null,
+    last_validated_at: r.last_validated_at ? String(r.last_validated_at) : null,
   }
 }
 
@@ -217,6 +222,8 @@ export async function updateMigrationProject(
     warning_count: number
     approved_by: string | null
     completed_at: string | null
+    last_parsed_at: string | null
+    last_validated_at: string | null
   }>,
   actorId?: string | null,
   auditAction?: string
@@ -235,7 +242,15 @@ export async function updateMigrationProject(
   if (patch.progress_pct !== undefined) set('progress_pct', patch.progress_pct)
   if (patch.validation_status !== undefined) set('validation_status', patch.validation_status)
   if (patch.rollback_available !== undefined) set('rollback_available', patch.rollback_available)
-  if (patch.wizard_state !== undefined) set('wizard_state', patch.wizard_state, true)
+  if (patch.wizard_state !== undefined) {
+    // Many call sites pass a small, stage-specific object (e.g. { stage: 6, validated_at }),
+    // not the full accumulated state — a plain replace silently drops earlier keys like
+    // validated_at/analysed_at/approved_at the next time any other stage writes wizard_state.
+    // Merge at the SQL layer instead so every caller gets accumulation for free, without having
+    // to remember to spread the previous value themselves.
+    values.push(JSON.stringify(patch.wizard_state))
+    fields.push(`wizard_state = wizard_state || $${values.length}::jsonb`)
+  }
   if (patch.dependency_graph !== undefined) set('dependency_graph', patch.dependency_graph, true)
   if (patch.import_order !== undefined) set('import_order', patch.import_order, true)
   if (patch.preview_summary !== undefined) set('preview_summary', patch.preview_summary, true)
@@ -247,6 +262,8 @@ export async function updateMigrationProject(
   if (patch.warning_count !== undefined) set('warning_count', patch.warning_count)
   if (patch.approved_by !== undefined) set('approved_by', patch.approved_by)
   if (patch.completed_at !== undefined) set('completed_at', patch.completed_at)
+  if (patch.last_parsed_at !== undefined) set('last_parsed_at', patch.last_parsed_at)
+  if (patch.last_validated_at !== undefined) set('last_validated_at', patch.last_validated_at)
 
   if (!fields.length) return getMigrationProject(db, id)
 

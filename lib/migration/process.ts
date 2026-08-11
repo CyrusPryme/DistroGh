@@ -42,6 +42,10 @@ async function runAnalyse(pool: Pool, migrationId: string, actorId?: string | nu
 async function runParse(pool: Pool, migrationId: string, actorId?: string | null) {
   await updateMigrationProject(pool, migrationId, { status: 'analysing', current_stage: 3 }, actorId)
   const results = await parseAllActiveFiles(pool, migrationId, actorId)
+  // Parsing deletes and re-inserts every staging row (validation_status resets to 'pending'),
+  // so record when it happened — needsRevalidation() compares this against last_validated_at
+  // to block Approve/Start Import on stale data instead of silently importing nothing.
+  await updateMigrationProject(pool, migrationId, { last_parsed_at: new Date().toISOString() }, actorId)
   await runAnalyse(pool, migrationId, actorId)
   return results
 }
@@ -205,6 +209,7 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
 async function runReconcile(pool: Pool, migrationId: string) {
   const { rows } = await pool.query(
     `SELECT entity_type,
+            COUNT(*) AS total,
             COUNT(*) FILTER (WHERE validation_status IN ('valid','warning','corrected')) AS expected,
             COUNT(*) FILTER (WHERE production_id IS NOT NULL) AS imported
      FROM public.migration_staging_rows
@@ -214,13 +219,23 @@ async function runReconcile(pool: Pool, migrationId: string) {
   )
 
   const reconciliation: Record<string, unknown> = {}
-  let allBalanced = true
+  // Defaulting this to `true` was itself an instance of the same bug: if a migration somehow
+  // reaches Reconcile with zero staging rows at all (nothing ever parsed/uploaded), the loop
+  // below never runs and an empty reconciliation object would still read as "balanced" ->
+  // "completed". Zero data is never a completed migration.
+  let allBalanced = rows.length > 0
   for (const r of rows) {
+    const total = Number(r.total)
     const expected = Number(r.expected)
     const imported = Number(r.imported)
-    const balanced = expected === imported
-    if (!balanced) allBalanced = false
-    reconciliation[r.entity_type] = { expected, imported, status: balanced ? 'balanced' : 'mismatch' }
+    // A migration with staged rows that were never validated (expected === 0 despite rows
+    // existing) must never read as "balanced" — that is exactly the bug where Start Import
+    // finds nothing eligible, enqueues no import jobs, and the migration falsely completes
+    // having imported zero rows. Distinguish it explicitly from a genuine 0-expected/0-imported
+    // no-op (which can't occur here since GROUP BY only returns entities with staged rows).
+    const status = total > 0 && expected === 0 ? 'unvalidated' : expected === imported ? 'balanced' : 'mismatch'
+    if (status !== 'balanced') allBalanced = false
+    reconciliation[r.entity_type] = { total, expected, imported, status }
   }
 
   await updateMigrationProject(pool, migrationId, {

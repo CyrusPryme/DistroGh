@@ -6,7 +6,7 @@ import { enqueueJob, listJobs, cancelMigrationJobs, resetFailedMigrationJobs } f
 import { buildPreviewSummary, processMigrationJobs } from '@/lib/migration/process'
 import { getMigrationProject, updateMigrationProject, isMigrationWorkBlocked, isMigrationTerminal, prepareMigrationRetry, canRestartMigration } from '@/lib/migration/projects'
 import { clearMigrationUploads } from '@/lib/migration/files'
-import { needsMigrationRetry } from '@/lib/migration/lifecycle'
+import { needsMigrationRetry, needsRevalidation } from '@/lib/migration/lifecycle'
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -73,6 +73,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     if (action === 'approve') {
       await requirePermission('historical_migrations', 'approve')
+      if (needsRevalidation(project)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Files were re-parsed after the last successful validation, so the current data has not actually been validated. Run "Validate" again before approving.',
+          },
+          { status: 400 }
+        )
+      }
       const updated = await updateMigrationProject(
         pool,
         id,
@@ -186,10 +196,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           { status: 400 }
         )
       }
+      if (needsRevalidation(project)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Files were re-parsed after the last successful validation, so the current data has not actually been validated. Run "Validate" again before importing.',
+          },
+          { status: 400 }
+        )
+      }
       const order = (project.import_order.length
         ? project.import_order
         : CANONICAL_IMPORT_ORDER) as MigrationEntityType[]
 
+      let totalEligible = 0
       for (const entity of order) {
         const { rows } = await pool.query(
           `SELECT COUNT(*)::int AS c FROM public.migration_staging_rows
@@ -199,6 +220,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
              AND intended_action <> 'skip'`,
           [id, entity]
         )
+        totalEligible += rows[0].c
         if (rows[0].c > 0) {
           await enqueueJob(pool, {
             migrationId: id,
@@ -209,6 +231,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           })
         }
       }
+
+      // Previously this proceeded regardless, enqueueing only a 'reconcile' job — which then
+      // read "0 expected / 0 imported" as "balanced" and marked the whole migration "completed"
+      // despite importing nothing. Fail loudly instead of a silent, invisible no-op.
+      if (totalEligible === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'No valid rows are ready to import — every staged row is either pending, in error, skipped, or already imported. Re-check validation before importing.',
+          },
+          { status: 400 }
+        )
+      }
+
       await enqueueJob(pool, { migrationId: id, jobType: 'reconcile', actorId: session.user_id })
       await updateMigrationProject(pool, id, {
         status: 'importing',

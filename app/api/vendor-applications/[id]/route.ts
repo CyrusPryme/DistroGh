@@ -47,6 +47,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       await client.query('rollback')
       return NextResponse.json({ success: false, error: 'Application not found' }, { status: 404 })
     }
+    if (application.status !== 'pending') {
+      // Without this guard, re-approving would previously fail loudly on the users.email unique
+      // constraint (safe, since the whole insert is one transaction) but with a confusing raw DB
+      // error. Make the "already processed" case an explicit, clear response instead.
+      await client.query('rollback')
+      return NextResponse.json(
+        { success: false, error: `This application was already ${application.status}.` },
+        { status: 409 }
+      )
+    }
 
     if (status === 'rejected') {
       const { rows } = await client.query(

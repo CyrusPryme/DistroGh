@@ -84,6 +84,10 @@ export interface MigrationProject {
   last_activity_at: string
   completed_at: string | null
   archived_at: string | null
+  /** When active files were last (re-)parsed into staging. Used to detect stale validation. */
+  last_parsed_at: string | null
+  /** When staging rows were last validated. If parsing happened after this, validation is stale. */
+  last_validated_at: string | null
 }
 
 export interface MigrationFile {

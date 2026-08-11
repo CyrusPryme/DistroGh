@@ -32,6 +32,23 @@ export async function enqueueJob(
     actorId?: string | null
   }
 ): Promise<MigrationJob> {
+  // Overlapping duplicate jobs of the same type (e.g. two 'parse' jobs from a quick
+  // double-upload, or repeated polling re-triggering 'validate') used to pile up with no
+  // de-duplication — a later stray job could silently re-run and undo work a newer, already-
+  // completed job had done (this is exactly how a validated migration ended up back at
+  // 'pending' before Start Import ran). Re-use an already queued/running job instead.
+  const { rows: existing } = await db.query(
+    `SELECT * FROM public.migration_jobs
+     WHERE migration_id = $1 AND job_type = $2 AND status IN ('queued','running')
+       AND entity_type IS NOT DISTINCT FROM $3
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [params.migrationId, params.jobType, params.entityType ?? null]
+  )
+  if (existing[0]) {
+    return mapJob(existing[0])
+  }
+
   const { rows } = await db.query(
     `INSERT INTO public.migration_jobs
       (migration_id, job_type, entity_type, total_records, chunk_size)

@@ -72,6 +72,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         )
       }
 
+      const { rows: items } = await client.query(
+        `select product_id, quantity_delivered from public.delivery_run_items where delivery_run_id = $1::uuid`,
+        [id]
+      )
+      // Defense in depth: creation already requires at least one item, but a delivery run with
+      // zero line items should never be confirmable as a "real" stock movement — that would be
+      // a delivery that succeeds while moving nothing.
+      if (items.length === 0) {
+        await client.query('rollback')
+        return NextResponse.json(
+          { success: false, error: 'This delivery has no line items and cannot be confirmed' },
+          { status: 400 }
+        )
+      }
+
       const totalTransportCost =
         body && typeof body === 'object' && (body as { total_transport_cost?: unknown }).total_transport_cost != null
           ? Math.max(0, Number((body as { total_transport_cost: unknown }).total_transport_cost) || 0)
@@ -84,11 +99,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         where id = $1::uuid
         `,
         [id, totalTransportCost, session.user_id]
-      )
-
-      const { rows: items } = await client.query(
-        `select product_id, quantity_delivered from public.delivery_run_items where delivery_run_id = $1::uuid`,
-        [id]
       )
 
       for (const item of items) {

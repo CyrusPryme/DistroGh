@@ -328,6 +328,7 @@ export async function validateMigrationStaging(
       wizard_state: { stage: errorCount > 0 ? 5 : 6, validated_at: new Date().toISOString() },
       error_summary: { error_rows: errorCount },
       warning_summary: { warning_rows: warningCount },
+      last_validated_at: new Date().toISOString(),
     },
     actorId,
     'migration.validated'
