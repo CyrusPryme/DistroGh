@@ -294,8 +294,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       jobType,
       actorId: session.user_id,
     })
-    processMigrationJobs(pool, { maxJobs: 3 }).catch(() => {})
-    return NextResponse.json({ success: true, data: job })
+    // analyse/parse/validate/reconcile/rollback are single-pass jobs sized to one migration's
+    // worth of staged rows (unlike 'import', which is intentionally chunked and left async for
+    // the client-side poller to drive). Firing this off without awaiting it used to let the
+    // response return — and the UI reload right after it — before the job had actually finished,
+    // so a staging-eligibility check running immediately afterwards (e.g. Start Import) could see
+    // pre-validation state and report "0 eligible rows" even though validation was about to
+    // succeed moments later. Await it so the response reflects the real, finished state.
+    await processMigrationJobs(pool, { maxJobs: 3 }).catch(() => {})
+    const freshProject = await getMigrationProject(pool, id)
+    return NextResponse.json({ success: true, data: freshProject ?? job })
   } catch (e) {
     return apiError(e, 'Migration action failed')
   }

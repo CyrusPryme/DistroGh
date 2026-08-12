@@ -154,6 +154,37 @@ export async function validateMigrationStaging(
   )
   const vendorByName = new Map(vendors.map((v: { id: string; name: string }) => [v.name, v.id]))
 
+  // Vendors staged for creation *within this same migration* (e.g. a companion vendors.xlsx)
+  // will exist in production by the time a dependent entity's import runs, since import_order
+  // always processes 'vendors' first. A vendor_name that matches neither production nor this
+  // set will NEVER resolve — the writers for products/intakes/deductions/payouts/service_charges/
+  // vendor_documents look up an existing vendor by name and throw if none is found; none of them
+  // create one. Distinguishing these two cases lets a genuinely-unresolvable vendor_name become a
+  // hard error at validation time instead of a "may be created from staging" warning that turns
+  // into an import-time failure discovered only after Start Import (and, since import runs each
+  // entity's chunk as a single transaction, can also roll back every otherwise-valid row in it).
+  const { rows: stagedVendorRows } = await pool.query(
+    `SELECT raw_data, corrections FROM public.migration_staging_rows WHERE migration_id = $1 AND entity_type = 'vendors'`,
+    [migrationId]
+  )
+  const vendorNamesStagedThisMigration = new Set(
+    stagedVendorRows
+      .map((r: { raw_data: unknown; corrections: unknown }) => {
+        const merged = { ...(r.raw_data as Record<string, unknown>), ...(r.corrections as Record<string, unknown>) }
+        return str(merged.name).toLowerCase()
+      })
+      .filter((name: string) => name.length > 0)
+  )
+  // Entities whose writer requires an existing vendor_id and has no fallback to create one.
+  const ENTITIES_REQUIRING_RESOLVABLE_VENDOR = new Set<MigrationEntityType>([
+    'products',
+    'intakes',
+    'deductions',
+    'payouts',
+    'service_charges',
+    'vendor_documents',
+  ])
+
   const { rows: products } = await pool.query(
     `SELECT id, vendor_id, category, lower(trim(name)) AS name, lower(trim(coalesce(barcode,''))) AS barcode
      FROM public.products WHERE deleted_at IS NULL`
@@ -214,8 +245,22 @@ export async function validateMigrationStaging(
       } else if (vn && vendorByName.has(vn)) {
         resolved.vendor_id = vendorByName.get(vn)!
         infos.push({ code: 'VENDOR_MATCHED', message: `Existing vendor matched: "${vn}"` })
-      } else if (vn && entity !== 'sales') {
+      } else if (vn && vendorNamesStagedThisMigration.has(vn)) {
+        // Genuinely recoverable: this migration also stages a vendor row with this exact name,
+        // and 'vendors' always imports before this entity (import_order is dependency-sorted), so
+        // resolved_refs.vendor_id will be set for real by the time this row's writer runs.
+        warnings.push({ code: 'VENDOR_NOT_FOUND', message: `Vendor "${vn}" not found in production yet — will be created from this migration's own vendors upload` })
+      } else if (vn && entity !== 'sales' && !ENTITIES_REQUIRING_RESOLVABLE_VENDOR.has(entity)) {
         warnings.push({ code: 'VENDOR_NOT_FOUND', message: `Vendor "${vn}" not found in production (may be created from staging)` })
+      } else if (vn && ENTITIES_REQUIRING_RESOLVABLE_VENDOR.has(entity)) {
+        // This is not recoverable: these writers only look up an existing vendor by name and
+        // throw if none is found — there is no create-on-import fallback. Surfacing this as a
+        // hard error here (Corrections stage) instead of a soft warning is what stops it from
+        // reaching Start Import and rolling back an entire otherwise-valid chunk.
+        errors.push({
+          code: 'VENDOR_UNRESOLVABLE',
+          message: `Vendor "${vn}" does not exist in production and is not included as a vendor row in this migration — add/upload it first, or correct this row's vendor name`,
+        })
       }
     }
 
