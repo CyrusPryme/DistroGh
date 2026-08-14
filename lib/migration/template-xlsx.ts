@@ -23,9 +23,6 @@ const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
 // against the existing catalogue, so forcing them into a dropdown would block legitimate values.
 const PRODUCT_NAME_COLUMNS = new Set(['product_name', 'product'])
 const PHONE_COLUMNS = new Set(['momo_number', 'contact_phone', 'phone'])
-/** Earliest date accepted by date-column validation — generous enough to never reject genuine
- *  historical data, while still catching obvious typos (e.g. a stray 1900s date). */
-const MIN_HISTORICAL_DATE = new Date(Date.UTC(2000, 0, 1))
 
 const DATA_ROW_COUNT = 250
 const HEADER_ROW = 1
@@ -205,33 +202,21 @@ function buildCellValidation(
     }
   }
 
-  if (validation.kind === 'phone') {
+  if (validation.kind === 'phone' || validation.kind === 'date') {
+    // Both need a per-row formula referencing that row's own cell (LEN(B7), DATEVALUE(B7), ...),
+    // so they're built directly in applyColumnValidation's per-row loop instead of here.
     return null
   }
 
-  if (validation.kind === 'date') {
-    // Native Excel date validation (not a textLength check on a typed-in string) — this is what
-    // makes Excel offer its built-in date-picker calendar icon on the cell, and it validates the
-    // *actual date value* Excel parsed, so any real past date is accepted. The previous
-    // "text length >= 8" check broke as soon as Excel auto-converted a typed date into a real date
-    // value: LEN() on a date serial number (e.g. 45673) is only 5 characters, so it failed for
-    // every date — not just old ones — whenever Excel recognised the input as a date.
-    return {
-      type: 'date',
-      operator: 'between',
-      allowBlank: !required,
-      formulae: [MIN_HISTORICAL_DATE, new Date()],
-      showErrorMessage: true,
-      errorStyle: 'error',
-      errorTitle: 'Invalid date',
-      error: `Enter a valid past date (between ${MIN_HISTORICAL_DATE.toISOString().slice(0, 10)} and today).`,
-      showInputMessage: true,
-      promptTitle: 'Date',
-      prompt: 'Click the cell for the date picker, or type YYYY-MM-DD. Any past date is fine.',
-    }
-  }
-
   return null
+}
+
+/** Latest year date-column validation accepts — generous enough that no genuine historical entry
+ *  is ever near the boundary (a day/month transposition can't jump a date by *years*), while still
+ *  catching a wildly wrong year typo (e.g. 2099 instead of 2026). Computed at generation time so
+ *  the bound never goes stale for templates downloaded long after this code was written. */
+function maxHistoricalYear(): number {
+  return new Date().getUTCFullYear() + 10
 }
 
 function applyPhoneColumnValidation(
@@ -258,6 +243,45 @@ function applyPhoneColumnValidation(
   }
 }
 
+function applyDateColumnValidation(
+  worksheet: ExcelJS.Worksheet,
+  colIndex: number,
+  required: boolean
+) {
+  const letter = colLetter(colIndex)
+  const minYear = 2000
+  const maxYear = maxHistoricalYear()
+  for (let row = FIRST_EDITABLE_ROW; row <= LAST_DATA_ROW; row++) {
+    const ref = `${letter}${row}`
+    const cell = worksheet.getCell(row, colIndex)
+    // Pre-format as a real date so a value the user types gets stored as an actual date and
+    // displays unambiguously as YYYY-MM-DD regardless of the user's Windows/Excel locale.
+    cell.numFmt = 'yyyy-mm-dd'
+    cell.dataValidation = {
+      type: 'custom',
+      allowBlank: !required,
+      // Excel's own "did the user type a date" auto-recognition is locale-dependent and can be
+      // inconsistent for single-digit day/month values (e.g. "3-12-2026" fails to auto-convert to
+      // a real date on some regional settings while "12-10-2026" succeeds) — when auto-conversion
+      // doesn't happen, the cell keeps the raw text, and Excel's native `type: 'date'` validation
+      // rejects it outright because it never even gets a number to compare. This custom formula
+      // accepts either: (a) a value Excel already turned into a real date, or (b) text that
+      // DATEVALUE() can still interpret as a date — a second, independent parse path that covers
+      // exactly the case where (a) fails. IFERROR guards DATEVALUE() for non-date text/blanks.
+      formulae: [
+        `=OR(AND(ISNUMBER(${ref}),${ref}>=DATE(${minYear},1,1),${ref}<=DATE(${maxYear},12,31)),AND(IFERROR(DATEVALUE(${ref}),0)>=DATE(${minYear},1,1),IFERROR(DATEVALUE(${ref}),0)<=DATE(${maxYear},12,31)))`,
+      ],
+      showErrorMessage: true,
+      errorStyle: 'error',
+      errorTitle: 'Invalid date',
+      error: `Enter a valid date between ${minYear} and ${maxYear} (e.g. 2024-01-15). Any past date is fine.`,
+      showInputMessage: true,
+      promptTitle: 'Date',
+      prompt: 'Click the cell for the date picker, or type a date (e.g. 2024-01-15). Any past date is fine.',
+    }
+  }
+}
+
 function applyColumnValidation(
   worksheet: ExcelJS.Worksheet,
   colIndex: number,
@@ -270,17 +294,17 @@ function applyColumnValidation(
     return
   }
 
+  if (validation.kind === 'date') {
+    applyDateColumnValidation(worksheet, colIndex, required)
+    return
+  }
+
   const letter = colLetter(colIndex)
   const cellValidation = buildCellValidation(validation, listRange, required, letter)
   if (!cellValidation) return
 
   for (let row = FIRST_EDITABLE_ROW; row <= LAST_DATA_ROW; row++) {
-    const cell = worksheet.getCell(row, colIndex)
-    cell.dataValidation = cellValidation
-    // Pre-format as a real date column so a value the user types gets stored as an actual date
-    // (matching the 'date' validation type above) and displays unambiguously as YYYY-MM-DD
-    // regardless of the user's Windows/Excel locale, instead of e.g. 1/15/2024.
-    if (validation.kind === 'date') cell.numFmt = 'yyyy-mm-dd'
+    worksheet.getCell(row, colIndex).dataValidation = cellValidation
   }
 }
 

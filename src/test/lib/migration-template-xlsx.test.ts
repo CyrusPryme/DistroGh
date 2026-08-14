@@ -61,12 +61,21 @@ const intakesTemplate: MigrationTemplateRecord = {
 }
 
 /**
- * Regression coverage for a real report: a filled-in template rejected every date typed into a
- * date column with a "Date required" popup — including genuine past dates, which is exactly what
- * historical migration data is. Root cause: the validator checked `LEN(cell) >= 8`, but Excel
- * auto-converts a recognised date into a numeric date serial, and LEN() on that number measures
- * the serial's digit count (e.g. "45673" -> 5), not the displayed date string — so the check
- * failed for every date, not just old ones.
+ * Regression coverage for two real reports about date columns:
+ *
+ * 1. Every date typed into a date column was rejected with a "Date required" popup — including
+ *    genuine past dates. Root cause: the validator checked `LEN(cell) >= 8`, but Excel
+ *    auto-converts a recognised date into a numeric date serial, and LEN() on that number measures
+ *    the serial's digit count (e.g. "45673" -> 5), not the displayed date string — so the check
+ *    failed for every date, not just old ones.
+ * 2. After switching to Excel's native `type: 'date'` validation, single-digit day/month entries
+ *    like "3-12-2026" were still rejected while "12-10-2026" worked — Excel's own auto-recognition
+ *    of typed dates is locale-dependent, and when it doesn't kick in the cell keeps raw text, which
+ *    native `type: 'date'` validation always rejects (it never gets a number to compare). Fixed by
+ *    switching to a custom formula with a DATEVALUE() fallback path that accepts text Excel didn't
+ *    auto-convert, as long as it's still a parseable date — and by dropping the fragile "must not
+ *    be after today" bound (a day/month swap can flip a near-term date across that line) in favour
+ *    of a coarse, far-future sanity cap that a same-year transposition can never cross.
  */
 describe('template-xlsx — date columns accept genuine past dates', () => {
   async function dateValidationOn(template: MigrationTemplateRecord, column: string) {
@@ -78,17 +87,32 @@ describe('template-xlsx — date columns accept genuine past dates', () => {
     return dataSheet.getCell(3, colIndex).dataValidation as ExcelJS.DataValidation
   }
 
-  it('uses native Excel "date" validation (not a text-length check) so a real date value is accepted', async () => {
+  it('uses a custom formula (not a text-length check, not native date-only comparison) so a real date value is accepted', async () => {
     const validation = await dateValidationOn(intakesTemplate, 'received_date')
-    expect(validation.type).toBe('date')
-    expect(validation.operator).toBe('between')
+    expect(validation.type).toBe('custom')
+  })
+
+  it('accepts text Excel failed to auto-convert to a date, via a DATEVALUE() fallback path', async () => {
+    const validation = await dateValidationOn(intakesTemplate, 'received_date')
+    const formula = String((validation.formulae ?? [])[0])
+    expect(formula).toContain('DATEVALUE')
+    expect(formula).toContain('ISNUMBER')
+    expect(formula).toContain('IFERROR')
+  })
+
+  it('does not use a "must not be after today" bound that a day/month swap could cross', async () => {
+    const validation = await dateValidationOn(intakesTemplate, 'received_date')
+    const formula = String((validation.formulae ?? [])[0])
+    expect(formula).not.toContain('TODAY()')
+    // Far-future sanity cap only — comfortably beyond any near-term day/month transposition.
+    const maxYear = new Date().getUTCFullYear() + 10
+    expect(formula).toContain(`DATE(${maxYear},12,31)`)
   })
 
   it('the accepted date range comfortably covers old historical dates, not just recent ones', async () => {
     const validation = await dateValidationOn(intakesTemplate, 'received_date')
-    const [min] = validation.formulae as [Date, Date]
-    // A 2015 receiving date (typical "old historical data") must fall within [min, today].
-    expect(new Date('2015-06-01').getTime()).toBeGreaterThanOrEqual(new Date(min).getTime())
+    const formula = String((validation.formulae ?? [])[0])
+    expect(formula).toContain('DATE(2000,1,1)')
   })
 
   it('date columns are pre-formatted as real dates (yyyy-mm-dd), not left as free text', async () => {
