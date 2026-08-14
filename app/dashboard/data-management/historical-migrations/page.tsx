@@ -145,7 +145,7 @@ function MigrationsList() {
               <th>Progress</th>
               <th>Files</th>
               <th>Errors</th>
-              <th>Last activity</th>
+              <th>Uploaded</th>
               <th className="w-24" />
             </tr>
           </thead>
@@ -180,7 +180,9 @@ function MigrationsList() {
                   </td>
                   <td>{m.files_uploaded}</td>
                   <td className={m.error_count ? 'text-red-600 font-medium' : 'text-slate-500'}>{m.error_count}</td>
-                  <td className="text-xs text-slate-500">{new Date(m.last_activity_at).toLocaleString()}</td>
+                  <td className="text-xs text-slate-500" title={`Last activity: ${new Date(m.last_activity_at).toLocaleString()}`}>
+                    {new Date(m.created_at).toLocaleString()}
+                  </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     {deletable && (
                       <button

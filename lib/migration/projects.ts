@@ -190,9 +190,13 @@ export async function listMigrationProjects(
   }
   params.push(limit)
   const { rows } = await db.query(
+    // Sorted by created_at (the date the migration was uploaded/started), not last_activity_at —
+    // last_activity_at changes every time a background job touches the project (parse, validate,
+    // reconcile, ...), which used to reshuffle the list's order out from under whoever was looking
+    // at it. created_at is fixed once the project exists, so the list order stays stable.
     `SELECT * FROM public.migration_projects
      WHERE ${where.join(' AND ')}
-     ORDER BY last_activity_at DESC
+     ORDER BY created_at DESC
      LIMIT $${params.length}`,
     params
   )
