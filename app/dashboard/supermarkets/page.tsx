@@ -10,6 +10,7 @@ import { formatGHS, formatNumber } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { Supermarket } from '@/types'
 import type { SupermarketFormValues } from '@/lib/validations'
 
@@ -20,6 +21,7 @@ export default function SupermarketsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [smPage, setSmPage] = useState(1)
+  const [smPageSize, setSmPageSize] = usePageSize('supermarkets', DEFAULT_PAGE_SIZE)
   const [modalOpen, setModalOpen] = useState(false)
   const [editSupermarket, setEditSupermarket] = useState<Supermarket | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -41,8 +43,8 @@ export default function SupermarketsPage() {
   }, [])
 
   const paginatedList = useMemo(
-    () => getPageSlice(list, smPage, DEFAULT_PAGE_SIZE),
-    [list, smPage]
+    () => getPageSlice(list, smPage, smPageSize),
+    [list, smPage, smPageSize]
   )
 
   const handleSubmit = async (data: SupermarketFormValues) => {
@@ -195,9 +197,10 @@ export default function SupermarketsPage() {
             </table>
             <PaginationBar
               page={smPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={smPageSize}
               totalItems={list.length}
               onPageChange={setSmPage}
+              onPageSizeChange={setSmPageSize}
             />
           </div>
         </div>

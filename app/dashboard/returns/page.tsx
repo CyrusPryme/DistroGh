@@ -26,6 +26,7 @@ import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ProductReturn, ReturnReason, Product, Supermarket } from '@/types'
 
 const REASON_LABELS: Record<ReturnReason, string> = {
@@ -51,6 +52,7 @@ function ReturnsContent() {
   const [filterTo, setFilterTo] = useState('')
   const { toast, showToast, dismissToast } = useToast(3500)
   const [returnsPage, setReturnsPage] = useState(1)
+  const [returnsPageSize, setReturnsPageSize] = usePageSize('returns', DEFAULT_PAGE_SIZE)
 
   const [form, setForm] = useState<CreateReturnPayload>({
     product_id: '',
@@ -97,8 +99,8 @@ function ReturnsContent() {
   }, [filterProduct, filterSupermarket, filterFrom, filterTo])
 
   const paginatedReturns = useMemo(
-    () => getPageSlice(returns, returnsPage, DEFAULT_PAGE_SIZE),
-    [returns, returnsPage]
+    () => getPageSlice(returns, returnsPage, returnsPageSize),
+    [returns, returnsPage, returnsPageSize]
   )
 
   const handleProductSelect = (productId: string) => {
@@ -336,9 +338,10 @@ function ReturnsContent() {
             </table>
             <PaginationBar
               page={returnsPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={returnsPageSize}
               totalItems={returns.length}
               onPageChange={setReturnsPage}
+              onPageSizeChange={setReturnsPageSize}
             />
           </div>
         </div>

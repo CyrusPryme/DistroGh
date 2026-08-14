@@ -25,7 +25,7 @@ type Project = {
   current_stage: number
   progress_pct: number
   validation_status: string
-  dependency_graph: Array<{ entity: string; depends_on: string[]; rank: number }>
+  dependency_graph: Array<{ entity: string; depends_on: string[]; missing_dependencies?: string[]; rank: number }>
   import_order: string[]
   preview_summary: {
     entities?: Array<Record<string, unknown>>
@@ -731,18 +731,56 @@ export default function MigrationWizardPage() {
       {/* Stage 3 — Relationships */}
       {stage === 3 && (
         <div className="space-y-4">
+          {(() => {
+            const missing = project.dependency_graph.filter((g) => (g.missing_dependencies?.length ?? 0) > 0)
+            if (!missing.length) return null
+            return (
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-semibold mb-1">Possible out-of-order upload</p>
+                  <ul className="space-y-0.5 list-disc list-inside">
+                    {missing.map((g) => (
+                      <li key={g.entity}>
+                        <span className="font-medium">{ENTITY_LABELS[g.entity as MigrationEntityType] || g.entity}</span> is
+                        staged, but{' '}
+                        <span className="font-medium">
+                          {(g.missing_dependencies ?? []).map((d) => ENTITY_LABELS[d as MigrationEntityType] || d).join(', ')}
+                        </span>{' '}
+                        {(g.missing_dependencies?.length ?? 0) > 1 ? "haven't" : "hasn't"} been uploaded here and{' '}
+                        {(g.missing_dependencies?.length ?? 0) > 1 ? "don't" : "doesn't"} exist in production yet.
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-amber-700">
+                    This won&apos;t block the import, but double-check it isn&apos;t a mistake — e.g. Deliveries without any
+                    Receiving records on record means stock is being sent out that was never recorded as received.
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
           <div className="data-card">
             <h2 className="font-semibold text-slate-900 mb-3">Detected import order</h2>
             <ol className="space-y-2">
-              {(project.import_order.length ? project.import_order : project.dependency_graph.map((g) => g.entity)).map((e, i) => (
-                <li key={e} className="flex items-center gap-3 text-sm">
-                  <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-800 text-xs font-bold flex items-center justify-center">{i + 1}</span>
-                  <span className="font-medium text-slate-800">{ENTITY_LABELS[e as MigrationEntityType] || e}</span>
-                  <span className="text-xs text-slate-400">
-                    depends on: {(project.dependency_graph.find((g) => g.entity === e)?.depends_on || []).join(', ') || '—'}
-                  </span>
-                </li>
-              ))}
+              {(project.import_order.length ? project.import_order : project.dependency_graph.map((g) => g.entity)).map((e, i) => {
+                const node = project.dependency_graph.find((g) => g.entity === e)
+                const hasMissing = (node?.missing_dependencies?.length ?? 0) > 0
+                return (
+                  <li key={e} className="flex items-center gap-3 text-sm">
+                    <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-800 text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                    <span className="font-medium text-slate-800">{ENTITY_LABELS[e as MigrationEntityType] || e}</span>
+                    <span className="text-xs text-slate-400">
+                      depends on: {(node?.depends_on || []).join(', ') || '—'}
+                    </span>
+                    {hasMissing && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                        <AlertTriangle className="w-3 h-3" /> missing: {(node?.missing_dependencies ?? []).join(', ')}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
             </ol>
           </div>
           <button type="button" className="btn-primary" disabled={busy} onClick={() => runAction('validate')}>

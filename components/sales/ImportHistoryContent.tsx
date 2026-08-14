@@ -6,6 +6,7 @@ import { Trash2, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
 import { getImportHistory, deleteSalesBatch, type ImportHistory } from '@/lib/actions/sales'
 import { formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { usePageSize } from '@/hooks/usePageSize'
 import { PageToast } from '@/components/shared/PageToast'
 
 type ImportHistoryContentProps = {
@@ -23,6 +24,7 @@ export function ImportHistoryContent({
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [histPage, setHistPage] = useState(1)
+  const [histPageSize, setHistPageSize] = usePageSize('sales-import-history', DEFAULT_PAGE_SIZE)
 
   const loadHistory = async () => {
     setLoading(true)
@@ -71,8 +73,8 @@ export function ImportHistoryContent({
   }, [history.length])
 
   const paginatedHistory = useMemo(
-    () => getPageSlice(history, histPage, DEFAULT_PAGE_SIZE),
-    [history, histPage]
+    () => getPageSlice(history, histPage, histPageSize),
+    [history, histPage, histPageSize]
   )
 
   return (
@@ -184,9 +186,10 @@ export function ImportHistoryContent({
             </table>
             <PaginationBar
               page={histPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={histPageSize}
               totalItems={history.length}
               onPageChange={setHistPage}
+              onPageSizeChange={setHistPageSize}
             />
           </div>
         </div>

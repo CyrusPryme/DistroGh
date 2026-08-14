@@ -6,6 +6,7 @@ import { writeMigrationAudit } from '@/lib/migration/audit'
 import { updateMigrationProject } from '@/lib/migration/projects'
 import { normalizeCategoryName } from '@/lib/migration/category'
 import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination'
+import { toSqlDate, normalizeSaleMonthPeriod } from '@/lib/utils'
 
 function str(v: unknown): string {
   return v == null ? '' : String(v).trim()
@@ -17,9 +18,23 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/** Parses a historical date field flexibly (ISO date, "YYYY-MM" month key, or any Date-parseable
+ *  string) without ever silently substituting "today" — returns null on anything unparseable so
+ *  callers can raise MISSING_DATE/INVALID_DATE instead of importing a fabricated date. */
+function parseDate(v: unknown): Date | null {
+  const raw = str(v)
+  if (!raw) return null
+  const normalized = /^\d{4}-\d{2}$/.test(raw) ? `${raw}-01` : raw
+  const d = new Date(normalized)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 type Issue = { code: string; message: string }
 
-function validateRow(
+/** Exported for unit testing — the pure per-row rules (required fields, date accuracy, sales
+ *  monthly-period normalization). The FK/cross-entity checks that need production data live in
+ *  validateMigrationStaging() below. */
+export function validateRow(
   entity: MigrationEntityType,
   data: Record<string, unknown>
 ): { errors: Issue[]; warnings: Issue[]; normalized: Record<string, unknown> } {
@@ -29,6 +44,17 @@ function validateRow(
 
   const requireField = (key: string, label = key) => {
     if (!str(data[key])) errors.push({ code: 'MISSING_FIELD', message: `${label} is required` })
+  }
+
+  // A missing/unparseable historical date must never be silently defaulted to "today" at import
+  // time (that's how the "MAIDEN PRODUCTS UPLOAD" phantom-date class of bug happens) — surface it
+  // here as a hard error instead, before the row can ever become eligible for Start Import.
+  const requireDate = (value: unknown, label: string) => {
+    if (!str(value)) {
+      errors.push({ code: 'MISSING_DATE', message: `${label} is required` })
+    } else if (!parseDate(value)) {
+      errors.push({ code: 'INVALID_DATE', message: `${label} is not a valid date` })
+    }
   }
 
   switch (entity) {
@@ -80,6 +106,7 @@ function validateRow(
       const q = num(data.quantity ?? data.qty)
       if (q == null || q <= 0) errors.push({ code: 'INVALID_QTY', message: 'quantity must be > 0' })
       else normalized.quantity = q
+      requireDate(data.received_date, 'received_date')
       break
     }
     case 'deliveries': {
@@ -92,10 +119,7 @@ function validateRow(
       }
       const q = num(data.quantity ?? data.qty)
       if (q == null || q <= 0) errors.push({ code: 'INVALID_QTY', message: 'quantity must be > 0' })
-      const delDate = str(data.delivery_date)
-      if (delDate && Number.isNaN(new Date(delDate).getTime())) {
-        errors.push({ code: 'INVALID_DATE', message: 'delivery_date is not a valid date' })
-      }
+      requireDate(data.delivery_date, 'delivery_date')
       break
     }
     case 'sales': {
@@ -103,6 +127,29 @@ function validateRow(
       if (qty == null || qty <= 0) errors.push({ code: 'INVALID_QTY', message: 'qty must be > 0' })
       if (!str(data.description) && !str(data.product) && !str(data.product_name) && !str(data.code) && !str(data.barcode)) {
         errors.push({ code: 'MISSING_PRODUCT', message: 'product identifier is required' })
+      }
+      const periodSource = str(data.week_start) || str(data.report_month)
+      if (!periodSource) {
+        // Never fall back to "today" for a historical sales period — that would silently
+        // misfile the sale into whatever month the migration happens to run in.
+        errors.push({ code: 'MISSING_DATE', message: 'week_start or report_month is required' })
+      } else if (!parseDate(data.week_start) && !parseDate(data.report_month)) {
+        errors.push({ code: 'INVALID_DATE', message: 'week_start/report_month is not a valid date' })
+      } else {
+        // Sales are always reported and reconciled by full calendar month in this system —
+        // snap to that month's bounds now (same helper the live day-to-day importer uses:
+        // normalizeSaleMonthPeriod in lib/utils.ts) so the visible normalized_data matches what
+        // will actually be written, and surface it when the source's own week_end disagreed.
+        const period = normalizeSaleMonthPeriod(toSqlDate(periodSource))
+        normalized.week_start = period.week_start
+        normalized.week_end = period.week_end
+        const givenEnd = str(data.week_end)
+        if (givenEnd && parseDate(givenEnd) && toSqlDate(givenEnd) !== period.week_end) {
+          warnings.push({
+            code: 'SALES_PERIOD_ADJUSTED',
+            message: `Period adjusted to full calendar month ${period.week_start} to ${period.week_end} (source gave week_end ${toSqlDate(givenEnd)})`,
+          })
+        }
       }
       break
     }
@@ -113,13 +160,25 @@ function validateRow(
         errors.push({ code: 'MISSING_PRODUCT', message: 'product_name is required' })
       }
       if (!str(data.reason)) warnings.push({ code: 'MISSING_REASON', message: 'reason missing; default other' })
+      requireDate(data.return_date, 'return_date')
       break
     }
-    case 'deductions':
+    case 'deductions': {
+      requireField('vendor_name', 'Vendor name')
+      const amt = num(data.amount ?? data.amount_paid)
+      if (amt == null || amt < 0) errors.push({ code: 'INVALID_AMOUNT', message: 'amount must be >= 0' })
+      requireDate(data.deduction_date, 'deduction_date')
+      break
+    }
     case 'payouts': {
       requireField('vendor_name', 'Vendor name')
       const amt = num(data.amount ?? data.amount_paid)
       if (amt == null || amt < 0) errors.push({ code: 'INVALID_AMOUNT', message: 'amount must be >= 0' })
+      if (!str(data.payout_date) && !str(data.week_start)) {
+        errors.push({ code: 'MISSING_DATE', message: 'payout_date or week_start is required' })
+      } else if (!parseDate(data.payout_date) && !parseDate(data.week_start)) {
+        errors.push({ code: 'INVALID_DATE', message: 'payout_date/week_start is not a valid date' })
+      }
       break
     }
     case 'opening_balances': {
@@ -205,6 +264,49 @@ export async function validateMigrationStaging(
     [migrationId]
   )
 
+  // Earliest known date per product this stock was ever received/delivered — lets a Deliveries
+  // row be flagged if it's dated before that product was ever received (intakes), and a
+  // Sales/Returns row be flagged if it's dated before that product was ever delivered anywhere.
+  // Mirrors the operational chain intakes -> deliveries -> returns/sales in lib/migration/
+  // entities.ts (ENTITY_DEPENDENCIES) at the row-date level instead of just the file-upload level.
+  const { rows: prodIntakeDates } = await pool.query(
+    `SELECT product_id, MIN(received_date) AS d FROM public.intakes GROUP BY product_id`
+  )
+  const earliestIntakeByProduct = new Map<string, Date>(
+    (prodIntakeDates as Array<{ product_id: string; d: string }>).map((r) => [r.product_id, new Date(r.d)])
+  )
+  const { rows: prodDeliveryDates } = await pool.query(
+    `SELECT dri.product_id, MIN(dr.delivery_date) AS d
+     FROM public.delivery_run_items dri
+     JOIN public.delivery_runs dr ON dr.id = dri.delivery_run_id
+     GROUP BY dri.product_id`
+  )
+  const earliestDeliveryByProduct = new Map<string, Date>(
+    (prodDeliveryDates as Array<{ product_id: string; d: string }>).map((r) => [r.product_id, new Date(r.d)])
+  )
+  const trackEarliest = (map: Map<string, Date>, key: string | undefined, date: Date | null) => {
+    if (!key || !date) return
+    const existing = map.get(key)
+    if (!existing || date < existing) map.set(key, date)
+  }
+  // Fold in rows staged elsewhere in this same migration (e.g. a companion Intakes file uploaded
+  // alongside this Deliveries file) — resolved against production products only; a product that's
+  // itself brand-new in this migration has no id yet to key these maps by, so it's skipped (its
+  // deliveries/sales simply won't get a misalignment check, rather than a false positive).
+  for (const row of staging) {
+    if (row.entity_type !== 'intakes' && row.entity_type !== 'deliveries') continue
+    const data = { ...(row.raw_data as object), ...(row.corrections as object) } as Record<string, unknown>
+    const barcode = str(data.barcode || data.code).toLowerCase()
+    const pname = str(data.product_name || data.product).toLowerCase()
+    const pid = (barcode && productByBarcode.get(barcode)) || (pname && productByName.get(pname))
+    if (!pid) continue
+    if (row.entity_type === 'intakes') {
+      trackEarliest(earliestIntakeByProduct, pid, parseDate(data.received_date))
+    } else {
+      trackEarliest(earliestDeliveryByProduct, pid, parseDate(data.delivery_date))
+    }
+  }
+
   let errorCount = 0
   let warningCount = 0
   const seenKeys = new Map<string, string>()
@@ -273,6 +375,32 @@ export async function validateMigrationStaging(
         infos.push({ code: 'PRODUCT_MATCHED', message: 'Existing product matched' })
       } else if (pname || barcode) {
         warnings.push({ code: 'PRODUCT_NOT_FOUND', message: 'Product not found in production (may be created from staging)' })
+      }
+    }
+
+    // Chronological misalignment: a delivery can't precede the warehouse receipt that stock came
+    // from, and a sale/return can't precede the delivery that put stock at a supermarket (see
+    // ENTITY_DEPENDENCIES in lib/migration/entities.ts). Warning, not an error — some legitimately
+    // messy historical data predates when a vendor/product's intake trail started being tracked.
+    if (resolved.product_id && entity === 'deliveries') {
+      const thisDate = parseDate(data.delivery_date)
+      const earliest = earliestIntakeByProduct.get(resolved.product_id)
+      if (thisDate && earliest && thisDate < earliest) {
+        warnings.push({
+          code: 'DELIVERY_BEFORE_RECEIVING',
+          message: `Delivery dated ${str(data.delivery_date)} is before the earliest Receiving record for this product (${earliest.toISOString().slice(0, 10)}) — check the date.`,
+        })
+      }
+    }
+    if (resolved.product_id && (entity === 'sales' || entity === 'returns')) {
+      const dateField = entity === 'sales' ? data.week_start || data.report_month : data.return_date
+      const thisDate = parseDate(dateField)
+      const earliest = earliestDeliveryByProduct.get(resolved.product_id)
+      if (thisDate && earliest && thisDate < earliest) {
+        warnings.push({
+          code: entity === 'sales' ? 'SALE_BEFORE_DELIVERY' : 'RETURN_BEFORE_DELIVERY',
+          message: `${entity === 'sales' ? 'Sale' : 'Return'} dated ${str(dateField)} is before the earliest Delivery record for this product (${earliest.toISOString().slice(0, 10)}) — check the date.`,
+        })
       }
     }
 

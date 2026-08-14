@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import { PageToast } from '@/components/shared/PageToast'
 
 export default function SettingsPage() {
@@ -47,10 +48,11 @@ export default function SettingsPage() {
   const [defaultMoq, setDefaultMoq] = useState(1)
   const [expiryReminderDays, setExpiryReminderDays] = useState(30)
   const [categoryPage, setCategoryPage] = useState(1)
+  const [categoryPageSize, setCategoryPageSize] = usePageSize('settings-categories', DEFAULT_PAGE_SIZE)
 
   const paginatedCategories = useMemo(
-    () => getPageSlice(categories, categoryPage, DEFAULT_PAGE_SIZE),
-    [categories, categoryPage]
+    () => getPageSlice(categories, categoryPage, categoryPageSize),
+    [categories, categoryPage, categoryPageSize]
   )
 
   const load = async () => {
@@ -302,9 +304,10 @@ export default function SettingsPage() {
             {categories.length > 0 && (
               <PaginationBar
                 page={categoryPage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={categoryPageSize}
                 totalItems={categories.length}
                 onPageChange={setCategoryPage}
+                onPageSizeChange={setCategoryPageSize}
               />
             )}
           </div>

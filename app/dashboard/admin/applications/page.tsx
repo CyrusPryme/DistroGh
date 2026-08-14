@@ -8,6 +8,7 @@ import { canAdminActivateVendor, getVendorVerificationStage } from '@/lib/vendor
 import type { Vendor } from '@/types'
 import { formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { usePageSize } from '@/hooks/usePageSize'
 import { vendorApplicationService } from '@/services/vendor-application.service'
 import { approveVendorApplication, removeVendorApplication } from '@/app/dashboard/admin/applications/actions'
 import type { VendorApplication } from '@/types/vendor-application'
@@ -26,6 +27,7 @@ export default function VendorApplicationsPage() {
   const [processing, setProcessing] = useState<string | null>(null)
   const [approvedCreds, setApprovedCreds] = useState<ApprovedCreds | null>(null)
   const [appPage, setAppPage] = useState(1)
+  const [appPageSize, setAppPageSize] = usePageSize('vendor-applications', DEFAULT_PAGE_SIZE)
   const [copiedField, setCopiedField] = useState<'email' | 'password' | null>(null)
 
   const visibleApplications = useMemo(
@@ -33,8 +35,8 @@ export default function VendorApplicationsPage() {
     [applications]
   )
   const paginatedApplications = useMemo(
-    () => getPageSlice(visibleApplications, appPage, DEFAULT_PAGE_SIZE),
-    [visibleApplications, appPage]
+    () => getPageSlice(visibleApplications, appPage, appPageSize),
+    [visibleApplications, appPage, appPageSize]
   )
 
   useEffect(() => {
@@ -400,9 +402,10 @@ export default function VendorApplicationsPage() {
             </table>
             <PaginationBar
               page={appPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={appPageSize}
               totalItems={visibleApplications.length}
               onPageChange={setAppPage}
+              onPageSizeChange={setAppPageSize}
             />
           </div>
         )}

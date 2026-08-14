@@ -22,11 +22,12 @@ const RETURN_REASON_LABELS: Record<string, string> = {
   other: 'Other',
 }
 import type { ProductFormValues } from '@/lib/validations'
-import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE, ALL_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 
 // Helper function for relative time display
 function formatRelativeTime(dateString: string): string {
@@ -61,7 +62,9 @@ function ProductsContent() {
   const [returnsList, setReturnsList] = useState<ProductReturn[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [productPage, setProductPage] = useState(1)
+  const [productPageSize, setProductPageSize] = usePageSize('products', DEFAULT_PAGE_SIZE)
   const [returnsPage, setReturnsPage] = useState(1)
+  const [returnsPageSize, setReturnsPageSize] = usePageSize('products-returns', DEFAULT_PAGE_SIZE)
 
   const load = async () => {
     setLoading(true)
@@ -153,13 +156,13 @@ function ProductsContent() {
   }, [search, filterVendor])
 
   const paginatedProducts = useMemo(
-    () => getPageSlice(filtered, productPage, DEFAULT_PAGE_SIZE),
-    [filtered, productPage]
+    () => getPageSlice(filtered, productPage, productPageSize),
+    [filtered, productPage, productPageSize]
   )
 
   const paginatedReturns = useMemo(
-    () => getPageSlice(returnsList, returnsPage, DEFAULT_PAGE_SIZE),
-    [returnsList, returnsPage]
+    () => getPageSlice(returnsList, returnsPage, returnsPageSize),
+    [returnsList, returnsPage, returnsPageSize]
   )
 
   if (!canLoad || loading) {
@@ -341,9 +344,10 @@ function ProductsContent() {
             </table>
             <PaginationBar
               page={productPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={productPageSize}
               totalItems={filtered.length}
               onPageChange={setProductPage}
+              onPageSizeChange={setProductPageSize}
             />
           </div>
         )}
@@ -394,12 +398,13 @@ function ProductsContent() {
             </table>
             <PaginationBar
               page={returnsPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={returnsPageSize}
               totalItems={returnsList.length}
               onPageChange={setReturnsPage}
+              onPageSizeChange={setReturnsPageSize}
             />
           </div>
-          {returnsList.length > DEFAULT_PAGE_SIZE && (
+          {returnsPageSize !== ALL_PAGE_SIZE && returnsList.length > returnsPageSize && (
             <p className="text-slate-500 text-sm mt-2">View all returns on the Returns page.</p>
           )}
         </div>

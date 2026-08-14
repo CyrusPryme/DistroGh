@@ -6,6 +6,7 @@ import { supermarketService, type SupermarketInventoryRow } from '@/services/sup
 import { useSession } from '@/hooks/useSession'
 import { formatNumber, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { usePageSize } from '@/hooks/usePageSize'
 
 export default function StockAtSupermarketsPage() {
   useSession({ redirectVendorFromAdmin: true })
@@ -14,7 +15,9 @@ export default function StockAtSupermarketsPage() {
   const [error, setError] = useState<string | null>(null)
   const [filterSupermarket, setFilterSupermarket] = useState('')
   const [smPage, setSmPage] = useState(1)
+  const [smPageSize, setSmPageSize] = usePageSize('stock-at-supermarkets', DEFAULT_PAGE_SIZE)
   const [productPages, setProductPages] = useState<Record<string, number>>({})
+  const [productPageSize, setProductPageSize] = usePageSize('stock-at-supermarkets-products', DEFAULT_PAGE_SIZE)
 
   useEffect(() => {
     async function load() {
@@ -49,8 +52,8 @@ export default function StockAtSupermarketsPage() {
   }, [filterSupermarket])
 
   const paginatedSmIds = useMemo(
-    () => getPageSlice(filteredIds, smPage, DEFAULT_PAGE_SIZE),
-    [filteredIds, smPage]
+    () => getPageSlice(filteredIds, smPage, smPageSize),
+    [filteredIds, smPage, smPageSize]
   )
 
   if (loading) {
@@ -107,7 +110,7 @@ export default function StockAtSupermarketsPage() {
             const { name, products } = bySupermarket[supId]
             const sortedProducts = [...products].sort((a, b) => a.product_name.localeCompare(b.product_name))
             const pPage = productPages[supId] ?? 1
-            const paginatedProducts = getPageSlice(sortedProducts, pPage, DEFAULT_PAGE_SIZE)
+            const paginatedProducts = getPageSlice(sortedProducts, pPage, productPageSize)
             return (
               <div key={supId} className="data-card overflow-hidden">
                 <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/50">
@@ -143,9 +146,10 @@ export default function StockAtSupermarketsPage() {
                   </table>
                   <PaginationBar
                     page={pPage}
-                    pageSize={DEFAULT_PAGE_SIZE}
+                    pageSize={productPageSize}
                     totalItems={sortedProducts.length}
                     onPageChange={(p) => setProductPages((prev) => ({ ...prev, [supId]: p }))}
+                    onPageSizeChange={setProductPageSize}
                   />
                 </div>
               </div>
@@ -153,9 +157,10 @@ export default function StockAtSupermarketsPage() {
           })}
           <PaginationBar
             page={smPage}
-            pageSize={DEFAULT_PAGE_SIZE}
+            pageSize={smPageSize}
             totalItems={filteredIds.length}
             onPageChange={setSmPage}
+            onPageSizeChange={setSmPageSize}
             className="border-0 pt-0"
           />
         </div>

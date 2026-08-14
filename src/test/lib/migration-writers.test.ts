@@ -144,6 +144,105 @@ describe('importStagingRow — deliveries (historical delivery routing + transpo
     expect(result).toEqual({ productionId: 'already-imported-id', action: 'skip' })
     expect(client.calls.length).toBe(0)
   })
+
+  it('a delivery with no delivery_date is rejected rather than silently dated "today" — validate.ts should have already blocked this, but the writer defends in depth', async () => {
+    const client = createMockClient([
+      { match: /FROM public\.supermarkets/, respond: () => ({ rows: [{ id: 'sm-1' }] }) },
+      { match: /FROM public\.products/, respond: () => ({ rows: [{ id: 'prod-1' }] }) },
+    ])
+    const row = deliveryRow({ delivery_date: null })
+    await expect(importStagingRow(client, 'deliveries', row, baseCtx)).rejects.toThrow(/delivery_date/)
+    expect(client.calledMatching(/INSERT INTO public\.delivery_runs/).length).toBe(0)
+  })
+})
+
+function intakeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'staging-row-intake-1',
+    file_id: 'file-3',
+    row_number: 7,
+    normalized_data: {
+      vendor_name: 'Acme Foods',
+      product_name: 'Palm Oil 1L',
+      quantity: 100,
+      received_date: '2024-01-15',
+      ...overrides,
+    },
+    resolved_refs: { vendor_id: 'vendor-1', product_id: 'prod-1' },
+    corrections: {},
+    intended_action: 'create',
+    production_id: null,
+  }
+}
+
+describe('importStagingRow — intakes (date accuracy defense-in-depth)', () => {
+  it('an intake with no received_date is rejected rather than silently dated "today"', async () => {
+    const client = createMockClient()
+    const row = intakeRow({ received_date: null })
+    await expect(importStagingRow(client, 'intakes', row, baseCtx)).rejects.toThrow(/received_date/)
+    expect(client.calledMatching(/INSERT INTO public\.intakes/).length).toBe(0)
+  })
+
+  it('an intake with a real received_date imports it unchanged', async () => {
+    const client = createMockClient([
+      {
+        match: /INSERT INTO public\.intakes/,
+        respond: ({ params }) => {
+          expect(params[3]).toBe('2024-01-15')
+          return { rows: [{ id: 'intake-1' }] }
+        },
+      },
+    ])
+    const row = intakeRow()
+    const result = await importStagingRow(client, 'intakes', row, baseCtx)
+    expect(result).toEqual({ productionId: 'intake-1', action: 'create' })
+  })
+})
+
+function salesRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'staging-row-sale-1',
+    file_id: 'file-4',
+    row_number: 3,
+    normalized_data: {
+      product: 'Palm Oil 1L',
+      qty: 5,
+      unit_price: 30,
+      week_start: '2024-03-01',
+      week_end: '2024-03-31',
+      ...overrides,
+    },
+    resolved_refs: { product_id: 'prod-1', supermarket_id: 'sm-1' },
+    corrections: {},
+    intended_action: 'create',
+    production_id: null,
+  }
+}
+
+describe('importStagingRow — sales (always full calendar month)', () => {
+  it('re-snaps to full calendar month bounds at write time even if corrections left a partial period', async () => {
+    const client = createMockClient([
+      {
+        match: /INSERT INTO public\.sales/,
+        respond: ({ params }) => {
+          // week_start / week_end are params 8 / 9 in the INSERT column order
+          expect(params[7]).toBe('2024-03-01')
+          expect(params[8]).toBe('2024-03-31')
+          return { rows: [{ id: 'sale-1' }] }
+        },
+      },
+    ])
+    const row = salesRow({ week_start: '2024-03-15', week_end: '2024-03-15' })
+    const result = await importStagingRow(client, 'sales', row, baseCtx)
+    expect(result).toEqual({ productionId: 'sale-1', action: 'create' })
+  })
+
+  it('a sale with no week_start/report_month is rejected rather than silently dated "today"', async () => {
+    const client = createMockClient()
+    const row = salesRow({ week_start: null, week_end: null })
+    await expect(importStagingRow(client, 'sales', row, baseCtx)).rejects.toThrow(/week_start|report_month/)
+    expect(client.calledMatching(/INSERT INTO public\.sales/).length).toBe(0)
+  })
 })
 
 function productRow(overrides: Record<string, unknown> = {}) {

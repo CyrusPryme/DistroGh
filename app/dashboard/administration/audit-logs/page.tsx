@@ -4,6 +4,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import { FileText, Search, RefreshCw, Download, ChevronLeft, ChevronRight, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+import { usePageSize } from '@/hooks/usePageSize'
+
+const LIMIT_OPTIONS = [50, 100, 200]
 
 interface AuditLog {
   id: string
@@ -59,6 +62,7 @@ export default function AuditLogsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = usePageSize('audit-logs', 50)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   // Debounce search input → only fire fetch after user stops typing
@@ -72,7 +76,7 @@ export default function AuditLogsPage() {
   useEffect(() => {
     if (isMount.current) { isMount.current = false; return }
     setPage(1)
-  }, [search, module, action, dateFrom, dateTo])
+  }, [search, module, action, dateFrom, dateTo, limit])
 
   // Manual refresh ticker — bump this to force a reload
   const [refreshTick, setRefreshTick] = useState(0)
@@ -82,7 +86,7 @@ export default function AuditLogsPage() {
   useEffect(() => {
     const ctrl = new AbortController()
     setLoading(true)
-    const params = new URLSearchParams({ page: String(page), limit: '50' })
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search) params.set('search', search)
     if (module) params.set('module', module)
     if (action) params.set('action', action)
@@ -102,8 +106,7 @@ export default function AuditLogsPage() {
       .finally(() => setLoading(false))
 
     return () => ctrl.abort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search, module, action, dateFrom, dateTo, refreshTick])
+  }, [page, limit, search, module, action, dateFrom, dateTo, refreshTick])
 
   function exportCsv() {
     const headers = ['Date', 'Actor', 'Action', 'Module', 'Target', 'IP']
@@ -177,8 +180,20 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Stats */}
-      <div className="text-xs text-slate-500">
-        {meta.total.toLocaleString()} total entries · Page {meta.page} of {meta.pages || 1}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <span>{meta.total.toLocaleString()} total entries · Page {meta.page} of {meta.pages || 1}</span>
+        <label className="flex items-center gap-1.5">
+          <span>Rows per page</span>
+          <select
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="border border-slate-200 rounded-lg pl-2 pr-6 py-1 text-slate-700 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+          >
+            {LIMIT_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* Table */}

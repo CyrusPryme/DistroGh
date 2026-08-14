@@ -12,6 +12,7 @@ import { formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 
 type Request = Awaited<ReturnType<typeof getDeactivationRequests>>[number]
 
@@ -22,6 +23,7 @@ export default function DeactivationRequestsPage() {
   const [acting, setActing] = useState<string | null>(null)
   const { toast, showToast, dismissToast } = useToast(3500)
   const [reqPage, setReqPage] = useState(1)
+  const [reqPageSize, setReqPageSize] = usePageSize('deactivation-requests', DEFAULT_PAGE_SIZE)
 
   const load = async () => {
     setLoading(true)
@@ -43,8 +45,8 @@ export default function DeactivationRequestsPage() {
   }, [filter])
 
   const paginatedRequests = useMemo(
-    () => getPageSlice(requests, reqPage, DEFAULT_PAGE_SIZE),
-    [requests, reqPage]
+    () => getPageSlice(requests, reqPage, reqPageSize),
+    [requests, reqPage, reqPageSize]
   )
 
   const handleApprove = async (id: string) => {
@@ -197,9 +199,10 @@ export default function DeactivationRequestsPage() {
             </table>
             <PaginationBar
               page={reqPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={reqPageSize}
               totalItems={requests.length}
               onPageChange={setReqPage}
+              onPageSizeChange={setReqPageSize}
             />
           </div>
         )}

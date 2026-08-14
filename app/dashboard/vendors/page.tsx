@@ -13,6 +13,7 @@ import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/sha
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import { MOMO_NETWORK_COLORS } from '@/lib/utils'
 import type { Vendor, VendorBalance } from '@/types'
 import type { VendorFormValues } from '@/lib/validations'
@@ -46,6 +47,7 @@ export default function VendorsPage() {
   const [error, setError] = useState<string | null>(null)
   const { toast, showToast, dismissToast } = useToast(3500)
   const [vendorPage, setVendorPage] = useState(1)
+  const [vendorPageSize, setVendorPageSize] = usePageSize('vendors', DEFAULT_PAGE_SIZE)
   const [clearing, setClearing] = useState<string | null>(null)
 
   const load = async () => {
@@ -200,8 +202,8 @@ export default function VendorsPage() {
   }, [search, accessFilter])
 
   const paginatedVendors = useMemo(
-    () => getPageSlice(filtered, vendorPage, DEFAULT_PAGE_SIZE),
-    [filtered, vendorPage]
+    () => getPageSlice(filtered, vendorPage, vendorPageSize),
+    [filtered, vendorPage, vendorPageSize]
   )
 
   const readyToActivate = useMemo(
@@ -488,9 +490,10 @@ export default function VendorsPage() {
             </table>
             <PaginationBar
               page={vendorPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={vendorPageSize}
               totalItems={filtered.length}
               onPageChange={setVendorPage}
+              onPageSizeChange={setVendorPageSize}
             />
           </div>
         )}

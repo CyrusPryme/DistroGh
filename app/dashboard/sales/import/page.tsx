@@ -38,6 +38,7 @@ import {
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { ImportPreview, ParsedSaleRow, Supermarket, Vendor } from '@/types'
 
 function toSupermarketLookup(list: Supermarket[]) {
@@ -63,6 +64,7 @@ export default function SalesImportPage() {
     ensureVendorProfile: true,
   })
   const [previewPage, setPreviewPage] = useState(1)
+  const [previewPageSize, setPreviewPageSize] = usePageSize('sales-import-preview', DEFAULT_PAGE_SIZE)
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [productModalOpen, setProductModalOpen] = useState(false)
   const [productPrefill, setProductPrefill] = useState<Partial<ProductFormValues> | null>(null)
@@ -492,8 +494,8 @@ export default function SalesImportPage() {
 
   const paginatedPreviewRows = useMemo(() => {
     if (!preview?.rows) return []
-    return getPageSlice(preview.rows, previewPage, DEFAULT_PAGE_SIZE)
-  }, [preview?.rows, previewPage])
+    return getPageSlice(preview.rows, previewPage, previewPageSize)
+  }, [preview?.rows, previewPage, previewPageSize])
 
   if (!sessionReady) {
     return (
@@ -962,9 +964,10 @@ export default function SalesImportPage() {
               </table>
               <PaginationBar
                 page={previewPage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={previewPageSize}
                 totalItems={preview.rows.length}
                 onPageChange={setPreviewPage}
+                onPageSizeChange={setPreviewPageSize}
               />
             </div>
           </div>

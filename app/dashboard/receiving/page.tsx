@@ -21,6 +21,7 @@ import { PageToast } from '@/components/shared/PageToast'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { Intake, Vendor, Product } from '@/types'
 
 export default function ReceivingPage() {
@@ -39,7 +40,9 @@ export default function ReceivingPage() {
   const [showStock, setShowStock] = useState(true)
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
   const [stockPage, setStockPage] = useState(1)
+  const [stockPageSize, setStockPageSize] = usePageSize('receiving-stock', DEFAULT_PAGE_SIZE)
   const [intakePage, setIntakePage] = useState(1)
+  const [intakePageSize, setIntakePageSize] = usePageSize('receiving-intakes', DEFAULT_PAGE_SIZE)
 
   const isVendor = role === 'vendor' && vendorId
 
@@ -92,12 +95,12 @@ export default function ReceivingPage() {
   }, [filterVendor, filterFrom, filterTo, role, vendorId])
 
   const paginatedStock = useMemo(
-    () => getPageSlice(stock, stockPage, DEFAULT_PAGE_SIZE),
-    [stock, stockPage]
+    () => getPageSlice(stock, stockPage, stockPageSize),
+    [stock, stockPage, stockPageSize]
   )
   const paginatedIntakes = useMemo(
-    () => getPageSlice(intakes, intakePage, DEFAULT_PAGE_SIZE),
-    [intakes, intakePage]
+    () => getPageSlice(intakes, intakePage, intakePageSize),
+    [intakes, intakePage, intakePageSize]
   )
 
   const productsForVendor = form.vendor_id
@@ -242,9 +245,10 @@ export default function ReceivingPage() {
               </table>
               <PaginationBar
                 page={stockPage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={stockPageSize}
                 totalItems={stock.length}
                 onPageChange={setStockPage}
+                onPageSizeChange={setStockPageSize}
               />
             </div>
             <button
@@ -337,9 +341,10 @@ export default function ReceivingPage() {
               </table>
               <PaginationBar
                 page={intakePage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={intakePageSize}
                 totalItems={intakes.length}
                 onPageChange={setIntakePage}
+                onPageSizeChange={setIntakePageSize}
               />
             </div>
           </div>

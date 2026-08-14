@@ -2,6 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { usePageSize } from '@/hooks/usePageSize'
+
+const LIMIT_OPTIONS = [50, 100, 200]
 
 type AuditLog = {
   id: string
@@ -30,7 +33,7 @@ export default function AuditCenterPage() {
   const [modules, setModules] = useState<string[]>([])
   const [actions, setActions] = useState<string[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
-  const perPage = 50
+  const [perPage, setPerPage] = usePageSize('audit-center', 50)
 
   // Debounce search
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -40,7 +43,7 @@ export default function AuditCenterPage() {
     setLoading(true)
     try {
       const params = new URLSearchParams({
-        limit: String(perPage), offset: String((p - 1) * perPage),
+        page: String(p), limit: String(perPage),
         ...(search && { search }),
         ...(module && { module }),
         ...(action && { action }),
@@ -51,21 +54,22 @@ export default function AuditCenterPage() {
       const data = await res.json()
       if (data.success) {
         setLogs(data.data ?? [])
-        setTotal(data.total ?? 0)
-        if (data.modules) setModules(data.modules)
-        if (data.actions) setActions(data.actions)
+        // The shared /api/admin/audit-logs endpoint nests the count in `meta`, not top-level `total`.
+        setTotal(data.meta?.total ?? 0)
+        if (data.filters?.modules) setModules(data.filters.modules)
+        if (data.filters?.actions) setActions(data.filters.actions)
       }
     } catch { /* ignore */ } finally { setLoading(false) }
-  }, [search, module, action, dateFrom, dateTo])
+  }, [search, module, action, dateFrom, dateTo, perPage])
 
-  // When filters change: reset to page 1 and load. Guards against double-load by
-  // using a ref to suppress the page-change effect that would otherwise also fire.
+  // When filters (or the page size) change: reset to page 1 and load. Guards against
+  // double-load by using a ref to suppress the page-change effect that would otherwise also fire.
   const filterChanging = useRef(false)
   useEffect(() => {
     filterChanging.current = true
     setPage(1)
     load(1)
-  }, [search, module, action, dateFrom, dateTo, load])
+  }, [search, module, action, dateFrom, dateTo, perPage, load])
 
   // When the user explicitly changes page (not from a filter reset)
   useEffect(() => {
@@ -127,7 +131,21 @@ export default function AuditCenterPage() {
         <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input-base" />
       </div>
 
-      <p className="text-sm text-slate-500">{total.toLocaleString()} events</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">{total.toLocaleString()} events</p>
+        <label className="flex items-center gap-1.5 text-sm text-slate-500">
+          <span>Rows per page</span>
+          <select
+            value={perPage}
+            onChange={(e) => setPerPage(Number(e.target.value))}
+            className="border border-slate-200 rounded-lg pl-2 pr-6 py-1 text-slate-700 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+          >
+            {LIMIT_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

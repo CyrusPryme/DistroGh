@@ -13,6 +13,7 @@ import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { useSession } from '@/hooks/useSession'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { Sale, Vendor, Supermarket, Product } from '@/types'
 import {
   getSaleRecordedAmounts,
@@ -40,6 +41,7 @@ function SalesContent() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
   const [salesPage, setSalesPage] = useState(1)
+  const [salesPageSize, setSalesPageSize] = usePageSize('sales', DEFAULT_PAGE_SIZE)
 
   const isVendor = role === 'vendor'
   const vendorDueLabel = role === 'admin' ? 'Vendor Due' : 'Your amount'
@@ -131,8 +133,8 @@ function SalesContent() {
   }, [search, filterVendor, filterProduct, filterSupermarket, filterMonth, sortKey, sortDir])
 
   const paginatedSales = useMemo(
-    () => getPageSlice(filtered, salesPage, DEFAULT_PAGE_SIZE),
-    [filtered, salesPage]
+    () => getPageSlice(filtered, salesPage, salesPageSize),
+    [filtered, salesPage, salesPageSize]
   )
 
   const handleSort = (key: SortKey) => {
@@ -464,9 +466,10 @@ function SalesContent() {
             </table>
             <PaginationBar
               page={salesPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={salesPageSize}
               totalItems={filtered.length}
               onPageChange={setSalesPage}
+              onPageSizeChange={setSalesPageSize}
             />
           </div>
         )}

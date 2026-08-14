@@ -110,6 +110,10 @@ export interface MigrationFile {
 export interface DependencyNode {
   entity: MigrationEntityType
   depends_on: MigrationEntityType[]
+  /** Dependencies that are neither uploaded in this migration nor already present in production —
+   *  a strong signal of an out-of-order upload (e.g. Deliveries staged with zero Receiving records
+   *  on record anywhere). See buildDependencyGraph() in lib/migration/entities.ts. */
+  missing_dependencies: MigrationEntityType[]
   file_ids: string[]
   rank: number
 }

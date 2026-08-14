@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
-import { toSqlDate } from '@/lib/utils'
+import { toSqlDate, normalizeSaleMonthPeriod } from '@/lib/utils'
 import { normalizeMomoNetwork } from '@/lib/migration/normalize'
 import { resolveVendorPhones } from '@/lib/migration/vendor-fields'
 import { resolveCategoryChange } from '@/lib/migration/category'
@@ -331,6 +331,12 @@ async function writeRow(
         productId = p.rows[0]?.id
       }
       if (!vendorId || !productId) throw new Error('Intake missing vendor/product')
+      // received_date is a required column (validate.ts blocks rows missing it) — never fall back
+      // to "now": a migrated historical record silently dated today is a corrupted record, not a
+      // convenience default. If this is ever reached with no date, that's a validation gap, not
+      // something to paper over here.
+      const receivedDateStr = s(d.received_date)
+      if (!receivedDateStr) throw new Error('Intake missing received_date')
       const ins = await client.query(
         `INSERT INTO public.intakes (vendor_id, product_id, quantity_received, received_date, reference)
          VALUES ($1,$2,$3,$4::date,$5) RETURNING id`,
@@ -338,7 +344,7 @@ async function writeRow(
           vendorId,
           productId,
           n(d.quantity ?? d.qty),
-          toSqlDate(s(d.received_date) || new Date()),
+          toSqlDate(receivedDateStr),
           s(d.notes || d.reference) || `migration:${ctx.migrationId}`,
         ]
       )
@@ -355,6 +361,8 @@ async function writeRow(
         vendorId = v.rows[0]?.id
       }
       if (!vendorId) throw new Error('Deduction missing vendor')
+      const deductionDateStr = s(d.deduction_date)
+      if (!deductionDateStr) throw new Error('Deduction missing deduction_date')
       const ins = await client.query(
         `INSERT INTO public.vendor_deductions (vendor_id, amount, reason, deduction_date, reference_type, reference_id)
          VALUES ($1,$2,$3,$4::date,$5,$6) RETURNING id`,
@@ -362,7 +370,7 @@ async function writeRow(
           vendorId,
           n(d.amount),
           s(d.reason) || 'Historical deduction',
-          toSqlDate(s(d.deduction_date) || new Date()),
+          toSqlDate(deductionDateStr),
           s(d.reference_type) || 'migration',
           s(d.reference_id) || ctx.migrationId,
         ]
@@ -382,7 +390,9 @@ async function writeRow(
       if (!vendorId) throw new Error('Payout missing vendor')
       const paid = n(d.amount_paid ?? d.amount)
       const due = n(d.amount_due, paid)
-      const weekStart = toSqlDate(s(d.week_start) || s(d.payout_date) || new Date())
+      const payoutDateStr = s(d.payout_date) || s(d.week_start)
+      if (!payoutDateStr) throw new Error('Payout missing payout_date/week_start')
+      const weekStart = toSqlDate(s(d.week_start) || payoutDateStr)
       const weekEnd = toSqlDate(s(d.week_end) || weekStart)
       const status = s(d.status) || 'completed'
       const ins = await client.query(
@@ -398,7 +408,7 @@ async function writeRow(
           weekEnd,
           status,
           s(d.transaction_id || d.momo_txn_id) || `MIG-${ctx.batchTag}`,
-          s(d.payout_date) || new Date().toISOString(),
+          toSqlDate(payoutDateStr),
         ]
       )
       return { productionId: ins.rows[0].id, action: 'create' }
@@ -439,6 +449,8 @@ async function writeRow(
         [productId]
       )
       const unitPrice = n(d.unit_price, n(priceRes.rows[0]?.vendor_price, 0))
+      const returnDateStr = s(d.return_date)
+      if (!returnDateStr) throw new Error('Return missing return_date')
       const ins = await client.query(
         `INSERT INTO public.product_returns
           (product_id, supermarket_id, quantity_returned, unit_price, return_date, reason, reason_notes)
@@ -448,7 +460,7 @@ async function writeRow(
           supermarketId,
           n(d.quantity ?? d.qty),
           unitPrice,
-          toSqlDate(s(d.return_date) || new Date()),
+          toSqlDate(returnDateStr),
           reason,
           s(d.notes) || `migration:${ctx.migrationId}`,
         ]
@@ -539,6 +551,9 @@ async function writeRow(
       // "the historical source did not provide a transport cost" — never coerced to 0.
       const transportCost = resolveHistoricalTransportCost(d.transport_cost)
 
+      const deliveryDateStr = s(d.delivery_date)
+      if (!deliveryDateStr) throw new Error('Delivery missing delivery_date')
+
       const run = await client.query(
         `INSERT INTO public.delivery_runs
           (supermarket_id, delivery_date, total_transport_cost, notes,
@@ -548,7 +563,7 @@ async function writeRow(
          RETURNING id`,
         [
           supermarketId,
-          toSqlDate(s(d.delivery_date) || new Date()),
+          toSqlDate(deliveryDateStr),
           transportCost,
           `migration:${ctx.migrationId}`,
           destination.destinationType,
@@ -602,8 +617,15 @@ async function writeRow(
         throw new Error('Sales row missing product_id/supermarket_id — correct in wizard first')
       }
       const qty = n(d.qty ?? d.quantity)
-      const weekStart = toSqlDate(s(d.week_start) || s(d.report_month) || new Date())
-      const weekEnd = toSqlDate(s(d.week_end) || weekStart)
+      // Sales are always reported and reconciled by full calendar month in this system (see
+      // normalizeSaleMonthPeriod — the same helper the live day-to-day sales importer uses) —
+      // re-snap here too rather than trust whatever week_start/week_end survived Corrections,
+      // so a migrated sale can never end up with an off-calendar or zero-length period.
+      const periodSource = s(d.week_start) || s(d.report_month)
+      if (!periodSource) throw new Error('Sales row missing week_start/report_month')
+      const period = normalizeSaleMonthPeriod(toSqlDate(periodSource))
+      const weekStart = period.week_start
+      const weekEnd = period.week_end
       const unit = n(d.unit_price ?? d.shop_unit_price)
       const total = n(d.total_sales, unit * qty)
       const vendorDue = n(d.vendor_due, 0)

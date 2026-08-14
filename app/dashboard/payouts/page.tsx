@@ -13,6 +13,7 @@ import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/sha
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
+import { usePageSize } from '@/hooks/usePageSize'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import {
   getPayoutDisplayStatus,
@@ -59,8 +60,11 @@ export default function PayoutsPage() {
   const [weekEnd, setWeekEnd] = useState(getWeekRange().week_end)
   const [bulkProcessing, setBulkProcessing] = useState(false)
   const [balancePage, setBalancePage] = useState(1)
+  const [balancePageSize, setBalancePageSize] = usePageSize('payouts-balances', DEFAULT_PAGE_SIZE)
   const [pendingPage, setPendingPage] = useState(1)
+  const [pendingPageSize, setPendingPageSize] = usePageSize('payouts-pending', DEFAULT_PAGE_SIZE)
   const [historyPage, setHistoryPage] = useState(1)
+  const [historyPageSize, setHistoryPageSize] = usePageSize('payouts-history', DEFAULT_PAGE_SIZE)
 
   const load = useCallback(async () => {
     try {
@@ -273,8 +277,8 @@ export default function PayoutsPage() {
     : 0
 
   const paginatedBalances = useMemo(
-    () => getPageSlice(balances, balancePage, DEFAULT_PAGE_SIZE),
-    [balances, balancePage]
+    () => getPageSlice(balances, balancePage, balancePageSize),
+    [balances, balancePage, balancePageSize]
   )
   const handleRemoveAllDuplicates = async () => {
     if (duplicatePendingIds.size === 0) return
@@ -301,12 +305,12 @@ export default function PayoutsPage() {
   }
 
   const paginatedPending = useMemo(
-    () => getPageSlice(pendingPayouts, pendingPage, DEFAULT_PAGE_SIZE),
-    [pendingPayouts, pendingPage]
+    () => getPageSlice(pendingPayouts, pendingPage, pendingPageSize),
+    [pendingPayouts, pendingPage, pendingPageSize]
   )
   const paginatedPayouts = useMemo(
-    () => getPageSlice(payouts, historyPage, DEFAULT_PAGE_SIZE),
-    [payouts, historyPage]
+    () => getPageSlice(payouts, historyPage, historyPageSize),
+    [payouts, historyPage, historyPageSize]
   )
 
   return (
@@ -589,9 +593,10 @@ export default function PayoutsPage() {
               </table>
               <PaginationBar
                 page={balancePage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={balancePageSize}
                 totalItems={balances.length}
                 onPageChange={setBalancePage}
+                onPageSizeChange={setBalancePageSize}
               />
             </div>
           )}
@@ -673,9 +678,10 @@ export default function PayoutsPage() {
               </table>
               <PaginationBar
                 page={pendingPage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={pendingPageSize}
                 totalItems={pendingPayouts.length}
                 onPageChange={setPendingPage}
+                onPageSizeChange={setPendingPageSize}
               />
             </div>
           )}
@@ -749,9 +755,10 @@ export default function PayoutsPage() {
               </table>
               <PaginationBar
                 page={historyPage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={historyPageSize}
                 totalItems={payouts.length}
                 onPageChange={setHistoryPage}
+                onPageSizeChange={setHistoryPageSize}
               />
             </div>
           )}

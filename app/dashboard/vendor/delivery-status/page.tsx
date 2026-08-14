@@ -8,6 +8,7 @@ import { supermarketService } from '@/services/supermarket.service'
 import { Truck, Package, Loader2, AlertCircle, CheckCircle2, Filter } from 'lucide-react'
 import { formatDate, formatNumber } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { usePageSize } from '@/hooks/usePageSize'
 import type { Supermarket } from '@/types'
 
 export default function VendorDeliveryStatusPage() {
@@ -32,6 +33,7 @@ export default function VendorDeliveryStatusPage() {
   const [filterTo, setFilterTo] = useState('')
   const [filterSupermarket, setFilterSupermarket] = useState('')
   const [delPage, setDelPage] = useState(1)
+  const [delPageSize, setDelPageSize] = usePageSize('vendor-delivery-status', DEFAULT_PAGE_SIZE)
 
   useEffect(() => {
     setDelPage(1)
@@ -64,8 +66,8 @@ export default function VendorDeliveryStatusPage() {
   }, [sessionLoading, vendorId, filterFrom, filterTo, filterSupermarket])
 
   const paginatedDeliveries = useMemo(
-    () => getPageSlice(deliveries, delPage, DEFAULT_PAGE_SIZE),
-    [deliveries, delPage]
+    () => getPageSlice(deliveries, delPage, delPageSize),
+    [deliveries, delPage, delPageSize]
   )
 
   if (loading && !vendorId) {
@@ -191,9 +193,10 @@ export default function VendorDeliveryStatusPage() {
             </table>
             <PaginationBar
               page={delPage}
-              pageSize={DEFAULT_PAGE_SIZE}
+              pageSize={delPageSize}
               totalItems={deliveries.length}
               onPageChange={setDelPage}
+              onPageSizeChange={setDelPageSize}
             />
           </div>
         </div>

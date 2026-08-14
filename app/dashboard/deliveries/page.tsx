@@ -28,6 +28,7 @@ import {
   sumAllocationAmounts,
 } from '@/lib/delivery-cost-allocation'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { usePageSize } from '@/hooks/usePageSize'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { PageToast } from '@/components/shared/PageToast'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -231,6 +232,7 @@ function DeliveriesContent() {
   const [expandedChargesByRun, setExpandedChargesByRun] = useState<Record<string, DeliveryRunVendorCharge[]>>({})
   const [loadingExpandedChargesId, setLoadingExpandedChargesId] = useState<string | null>(null)
   const [runPage, setRunPage] = useState(1)
+  const [runPageSize, setRunPageSize] = usePageSize('deliveries', DEFAULT_PAGE_SIZE)
 
   const [form, setForm] = useState<{
     supermarket_id: string
@@ -314,8 +316,8 @@ function DeliveriesContent() {
   }, [form.total_transport_cost, form.items, products, vendorNameById])
 
   const paginatedRuns = useMemo(
-    () => getPageSlice(runs, runPage, DEFAULT_PAGE_SIZE),
-    [runs, runPage]
+    () => getPageSlice(runs, runPage, runPageSize),
+    [runs, runPage, runPageSize]
   )
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -747,9 +749,10 @@ function DeliveriesContent() {
               </table>
               <PaginationBar
                 page={runPage}
-                pageSize={DEFAULT_PAGE_SIZE}
+                pageSize={runPageSize}
                 totalItems={runs.length}
                 onPageChange={setRunPage}
+                onPageSizeChange={setRunPageSize}
               />
             </div>
           </div>

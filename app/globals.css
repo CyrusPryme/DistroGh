@@ -108,6 +108,21 @@
     @apply px-4 py-3 text-sm font-semibold text-slate-800 bg-slate-50 border-t border-slate-100;
   }
 
+  /* ─── Compact table density ───────────────────────────────
+     Toggled globally via the "Rows per page" bar (see PaginationBar + useDensity).
+     Applied through a [data-density] attribute on <html> rather than a per-table class,
+     so every .data-table on the page respects the user's preference without each page
+     having to thread a density prop into its own table markup. */
+  [data-density='compact'] .data-table thead th {
+    @apply px-3 py-1.5;
+  }
+  [data-density='compact'] .data-table tbody td {
+    @apply px-3 py-1.5;
+  }
+  [data-density='compact'] .data-table tfoot td {
+    @apply px-3 py-1.5;
+  }
+
   /* ─── Status badge ──────────────────────────────────────── */
   .status-badge {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border;

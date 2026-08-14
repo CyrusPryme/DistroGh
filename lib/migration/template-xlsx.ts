@@ -11,13 +11,21 @@ export type MigrationTemplateRecord = {
   sample_rows: Record<string, unknown>[]
 }
 
-/** Live data injected when generating templates (e.g. vendor dropdowns). */
+/** Live data injected when generating templates (e.g. vendor/product dropdowns). */
 export type TemplateBuildOptions = {
   vendorNames?: string[]
+  productNames?: string[]
 }
 
 const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
+// Deliberately excludes 'name' (the Products template's own new-product name field) and the
+// free-text Palace-style sales identifiers (description/code/barcode) — those aren't a lookup
+// against the existing catalogue, so forcing them into a dropdown would block legitimate values.
+const PRODUCT_NAME_COLUMNS = new Set(['product_name', 'product'])
 const PHONE_COLUMNS = new Set(['momo_number', 'contact_phone', 'phone'])
+/** Earliest date accepted by date-column validation — generous enough to never reject genuine
+ *  historical data, while still catching obvious typos (e.g. a stray 1900s date). */
+const MIN_HISTORICAL_DATE = new Date(Date.UTC(2000, 0, 1))
 
 const DATA_ROW_COUNT = 250
 const HEADER_ROW = 1
@@ -64,7 +72,9 @@ const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
   expires_at: { kind: 'date' },
   week_start: { kind: 'date' },
   week_end: { kind: 'date' },
-  report_month: { kind: 'date' },
+  // report_month is a "YYYY-MM" month key, not a full date — real Excel date validation/picker
+  // needs a day component, so it's left unvalidated here (documented in the Instructions sheet)
+  // rather than forced through a validator built for full dates.
   fda_certificate_acquired_date: { kind: 'date' },
   fda_certificate_expiry_date: { kind: 'date' },
 }
@@ -101,6 +111,18 @@ function getValidation(
       options: names.length
         ? names
         : ['(No vendors in system — add vendors first)'],
+    }
+  }
+  // The Products template's own 'name' column defines a *new* product — never turn that into a
+  // dropdown of existing products, only the reference columns on other entities (intakes,
+  // deliveries, returns, sales) that point at an existing catalogue item.
+  if (entityType !== 'products' && PRODUCT_NAME_COLUMNS.has(column)) {
+    const names = options?.productNames ?? []
+    return {
+      kind: 'list',
+      options: names.length
+        ? names
+        : ['(No products in system — add products first)'],
     }
   }
   return ENTITY_FIELD_OVERRIDES[entityType]?.[column] ?? FIELD_VALIDATIONS[column] ?? null
@@ -188,17 +210,24 @@ function buildCellValidation(
   }
 
   if (validation.kind === 'date') {
+    // Native Excel date validation (not a textLength check on a typed-in string) — this is what
+    // makes Excel offer its built-in date-picker calendar icon on the cell, and it validates the
+    // *actual date value* Excel parsed, so any real past date is accepted. The previous
+    // "text length >= 8" check broke as soon as Excel auto-converted a typed date into a real date
+    // value: LEN() on a date serial number (e.g. 45673) is only 5 characters, so it failed for
+    // every date — not just old ones — whenever Excel recognised the input as a date.
     return {
-      type: 'textLength',
-      operator: 'greaterThanOrEqual',
+      type: 'date',
+      operator: 'between',
       allowBlank: !required,
-      formulae: [8],
+      formulae: [MIN_HISTORICAL_DATE, new Date()],
       showErrorMessage: true,
-      errorTitle: 'Date required',
-      error: 'Enter a date as YYYY-MM-DD (e.g. 2024-01-15)',
+      errorStyle: 'error',
+      errorTitle: 'Invalid date',
+      error: `Enter a valid past date (between ${MIN_HISTORICAL_DATE.toISOString().slice(0, 10)} and today).`,
       showInputMessage: true,
-      promptTitle: 'Date format',
-      prompt: 'YYYY-MM-DD (e.g. 2024-01-15)',
+      promptTitle: 'Date',
+      prompt: 'Click the cell for the date picker, or type YYYY-MM-DD. Any past date is fine.',
     }
   }
 
@@ -246,7 +275,12 @@ function applyColumnValidation(
   if (!cellValidation) return
 
   for (let row = FIRST_EDITABLE_ROW; row <= LAST_DATA_ROW; row++) {
-    worksheet.getCell(row, colIndex).dataValidation = cellValidation
+    const cell = worksheet.getCell(row, colIndex)
+    cell.dataValidation = cellValidation
+    // Pre-format as a real date column so a value the user types gets stored as an actual date
+    // (matching the 'date' validation type above) and displays unambiguously as YYYY-MM-DD
+    // regardless of the user's Windows/Excel locale, instead of e.g. 1/15/2024.
+    if (validation.kind === 'date') cell.numFmt = 'yyyy-mm-dd'
   }
 }
 
@@ -270,13 +304,17 @@ function buildInstructionsSheet(
     [''],
     ['How to use:'],
     ['1. Fill rows on the "Data" sheet (row 2 is an example — replace or add below).'],
-    ['2. Use dropdowns where provided (momo_network, status, vendor_name, reason, etc.).'],
-    ['3. Dates must be YYYY-MM-DD. Ghana phones: exactly 10 digits starting with 0 (e.g. 0243222222).'],
+    ['2. Use dropdowns where provided (momo_network, status, vendor_name, product_name, reason, etc.).'],
+    ['3. Date columns accept any past date — click the cell for Excel\'s date picker, or type YYYY-MM-DD.'],
+    ['4. Ghana phones: exactly 10 digits starting with 0 (e.g. 0243222222).'],
+    ['5. Required columns are marked with * in the header.'],
+    ['6. Save as .xlsx and upload in Data Management → Historical Migrations.'],
     ...(template.entity_type === 'products' || (template.required_columns || []).some((c) => VENDOR_NAME_COLUMNS.has(c))
       ? [[`Vendor dropdown lists ${options?.vendorNames?.length ?? 0} vendor(s) from the system at download time — re-download after adding/removing vendors.`]]
       : []),
-    ['4. Required columns are marked with * in the header.'],
-    ['5. Save as .xlsx and upload in Data Management → Historical Migrations.'],
+    ...(template.entity_type !== 'products' && (template.required_columns || []).some((c) => PRODUCT_NAME_COLUMNS.has(c))
+      ? [[`Product dropdown lists ${options?.productNames?.length ?? 0} product(s) from the system at download time — re-download after adding/removing products.`]]
+      : []),
     [''],
     [`Entity type for upload: ${template.entity_type}`],
   ]
@@ -350,6 +388,16 @@ function populateTemplateSheets(
         cell.value = options.vendorNames.includes(String(val))
           ? String(val)
           : options.vendorNames[0]
+      } else if (template.entity_type !== 'products' && PRODUCT_NAME_COLUMNS.has(key) && options?.productNames?.length) {
+        cell.value = options.productNames.includes(String(val))
+          ? String(val)
+          : options.productNames[0]
+      } else if (FIELD_VALIDATIONS[key]?.kind === 'date') {
+        // Store as a real date (not the raw "2024-01-15" string) so it renders through the
+        // yyyy-mm-dd numFmt applied below exactly like a value the user would enter themselves.
+        const parsed = new Date(String(val))
+        cell.value = Number.isNaN(parsed.getTime()) ? (val as string | number) : parsed
+        cell.numFmt = 'yyyy-mm-dd'
       } else {
         cell.value = val as string | number
       }
@@ -365,7 +413,9 @@ function populateTemplateSheets(
     if (validation.kind === 'list') {
       const listKey = VENDOR_NAME_COLUMNS.has(key)
         ? 'live:vendors'
-        : `${template.entity_type}:${key}`
+        : PRODUCT_NAME_COLUMNS.has(key)
+          ? 'live:products'
+          : `${template.entity_type}:${key}`
       listRange = registerList(
         listsSheet,
         listCol,

@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { buildDependencyGraph } from '@/lib/migration/entities'
+import { buildDependencyGraph, ENTITY_PRODUCTION_TABLE } from '@/lib/migration/entities'
 import { listMigrationFiles } from '@/lib/migration/files'
 import { parseAllActiveFiles } from '@/lib/migration/parse'
 import { validateMigrationStaging } from '@/lib/migration/validate'
@@ -10,6 +10,28 @@ import { writeMigrationAudit } from '@/lib/migration/audit'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { refreshFinancialDiscrepancies } from '@/lib/migration/financial-integrity'
 import { clearProvenanceForMigration } from '@/lib/migration/provenance'
+
+/**
+ * Row count per entity's backing production table — lets buildDependencyGraph() tell "this
+ * dependency wasn't uploaded this time, but it already happened historically" apart from "never
+ * recorded anywhere", e.g. a Deliveries file staged with zero Receiving records (intakes) on
+ * record anywhere is very likely an out-of-order upload, not a legitimate incremental migration.
+ */
+async function getProductionEntityCounts(pool: Pool): Promise<Partial<Record<MigrationEntityType, number>>> {
+  const entries = Object.entries(ENTITY_PRODUCTION_TABLE) as Array<[MigrationEntityType, string]>
+  const counted = await Promise.all(
+    entries.map(async ([entity, table]) => {
+      try {
+        const { rows } = await pool.query(`SELECT COUNT(*)::int AS c FROM public.${table}`)
+        return [entity, rows[0]?.c ?? 0] as const
+      } catch {
+        // Table missing/renamed shouldn't break analysis — just skip it (treated as "unknown").
+        return [entity, undefined] as const
+      }
+    })
+  )
+  return Object.fromEntries(counted.filter(([, c]) => c !== undefined)) as Partial<Record<MigrationEntityType, number>>
+}
 
 async function runAnalyse(pool: Pool, migrationId: string, actorId?: string | null) {
   await updateMigrationProject(pool, migrationId, { status: 'analysing', current_stage: 3 }, actorId)
@@ -22,7 +44,8 @@ async function runAnalyse(pool: Pool, migrationId: string, actorId?: string | nu
     byEntity.set(f.entity_type, list)
   }
   const present = [...byEntity.entries()].map(([entity, file_ids]) => ({ entity, file_ids }))
-  const { graph, importOrder } = buildDependencyGraph(present)
+  const productionCounts = await getProductionEntityCounts(pool)
+  const { graph, importOrder } = buildDependencyGraph(present, productionCounts)
   await updateMigrationProject(
     pool,
     migrationId,
