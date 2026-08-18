@@ -3,7 +3,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Loader2, Package, User, Calendar, Barcode, Layers, AlertTriangle, AlertCircle, CheckCircle2 } from 'lucide-react'
+import {
+  Loader2,
+  Package,
+  User,
+  Calendar,
+  Barcode,
+  Layers,
+  AlertTriangle,
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+} from 'lucide-react'
 import { productSchema, type ProductFormValues } from '@/lib/validations'
 import type { Product, Vendor } from '@/types'
 import { formatGHS, cn } from '@/lib/utils'
@@ -23,6 +34,36 @@ import { useProductIntegrityCheck } from '@/hooks/useProductIntegrityCheck'
 const ADD_NEW_CATEGORY = '__new__'
 const EMPTY_CATEGORIES: string[] = []
 
+function FormSection({
+  title,
+  description,
+  defaultOpen = true,
+  children,
+}: {
+  title: string
+  description?: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className="rounded-xl border border-slate-200 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 hover:bg-slate-100/80 transition-colors text-left"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+          {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
+        </div>
+        <ChevronDown className={cn('w-4 h-4 text-slate-400 shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && <div className="px-4 py-4 space-y-4 border-t border-slate-100">{children}</div>}
+    </section>
+  )
+}
+
 interface ProductModalProps {
   open: boolean
   onClose: () => void
@@ -32,13 +73,9 @@ interface ProductModalProps {
   categories?: string[]
   isSubmitting?: boolean
   defaultVendorId?: string
-  /** When true, vendor is fixed (e.g. vendor user); show name only, no dropdown */
   vendorOnly?: boolean
-  /** Pre-fill fields when adding from sales import (no edit mode) */
   prefillValues?: Partial<ProductFormValues> | null
-  /** Shown when spreadsheet vendor could not be matched */
   vendorHint?: string | null
-  /** TCostEx ÷ Qty hint when adding from sales import */
   importPriceHint?: string | null
 }
 
@@ -57,7 +94,7 @@ export function ProductModal({
   importPriceHint,
 }: ProductModalProps) {
   const [hasExpiry, setHasExpiry] = useState(false)
-  const [categorySelect, setCategorySelect] = useState<string>('') // '' or existing category or ADD_NEW_CATEGORY
+  const [categorySelect, setCategorySelect] = useState<string>('')
   const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [submitError, setSubmitError] = useState<string | null>(null)
   const initKeyRef = useRef<string | null>(null)
@@ -223,7 +260,7 @@ export function ProductModal({
       open={open}
       onClose={onClose}
       title={initialData ? 'Edit Product' : 'Add New Product'}
-      description="Link a product to a vendor with commission settings"
+      description="Required fields are marked with *"
       maxWidthClass="max-w-xl"
       disableBackdropClose={isSubmitting}
     >
@@ -248,9 +285,6 @@ export function ProductModal({
               isWholesalePriceSpecified(payload.wholesale_price) ? payload.wholesale_price : null
             )
 
-            // Live product editing always requires explicit confirmation before a
-            // category change overwrites the existing one — never silent, unlike the
-            // Historical Migration Engine's audited automatic override.
             const existingCategory = initialData?.category ?? null
             const incomingCategory = payload.category ?? null
             const isRealCategoryChange =
@@ -273,57 +307,18 @@ export function ProductModal({
             }
           },
           () => {
-            setSubmitError('Please fix the highlighted fields above. Vendor, product name, and distro price are required.')
+            setSubmitError('Please fix the highlighted fields above.')
           }
         )}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <FormModalBody className="space-y-4">
+        <FormModalBody className="space-y-3">
           {submitError && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <p>{submitError}</p>
             </div>
           )}
-
-          {/* Product Name */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Product Name <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                {...register('name')}
-                className={cn(
-                  'form-input pl-10',
-                  sameProductMatch && 'border-red-500 focus:border-red-500 focus:ring-red-200',
-                  sameNameOtherSku &&
-                    !sameProductMatch &&
-                    'border-amber-400 focus:border-amber-500 focus:ring-amber-200'
-                )}
-                placeholder="e.g., Milo 400g"
-              />
-            </div>
-            {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
-            {sameProductMatch && (
-              <p className="mt-1 text-xs text-red-600 flex items-start gap-1">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                This name and SKU already exist as “{sameProductMatch.name}”
-                {sameProductMatch.sku ? ` (SKU: ${sameProductMatch.sku})` : ''}.
-              </p>
-            )}
-            {sameNameOtherSku && !sameProductMatch && (
-              <p className="mt-1 text-xs text-amber-700 flex items-start gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                “{sameNameOtherSku.name}” also uses this name with SKU “{sameNameOtherSku.sku ?? '—'}” —
-                different SKU is fine.
-              </p>
-            )}
-            <p className="mt-1 text-xs text-slate-400">
-              Matches spreadsheet description or product code on import
-            </p>
-          </div>
 
           {importPriceHint && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-sm">
@@ -339,161 +334,147 @@ export function ProductModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">SKU</label>
-              <input
-                {...register('sku')}
-                className={cn(
-                  'form-input',
-                  sameProductMatch && 'border-red-500 focus:border-red-500 focus:ring-red-200'
-                )}
-                placeholder="e.g. ML-400"
-              />
-              <p className="mt-1 text-xs text-slate-400">
-                Same SKU on a different product name is allowed. Name + SKU together must be unique.
-              </p>
-            </div>
+          <FormSection title="Basic information" description="Name, vendor, category, and barcode" defaultOpen>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Barcode <span className="text-slate-400 font-normal">(optional)</span>
+                Product Name <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
-                  {...register('barcode')}
+                  {...register('name')}
                   className={cn(
-                    'form-input pl-10 font-mono',
-                    integrity?.barcode.duplicate &&
-                      'border-red-500 focus:border-red-500 focus:ring-red-200',
-                    !saveBlocked &&
-                      watchedBarcode.trim() &&
-                      integrity &&
-                      !integrity.barcode.duplicate &&
-                      !integrityChecking &&
-                      'border-emerald-500 focus:border-emerald-500 focus:ring-emerald-200'
+                    'form-input pl-10',
+                    sameProductMatch && 'border-red-500 focus:border-red-500 focus:ring-red-200',
+                    sameNameOtherSku &&
+                      !sameProductMatch &&
+                      'border-amber-400 focus:border-amber-500 focus:ring-amber-200'
                   )}
-                  placeholder="For barcode scanner"
+                  placeholder="e.g., Milo 400g"
                 />
               </div>
-              {integrity?.barcode.duplicate && integrity.barcode.product && (
+              {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
+              {sameProductMatch && (
                 <p className="mt-1 text-xs text-red-600 flex items-start gap-1">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  Barcode already used by “{integrity.barcode.product.name}”
-                  {integrity.barcode.product.sku ? ` (SKU: ${integrity.barcode.product.sku})` : ''}.
+                  This name and SKU already exist as “{sameProductMatch.name}”
+                  {sameProductMatch.sku ? ` (SKU: ${sameProductMatch.sku})` : ''}.
                 </p>
               )}
-              {!integrity?.barcode.duplicate && watchedBarcode.trim() && integrity && !integrityChecking && (
-                <p className="mt-1 text-xs text-emerald-600 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Barcode available
+              {sameNameOtherSku && !sameProductMatch && (
+                <p className="mt-1 text-xs text-amber-700 flex items-start gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  “{sameNameOtherSku.name}” also uses this name with SKU “{sameNameOtherSku.sku ?? '—'}”.
                 </p>
               )}
             </div>
-          </div>
-          {integrityChecking && (watchedName.trim() || watchedSku.trim() || watchedBarcode.trim()) && (
-            <p className="text-xs text-slate-400 flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Checking name, SKU, and barcode…
-            </p>
-          )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Category</label>
-              <select
-                value={categorySelect}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setCategorySelect(v)
-                  setValue('category', v === ADD_NEW_CATEGORY ? '' : v)
-                }}
-                className="form-input appearance-none pr-8"
-              >
-                <option value="">Select category...</option>
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-                <option value={ADD_NEW_CATEGORY}>+ Add new category</option>
-              </select>
-              {categorySelect === ADD_NEW_CATEGORY && (
-                <input
-                  {...register('category')}
-                  className="form-input mt-2"
-                  placeholder="Enter new category name"
-                  autoFocus
-                />
-              )}
-            </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Packaging size <span className="text-slate-400 font-normal">(optional)</span>
+                Vendor <span className="text-red-500">*</span>
               </label>
-              <div className="relative">
-                <Layers className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input {...register('packaging_size')} className="form-input pl-10" placeholder="e.g. 400g, 1L" />
-              </div>
-            </div>
-          </div>
-
-          {/* Vendor */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Vendor <span className="text-red-500">*</span>
-            </label>
-            {vendorOnly && vendors.length > 0 ? (
-              <>
-                <input type="hidden" {...register('vendor_id')} />
-                <div className="flex items-center gap-2 form-input bg-slate-50 text-slate-700 pl-10">
-                  <User className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span>{vendors[0].name}</span>
+              {vendorOnly && vendors.length > 0 ? (
+                <>
+                  <input type="hidden" {...register('vendor_id')} />
+                  <div className="flex items-center gap-2 form-input bg-slate-50 text-slate-700 pl-10">
+                    <User className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span>{vendors[0].name}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <select {...register('vendor_id')} className="form-input pl-10 pr-8 appearance-none">
+                    <option value="">Select vendor...</option>
+                    {vendors.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
                 </div>
-              </>
-            ) : (
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <select {...register('vendor_id')} className="form-input pl-10 pr-8 appearance-none">
-                  <option value="">Select vendor...</option>
-                  {vendors.map(v => (
-                    <option key={v.id} value={v.id}>{v.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {errors.vendor_id && <p className="mt-1 text-xs text-red-500">{errors.vendor_id.message}</p>}
-          </div>
-
-          {/* Vendor price (all) + DistroGH markup (admin only — vendors never see it) */}
-          <div className={vendorOnly ? '' : 'grid grid-cols-2 gap-3'}>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Vendor Price (GHS) <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <CurrencyInputPrefix />
-                <input
-                  {...register('vendor_price', { valueAsNumber: true })}
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="form-input pl-11"
-                  placeholder="0.00"
-                />
-              </div>
-              <p className="mt-0.5 text-xs text-slate-400">Negotiated price per unit (vendor receives)</p>
-              {errors.vendor_price && <p className="mt-1 text-xs text-red-500">{errors.vendor_price.message}</p>}
+              )}
+              {errors.vendor_id && <p className="mt-1 text-xs text-red-500">{errors.vendor_id.message}</p>}
             </div>
 
-            {vendorOnly && <input type="hidden" {...register('distrogh_markup', { valueAsNumber: true })} />}
-            {!vendorOnly && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Category</label>
+                <select
+                  value={categorySelect}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setCategorySelect(v)
+                    setValue('category', v === ADD_NEW_CATEGORY ? '' : v)
+                  }}
+                  className="form-input appearance-none pr-8"
+                >
+                  <option value="">Select category...</option>
+                  {categoryOptions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  <option value={ADD_NEW_CATEGORY}>+ Add new category</option>
+                </select>
+                {categorySelect === ADD_NEW_CATEGORY && (
+                  <input
+                    {...register('category')}
+                    className="form-input mt-2"
+                    placeholder="Enter new category name"
+                    autoFocus
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Barcode</label>
+                <div className="relative">
+                  <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    {...register('barcode')}
+                    className={cn(
+                      'form-input pl-10 font-mono',
+                      integrity?.barcode.duplicate &&
+                        'border-red-500 focus:border-red-500 focus:ring-red-200',
+                      !saveBlocked &&
+                        watchedBarcode.trim() &&
+                        integrity &&
+                        !integrity.barcode.duplicate &&
+                        !integrityChecking &&
+                        'border-emerald-500 focus:border-emerald-500 focus:ring-emerald-200'
+                    )}
+                    placeholder="Scan or type barcode"
+                  />
+                </div>
+                {integrity?.barcode.duplicate && integrity.barcode.product && (
+                  <p className="mt-1 text-xs text-red-600 flex items-start gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    Barcode already used by “{integrity.barcode.product.name}”.
+                  </p>
+                )}
+                {!integrity?.barcode.duplicate && watchedBarcode.trim() && integrity && !integrityChecking && (
+                  <p className="mt-1 text-xs text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Barcode available
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {integrityChecking && (watchedName.trim() || watchedSku.trim() || watchedBarcode.trim()) && (
+              <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Checking name, SKU, and barcode…
+              </p>
+            )}
+          </FormSection>
+
+          <FormSection title="Pricing" description="Vendor price and selling tiers" defaultOpen>
+            <div className={vendorOnly ? '' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  DistroGH Markup (GHS) <span className="text-red-500">*</span>
+                  Vendor Price (GHS) <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <CurrencyInputPrefix />
                   <input
-                    {...register('distrogh_markup', { valueAsNumber: true })}
+                    {...register('vendor_price', { valueAsNumber: true })}
                     type="number"
                     step="0.01"
                     min="0"
@@ -501,159 +482,181 @@ export function ProductModal({
                     placeholder="0.00"
                   />
                 </div>
-                <p className="mt-0.5 text-xs text-slate-400">Fixed markup per unit added to vendor price for supermarkets</p>
-                {errors.distrogh_markup && <p className="mt-1 text-xs text-red-500">{errors.distrogh_markup.message}</p>}
+                {errors.vendor_price && <p className="mt-1 text-xs text-red-500">{errors.vendor_price.message}</p>}
               </div>
-            )}
-          </div>
 
-          <div className={vendorOnly ? '' : 'grid grid-cols-2 gap-3'}>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Wholesale price (GHS)</label>
-              <div className="relative">
-                <CurrencyInputPrefix />
-                <input
-                  {...register('wholesale_price', { valueAsNumber: true })}
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="form-input pl-11"
-                  placeholder="Same as vendor price"
-                />
-              </div>
-              <p className="mt-0.5 text-xs text-slate-400">Leave blank when wholesale is the same as vendor price</p>
+              {vendorOnly && <input type="hidden" {...register('distrogh_markup', { valueAsNumber: true })} />}
+              {!vendorOnly && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    DistroGH Markup (GHS) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <CurrencyInputPrefix />
+                    <input
+                      {...register('distrogh_markup', { valueAsNumber: true })}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="form-input pl-11"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {errors.distrogh_markup && <p className="mt-1 text-xs text-red-500">{errors.distrogh_markup.message}</p>}
+                </div>
+              )}
             </div>
-          </div>
 
-          {!vendorOnly && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Supermarket selling price (GHS)
-              </label>
-              <div className="relative max-w-xs">
-                <CurrencyInputPrefix />
-                <input
-                  {...register('supermarket_selling_price', { valueAsNumber: true })}
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="form-input pl-11"
-                  placeholder="Leave blank if unknown"
-                />
-              </div>
-              <p className="mt-0.5 text-xs text-slate-400">
-                Optional shelf price supermarkets charge the public. Enter manually when known — not used for vendor payouts or sales import.
-              </p>
-            </div>
-          )}
-
-          {/* Product expiry â€“ has expiry vs non-perishable */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Product type
-            </label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="hasExpiry"
-                  checked={!hasExpiry}
-                  onChange={() => setHasExpiry(false)}
-                  className="rounded-full border-slate-300 text-brand-600 focus:ring-brand-500"
-                />
-                <span className="text-sm text-slate-700">Non-perishable (no expiry)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="hasExpiry"
-                  checked={hasExpiry}
-                  onChange={() => setHasExpiry(true)}
-                  className="rounded-full border-slate-300 text-brand-600 focus:ring-brand-500"
-                />
-                <span className="text-sm text-slate-700">Has expiry date</span>
-              </label>
-            </div>
-            {hasExpiry && (
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Expiry date</label>
+            <div className={vendorOnly ? '' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Wholesale price (GHS)</label>
                 <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <CurrencyInputPrefix />
                   <input
-                    {...register('expiry_date')}
-                    type="date"
-                    className="form-input pl-10"
+                    {...register('wholesale_price', { valueAsNumber: true })}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="form-input pl-11"
+                    placeholder="Same as vendor price"
                   />
                 </div>
-                {errors.expiry_date && <p className="mt-1 text-xs text-red-500">{errors.expiry_date.message}</p>}
               </div>
-            )}
-          </div>
+              {!vendorOnly && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Supermarket selling price (GHS)</label>
+                  <div className="relative">
+                    <CurrencyInputPrefix />
+                    <input
+                      {...register('supermarket_selling_price', { valueAsNumber: true })}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="form-input pl-11"
+                      placeholder="Optional shelf price"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              MOQ (minimum order quantity) <span className="text-slate-400 font-normal">(optional)</span>
-            </label>
-            <input
-              {...register('moq', { valueAsNumber: true })}
-              type="number"
-              min={1}
-              step={1}
-              className="form-input w-24"
-              placeholder="1"
-            />
-            <p className="mt-1 text-xs text-slate-400">Defaults to 1 if left blank.</p>
-            {errors.moq && <p className="mt-1 text-xs text-red-500">{errors.moq.message}</p>}
-          </div>
-
-          {/* Preview calculation — vendors only see their price; admins see full breakdown */}
-          {vendorOnly ? (
-            vendorPrice > 0 && (
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                <p className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wide">Your price per unit</p>
-                <div className="flex justify-between text-sm">
+            {vendorOnly ? (
+              vendorPrice > 0 && (
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 text-sm flex justify-between">
+                  <span className="text-slate-600">Your price per unit</span>
+                  <span className="font-semibold text-emerald-600">{formatGHS(vendorPrice)}</span>
+                </div>
+              )
+            ) : (vendorPrice > 0 || distroghMarkup > 0) && (
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 space-y-1.5 text-sm">
+                <div className="flex justify-between">
                   <span className="text-slate-600">Vendor receives</span>
                   <span className="font-semibold text-emerald-600">{formatGHS(vendorPrice)}</span>
                 </div>
-              </div>
-            )
-          ) : (vendorPrice > 0 || distroghMarkup > 0) && (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 mb-3 uppercase tracking-wide">Per Unit Breakdown</p>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Vendor receives</span>
-                  <span className="font-semibold text-emerald-600">{formatGHS(vendorPrice)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between">
                   <span className="text-slate-600">DistroGH markup</span>
                   <span className="font-semibold text-violet-600">{formatGHS(distroghMarkup)}</span>
                 </div>
-                <div className="border-t border-slate-200 pt-1.5 flex justify-between text-sm">
-                  <span className="font-semibold text-slate-700">Distro price to supermarket</span>
-                  <span className="font-bold text-slate-800">{formatGHS(basePrice)}</span>
+                <div className="border-t border-slate-200 pt-1.5 flex justify-between font-semibold">
+                  <span className="text-slate-700">Distro price</span>
+                  <span>{formatGHS(basePrice)}</span>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </FormSection>
 
+          <FormSection title="Inventory / product details" description="Packaging, MOQ, and expiry" defaultOpen={false}>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Packaging size</label>
+              <div className="relative">
+                <Layers className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input {...register('packaging_size')} className="form-input pl-10" placeholder="e.g. 400g, 1L" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">MOQ</label>
+              <input
+                {...register('moq', { valueAsNumber: true })}
+                type="number"
+                min={1}
+                step={1}
+                className="form-input w-24"
+                placeholder="1"
+              />
+              {errors.moq && <p className="mt-1 text-xs text-red-500">{errors.moq.message}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Product type</label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="hasExpiry"
+                    checked={!hasExpiry}
+                    onChange={() => setHasExpiry(false)}
+                    className="rounded-full border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="text-sm text-slate-700">Non-perishable</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="hasExpiry"
+                    checked={hasExpiry}
+                    onChange={() => setHasExpiry(true)}
+                    className="rounded-full border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <span className="text-sm text-slate-700">Has expiry date</span>
+                </label>
+              </div>
+              {hasExpiry && (
+                <div className="mt-3">
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Expiry date</label>
+                  <div className="relative max-w-xs">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input {...register('expiry_date')} type="date" className="form-input pl-10" />
+                  </div>
+                  {errors.expiry_date && <p className="mt-1 text-xs text-red-500">{errors.expiry_date.message}</p>}
+                </div>
+              )}
+            </div>
+          </FormSection>
+
+          <FormSection title="Advanced information" description="SKU and internal identifiers" defaultOpen={false}>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">SKU</label>
+              <input
+                {...register('sku')}
+                className={cn(
+                  'form-input font-mono',
+                  sameProductMatch && 'border-red-500 focus:border-red-500 focus:ring-red-200'
+                )}
+                placeholder="e.g. ML-400"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Optional stock-keeping unit. Name + SKU together must be unique.
+              </p>
+            </div>
+          </FormSection>
         </FormModalBody>
 
         <FormModalFooter>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || saveBlocked || integrityChecking}
-              className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : initialData ? 'Save Changes' : 'Add Product'}
-            </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting || saveBlocked || integrityChecking}
+            className="flex-1 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+          >
+            {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : initialData ? 'Save Changes' : 'Add Product'}
+          </button>
         </FormModalFooter>
       </form>
     </FormModal>
