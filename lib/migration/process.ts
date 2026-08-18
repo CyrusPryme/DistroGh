@@ -10,6 +10,7 @@ import { writeMigrationAudit } from '@/lib/migration/audit'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { refreshFinancialDiscrepancies } from '@/lib/migration/financial-integrity'
 import { clearProvenanceForMigration } from '@/lib/migration/provenance'
+import { generatePayoutsFromSalesMigration } from '@/lib/migration/sales-payouts'
 
 /**
  * Row count per entity's backing production table — lets buildDependencyGraph() tell "this
@@ -108,6 +109,18 @@ async function runImportChunk(pool: Pool, jobId: string, migrationId: string, en
       progress_pct: 100,
       result_summary: { done: true },
     })
+    if (entityType === 'sales') {
+      const payoutResult = await generatePayoutsFromSalesMigration(
+        pool,
+        migrationId,
+        project?.approved_by ?? project?.created_by ?? null
+      )
+      if (payoutResult) {
+        await updateJobProgress(pool, jobId, {
+          result_summary: { done: true, sales_payouts: payoutResult },
+        })
+      }
+    }
     return { done: true, processed: 0 }
   }
 

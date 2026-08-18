@@ -32,10 +32,17 @@ export function detectEntityType(
   if (/return/.test(fn) || (has('reason') && has('quantity') && (has('product_name') || has('product')))) {
     return 'returns'
   }
-  // Palace / sales excel
+  // Palace / sales excel (store_name + MONTH + PAID are common on Palace exports)
   if (
     /sale/.test(fn) ||
-    (has('qty') && (has('description') || has('product') || has('code')) && (has('tcostex') || has('branch') || has('name')))
+    (has('qty') &&
+      (has('description') || has('product') || has('code')) &&
+      (has('tcostex') ||
+        has('branch') ||
+        has('storename') ||
+        has('name') ||
+        has('month') ||
+        has('paymenttosupplier')))
   ) {
     return 'sales'
   }

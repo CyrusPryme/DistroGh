@@ -15,9 +15,11 @@ export type MigrationTemplateRecord = {
 export type TemplateBuildOptions = {
   vendorNames?: string[]
   productNames?: string[]
+  supermarketBranchLabels?: string[]
 }
 
 const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
+const SUPERMARKET_BRANCH_COLUMNS = new Set(['store_name', 'branch'])
 // Deliberately excludes 'name' (the Products template's own new-product name field) and the
 // free-text Palace-style sales identifiers (description/code/barcode) — those aren't a lookup
 // against the existing catalogue, so forcing them into a dropdown would block legitimate values.
@@ -53,6 +55,8 @@ const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
   commission_rate: { kind: 'decimal', min: 0 },
   default_commission: { kind: 'decimal', min: 0 },
   transport_cost: { kind: 'decimal', min: 0 },
+  TCostEx: { kind: 'decimal', min: 0 },
+  tcostex: { kind: 'decimal', min: 0 },
   markup_amount: { kind: 'decimal', min: 0 },
   supermarket_selling_price: { kind: 'decimal', min: 0 },
   years_paid: { kind: 'whole', min: 1 },
@@ -83,6 +87,10 @@ const ENTITY_FIELD_OVERRIDES: Partial<Record<string, Record<string, ColumnValida
   returns: {
     reason: { kind: 'list', options: ['expired', 'defective_product', 'defective_packaging', 'other'] },
   },
+  sales: {
+    paid: { kind: 'list', options: ['Yes'] },
+    report_month: { kind: 'date' },
+  },
 }
 
 function colLetter(index: number): string {
@@ -108,6 +116,15 @@ function getValidation(
       options: names.length
         ? names
         : ['(No vendors in system — add vendors first)'],
+    }
+  }
+  if (SUPERMARKET_BRANCH_COLUMNS.has(column)) {
+    const branches = options?.supermarketBranchLabels ?? []
+    return {
+      kind: 'list',
+      options: branches.length
+        ? branches
+        : ['(No supermarkets in system — add supermarkets first)'],
     }
   }
   // The Products template's own 'name' column defines a *new* product — never turn that into a
@@ -338,6 +355,14 @@ function buildInstructionsSheet(
       : []),
     ...(template.entity_type !== 'products' && (template.required_columns || []).some((c) => PRODUCT_NAME_COLUMNS.has(c))
       ? [[`Product dropdown lists ${options?.productNames?.length ?? 0} product(s) from the system at download time — re-download after adding/removing products.`]]
+      : []),
+    ...(template.entity_type === 'sales'
+      ? [
+          ['For Palace exports: description = product name, store_name = branch, TCostEx = vendor line total (PAYMENT TO SUPPLIER).'],
+          ['report_month: first day of the sales month (e.g. 2024-06-01). Legacy MONTH-only sheets need report_year added.'],
+          ['paid: Yes if vendor was paid for that month; leave blank if unpaid — used for payout generation, not stored on each sale.'],
+          [`Supermarket branch dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet(s) at download time.`],
+        ]
       : []),
     [''],
     [`Entity type for upload: ${template.entity_type}`],

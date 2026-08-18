@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateRow } from '@/lib/migration/validate'
+import { normalizeSalesRowData } from '@/lib/migration/sales-fields'
 
 describe('validateRow — date accuracy (never silently default a historical date to "today")', () => {
   it('intakes: missing received_date is a hard error, not a silent default', () => {
@@ -119,5 +120,24 @@ describe('validateRow — sales are always reported by full calendar month', () 
       week_end: '2024-03-31',
     })
     expect(warnings.some((w) => w.code === 'SALES_PERIOD_ADJUSTED')).toBe(false)
+  })
+
+  it('Palace MONTH + report_year normalizes to full calendar month via normalizeSalesRowData', () => {
+    const { errors, normalized } = validateRow(
+      'sales',
+      normalizeSalesRowData({
+        description: 'Palm Oil 1L',
+        code: '1234567890',
+        qty: 5,
+        store_name: 'LABONE',
+        TCostEx: 150,
+        MONTH: 'JUNE',
+        report_year: 2024,
+      })
+    )
+    expect(errors.filter((e) => e.code === 'MISSING_DATE' || e.code === 'INVALID_DATE')).toEqual([])
+    expect(normalized.week_start).toBe('2024-06-01')
+    expect(normalized.week_end).toBe('2024-06-30')
+    expect(normalized.vendor_due).toBe(150)
   })
 })

@@ -1,6 +1,8 @@
 import type { Pool } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { normalizeMomoNetwork, momoNetworkWasNormalized } from '@/lib/migration/normalize'
+import { normalizeSalesRowData, isPaidMarker } from '@/lib/migration/sales-fields'
+import { matchSupermarketByBranch } from '@/lib/supermarket-match'
 import { validateVendorPhones } from '@/lib/migration/vendor-fields'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { updateMigrationProject } from '@/lib/migration/projects'
@@ -128,11 +130,27 @@ export function validateRow(
       if (!str(data.description) && !str(data.product) && !str(data.product_name) && !str(data.code) && !str(data.barcode)) {
         errors.push({ code: 'MISSING_PRODUCT', message: 'product identifier is required' })
       }
+      if (!str(data.store_name) && !str(data.branch) && !str(data.store)) {
+        warnings.push({
+          code: 'SALES_BRANCH_MISSING',
+          message: 'store_name / branch not provided — supermarket must be corrected manually before import',
+        })
+      }
+      const tcost = num(data.TCostEx ?? data.vendor_due)
+      if (tcost != null) normalized.vendor_due = tcost
       const periodSource = str(data.week_start) || str(data.report_month)
       if (!periodSource) {
-        // Never fall back to "today" for a historical sales period — that would silently
-        // misfile the sale into whatever month the migration happens to run in.
-        errors.push({ code: 'MISSING_DATE', message: 'week_start or report_month is required' })
+        const monthOnly = str(data.month ?? data.MONTH)
+        if (monthOnly && !str(data.report_year ?? data.year)) {
+          errors.push({
+            code: 'MISSING_DATE',
+            message: 'report_month is required — or supply MONTH plus report_year (e.g. JUNE + 2024)',
+          })
+        } else {
+          // Never fall back to "today" for a historical sales period — that would silently
+          // misfile the sale into whatever month the migration happens to run in.
+          errors.push({ code: 'MISSING_DATE', message: 'week_start or report_month is required' })
+        }
       } else if (!parseDate(data.week_start) && !parseDate(data.report_month)) {
         errors.push({ code: 'INVALID_DATE', message: 'week_start/report_month is not a valid date' })
       } else {
@@ -264,6 +282,16 @@ export async function validateMigrationStaging(
     [migrationId]
   )
 
+  const { rows: supermarketRows } = await pool.query(
+    `SELECT id, name, branch, store_code FROM public.supermarkets WHERE deleted_at IS NULL`
+  )
+  const supermarkets = supermarketRows as Array<{
+    id: string
+    name: string
+    branch: string | null
+    store_code: string | null
+  }>
+
   // Earliest known date per product this stock was ever received/delivered — lets a Deliveries
   // row be flagged if it's dated before that product was ever received (intakes), and a
   // Sales/Returns row be flagged if it's dated before that product was ever delivered anywhere.
@@ -313,7 +341,8 @@ export async function validateMigrationStaging(
 
   for (const row of staging) {
     const entity = row.entity_type as MigrationEntityType
-    const data = { ...(row.raw_data as object), ...(row.corrections as object) } as Record<string, unknown>
+    const raw = { ...(row.raw_data as object), ...(row.corrections as object) } as Record<string, unknown>
+    const data = entity === 'sales' ? normalizeSalesRowData(raw) : raw
     const { errors, warnings, normalized } = validateRow(entity, data)
 
     // Duplicate detection within file/entity
@@ -373,6 +402,13 @@ export async function validateMigrationStaging(
       if (pid) {
         resolved.product_id = pid
         infos.push({ code: 'PRODUCT_MATCHED', message: 'Existing product matched' })
+        if (entity === 'sales' && !resolved.vendor_id) {
+          const fromProduct = (products as ProductRow[]).find((p) => p.id === pid)
+          if (fromProduct?.vendor_id) {
+            resolved.vendor_id = fromProduct.vendor_id
+            infos.push({ code: 'VENDOR_FROM_PRODUCT', message: 'Vendor resolved from matched product' })
+          }
+        }
       } else if (pname || barcode) {
         warnings.push({ code: 'PRODUCT_NOT_FOUND', message: 'Product not found in production (may be created from staging)' })
       }
@@ -400,6 +436,30 @@ export async function validateMigrationStaging(
         warnings.push({
           code: entity === 'sales' ? 'SALE_BEFORE_DELIVERY' : 'RETURN_BEFORE_DELIVERY',
           message: `${entity === 'sales' ? 'Sale' : 'Return'} dated ${str(dateField)} is before the earliest Delivery record for this product (${earliest.toISOString().slice(0, 10)}) — check the date.`,
+        })
+      }
+    }
+
+    if (entity === 'sales' && !errors.length) {
+      const branch = str(data.store_name || data.branch)
+      const storeCode = str(data.store || data.store_code)
+      const matchedSm = matchSupermarketByBranch(branch, storeCode, supermarkets)
+      if (matchedSm) {
+        resolved.supermarket_id = matchedSm.id
+        infos.push({
+          code: 'SUPERMARKET_MATCHED',
+          message: `Supermarket matched: ${matchedSm.name}${matchedSm.branch ? ` — ${matchedSm.branch}` : ''}`,
+        })
+      } else if (branch || storeCode) {
+        warnings.push({
+          code: 'SUPERMARKET_NOT_FOUND',
+          message: `No supermarket matched store_name "${branch || storeCode}" — correct in wizard before import`,
+        })
+      }
+      if (isPaidMarker(data.paid ?? data.PAID)) {
+        infos.push({
+          code: 'VENDOR_PAID_FLAG',
+          message: 'Row marked paid — will be used when generating historical payout records (vendor + month)',
         })
       }
     }
