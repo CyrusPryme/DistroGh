@@ -630,11 +630,13 @@ async function writeRow(
       const total = n(d.total_sales, unit * qty)
       const vendorDue = n(d.vendor_due, 0)
       const commission = Math.max(0, total - vendorDue)
+      const supermarketPaid =
+        typeof d.supermarket_paid === 'boolean' ? d.supermarket_paid : true
       const ins = await client.query(
         `INSERT INTO public.sales
           (product_id, supermarket_id, qty_sold, unit_price, total_sales, vendor_due, commission_amount,
-           week_start, week_end, import_batch_id, imported_at, developer_fee)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::date,$9::date,$10,now(),0)
+           week_start, week_end, import_batch_id, imported_at, developer_fee, supermarket_paid)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::date,$9::date,$10,now(),0,$11)
          RETURNING id`,
         [
           productId,
@@ -647,6 +649,7 @@ async function writeRow(
           weekStart,
           weekEnd,
           `migration_${ctx.migrationId}`,
+          supermarketPaid,
         ]
       )
       return { productionId: ins.rows[0].id, action: 'create' }

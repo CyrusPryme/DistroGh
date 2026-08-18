@@ -31,6 +31,7 @@ export async function GET() {
           from public.sales s
           join public.products pr on pr.id = s.product_id
           where s.deleted_at is null and pr.deleted_at is null
+            and coalesce(s.supermarket_paid, true) = true
           group by pr.vendor_id
         ),
         returns_totals as (

@@ -359,8 +359,8 @@ function buildInstructionsSheet(
     ...(template.entity_type === 'sales'
       ? [
           ['For Palace exports: description = product name, store_name = branch, TCostEx = vendor line total (PAYMENT TO SUPPLIER).'],
+          ['PAID column: supermarket has paid DistroGH for that sale line. Blank = sold but not settled — excluded from vendor balance.'],
           ['report_month: first day of the sales month (e.g. 2024-06-01). Legacy MONTH-only sheets need report_year added.'],
-          ['paid: Yes if vendor was paid for that month; leave blank if unpaid — used for payout generation, not stored on each sale.'],
           [`Supermarket branch dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet(s) at download time.`],
         ]
       : []),

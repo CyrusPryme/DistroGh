@@ -286,6 +286,7 @@ export default function SalesImportPage() {
         week_start,
         week_end,
         import_batch_id: batchId,
+        ...(row.supermarket_paid !== undefined ? { supermarket_paid: row.supermarket_paid } : {}),
       }))
       await salesService.bulkInsert(inserts)
       clearSalesImportDraft()
@@ -650,6 +651,16 @@ export default function SalesImportPage() {
               <p className="text-xs text-slate-400">Total Sales</p>
             </div>
           </div>
+
+          {preview.has_supermarket_paid_column && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <strong>PAID column detected.</strong> Lines marked paid = supermarket settled with DistroGH (count toward vendor balance).
+              {' '}
+              <span className="text-emerald-700 font-medium">{preview.supermarket_settled_count ?? 0} settled</span>
+              {' · '}
+              <span className="text-amber-700 font-medium">{preview.supermarket_unsettled_count ?? 0} awaiting supermarket payment</span>
+            </div>
+          )}
 
           {/* Import settings */}
           <div className="data-card">

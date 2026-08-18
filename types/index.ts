@@ -133,6 +133,8 @@ export interface Sale {
   week_end: string
   imported_at: string
   import_batch_id: string
+  /** Supermarket has remitted payment to DistroGH for this sale line (Palace PAID column). */
+  supermarket_paid: boolean
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -360,6 +362,8 @@ export interface ParsedSaleRow {
   /** Database product name after match or manual link */
   matched_product_name?: string | null
   product_link_source?: 'manual' | 'auto' | null
+  /** When PAID column present: supermarket settled this line with DistroGH */
+  supermarket_paid?: boolean
 }
 
 export interface ImportPreview {
@@ -371,6 +375,10 @@ export interface ImportPreview {
   price_mismatch_count?: number
   /** When true, each row is matched to a supermarket by branch (no single dropdown) */
   uses_branch_matching?: boolean
+  /** Palace reports include PAID = supermarket settled with DistroGH */
+  has_supermarket_paid_column?: boolean
+  supermarket_settled_count?: number
+  supermarket_unsettled_count?: number
   totalSales: number
   totalCommission: number
   totalVendorDue: number

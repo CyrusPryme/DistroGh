@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
-  isPaidMarker,
+  isSupermarketPaidMarker,
   monthTextToReportMonth,
   normalizeSalesRowData,
   parseMonthName,
+  rowHasPaidColumn,
 } from '@/lib/migration/sales-fields'
 
 describe('sales-fields — Palace column normalization', () => {
-  it('maps store_name, MONTH+report_year, and PAYMENT TO SUPPLIER', () => {
+  it('maps store_name, MONTH+report_year, PAYMENT TO SUPPLIER, and PAID → supermarket_paid', () => {
     const out = normalizeSalesRowData({
       store: 1020,
       store_name: 'LABONE',
@@ -23,13 +24,19 @@ describe('sales-fields — Palace column normalization', () => {
     expect(out.code).toBe('342787011143')
     expect(out.report_month).toBe('2024-06-01')
     expect(out.vendor_due).toBe(35)
-    expect(out.vendor_paid).toBe(true)
+    expect(out.supermarket_paid).toBe(true)
   })
 
-  it('treats blank PAID as unpaid', () => {
+  it('blank PAID = supermarket has not paid DistroGH yet', () => {
     const out = normalizeSalesRowData({ PAID: null, MONTH: 'MAY', report_year: 2024, qty: 1 })
-    expect(out.vendor_paid).toBe(false)
+    expect(out.supermarket_paid).toBe(false)
     expect(out.report_month).toBe('2024-05-01')
+  })
+
+  it('no PAID column leaves supermarket_paid unset', () => {
+    const out = normalizeSalesRowData({ description: 'Oil', qty: 1, report_month: '2024-01-01' })
+    expect(out.supermarket_paid).toBeUndefined()
+    expect(rowHasPaidColumn({ description: 'Oil' })).toBe(false)
   })
 
   it('parseMonthName handles full month names', () => {
@@ -43,11 +50,9 @@ describe('sales-fields — Palace column normalization', () => {
     expect(monthTextToReportMonth('APRIL', null)).toBeNull()
   })
 
-  it('isPaidMarker: any non-blank PAID value means paid', () => {
-    expect(isPaidMarker('PAID')).toBe(true)
-    expect(isPaidMarker('Yes')).toBe(true)
-    expect(isPaidMarker(304)).toBe(true)
-    expect(isPaidMarker('')).toBe(false)
-    expect(isPaidMarker(null)).toBe(false)
+  it('isSupermarketPaidMarker: non-blank PAID means settled', () => {
+    expect(isSupermarketPaidMarker('PAID')).toBe(true)
+    expect(isSupermarketPaidMarker('')).toBe(false)
+    expect(isSupermarketPaidMarker(null)).toBe(false)
   })
 })

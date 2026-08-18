@@ -17,7 +17,7 @@ export type VendorBalanceOptions = {
   includeDeductions?: boolean
 }
 
-/** SQL balance: sales vendor_due − returns at vendor_price − optional deductions − completed payouts. */
+/** SQL balance: settled sales vendor_due − returns − optional deductions − completed payouts. */
 export function vendorBalanceSql(includeDeductions: boolean): string {
   const deduct = includeDeductions
     ? `(select total_deductions from deductions_totals)`
@@ -28,6 +28,7 @@ export function vendorBalanceSql(includeDeductions: boolean): string {
       from public.sales s
       join public.products pr on pr.id = s.product_id
       where s.deleted_at is null and pr.deleted_at is null and pr.vendor_id = $1::uuid
+        and s.supermarket_paid = true
     ),
     returns_totals as (
       select coalesce(sum(r.quantity_returned * pr.vendor_price), 0) as returns_deduct

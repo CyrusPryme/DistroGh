@@ -1,7 +1,7 @@
 import type { Pool } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { normalizeMomoNetwork, momoNetworkWasNormalized } from '@/lib/migration/normalize'
-import { normalizeSalesRowData, isPaidMarker } from '@/lib/migration/sales-fields'
+import { normalizeSalesRowData, isSupermarketPaidMarker } from '@/lib/migration/sales-fields'
 import { matchSupermarketByBranch } from '@/lib/supermarket-match'
 import { validateVendorPhones } from '@/lib/migration/vendor-fields'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -138,6 +138,9 @@ export function validateRow(
       }
       const tcost = num(data.TCostEx ?? data.vendor_due)
       if (tcost != null) normalized.vendor_due = tcost
+      if (typeof data.supermarket_paid === 'boolean') {
+        normalized.supermarket_paid = data.supermarket_paid
+      }
       const periodSource = str(data.week_start) || str(data.report_month)
       if (!periodSource) {
         const monthOnly = str(data.month ?? data.MONTH)
@@ -456,10 +459,29 @@ export async function validateMigrationStaging(
           message: `No supermarket matched store_name "${branch || storeCode}" — correct in wizard before import`,
         })
       }
-      if (isPaidMarker(data.paid ?? data.PAID)) {
+      if (typeof data.supermarket_paid === 'boolean') {
+        if (data.supermarket_paid) {
+          infos.push({
+            code: 'SUPERMARKET_SETTLED',
+            message: 'Supermarket paid DistroGH for this line — counts toward vendor balance',
+          })
+        } else {
+          infos.push({
+            code: 'SUPERMARKET_UNSETTLED',
+            message: 'Sold but supermarket has not paid DistroGH yet — excluded from vendor balance until settled',
+          })
+        }
+      } else if (isSupermarketPaidMarker(data.paid ?? data.PAID)) {
+        normalized.supermarket_paid = true
         infos.push({
-          code: 'VENDOR_PAID_FLAG',
-          message: 'Row marked paid — will be used when generating historical payout records (vendor + month)',
+          code: 'SUPERMARKET_SETTLED',
+          message: 'PAID marked — supermarket settled this line with DistroGH',
+        })
+      } else if (data.PAID != null || data.paid != null) {
+        normalized.supermarket_paid = false
+        infos.push({
+          code: 'SUPERMARKET_UNSETTLED',
+          message: 'PAID blank — sold but not yet settled by supermarket',
         })
       }
     }

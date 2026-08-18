@@ -22,6 +22,8 @@ type SaleInsert = {
   commission_amount?: number
   vendor_due?: number
   total_sales?: number
+  /** Defaults true when omitted (legacy imports without PAID column) */
+  supermarket_paid?: boolean
 }
 
 export async function POST(req: Request) {
@@ -169,6 +171,7 @@ export async function POST(req: Request) {
       const developerFee = roundMoney(feeResult.fee)
       // DistroGH keeps everything after vendor_due and developer_fee
       const distroghCommission = roundMoney(commissionAmount - developerFee)
+      const supermarketPaid = s.supermarket_paid !== false
 
       await client.query(
         `
@@ -184,7 +187,8 @@ export async function POST(req: Request) {
           fee_config_id,
           week_start,
           week_end,
-          import_batch_id
+          import_batch_id,
+          supermarket_paid
         )
         values (
           $1::uuid,
@@ -198,7 +202,8 @@ export async function POST(req: Request) {
           $9::uuid,
           $10::date,
           $11::date,
-          $12
+          $12,
+          $13
         )
         `,
         [
@@ -207,6 +212,7 @@ export async function POST(req: Request) {
           developerFee,
           feeResult.config_id ?? null,
           period.week_start, period.week_end, batchId,
+          supermarketPaid,
         ]
       )
     }

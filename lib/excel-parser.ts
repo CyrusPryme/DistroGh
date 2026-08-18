@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { isSupermarketPaidMarker } from '@/lib/migration/sales-fields'
 import { ParsedSaleRow, ImportPreview } from '@/types'
 import { roundMoney } from '@/lib/utils'
 import { matchSupermarketByBranch, type SupermarketLookup } from '@/lib/supermarket-match'
@@ -35,6 +36,7 @@ interface ColumnMap {
   creditor?: number
   branch?: number
   store?: number
+  paid?: number
 }
 
 function normalise(str: string): string {
@@ -71,10 +73,11 @@ function detectColumns(headerRow: ExcelJS.Row): ColumnMap {
     else if (h === 'code' || h === 'product code' || h === 'barcode') headers.code = colNumber
     else if (h === 'description' || h === 'desc' || h === 'product description') headers.description = colNumber
     else if (h === 'qty' || h.includes('quantity')) headers.qty = colNumber
-    else if (h.includes('tcost') || h === 'total cost') headers.totalCost = colNumber
+    else if (h.includes('tcost') || h === 'total cost' || h.includes('payment to supplier')) headers.totalCost = colNumber
     else if (h === 'name' && headers.vendorName == null) headers.vendorName = colNumber
     else if (h === 'creditor' || h === 'vendor') headers.creditor = colNumber
-    else if (h === 'branch') headers.branch = colNumber
+    else if (h === 'branch' || h === 'store_name') headers.branch = headers.branch ?? colNumber
+    else if (h === 'paid') headers.paid = colNumber
     else if (h.includes('product') && headers.product == null) headers.product = colNumber
     else if (h.includes('price') && headers.price == null && !h.includes('tcost')) headers.price = colNumber
   })
@@ -201,7 +204,8 @@ function buildMatchedRow(
   matched: ProductLookup,
   qty: number,
   sheetLineTotal: number,
-  sheetUnitPrice: number
+  sheetUnitPrice: number,
+  supermarketPaid?: boolean
 ): ParsedSaleRow {
   const pricing = resolveProductPricing(matched)
   const catalogShopPrice = roundMoney(pricing.shopPrice)
@@ -241,6 +245,7 @@ function buildMatchedRow(
       ? `Recording at spreadsheet GHS ${sheetUnit.toFixed(2)}/unit (catalog distro ${formatShopPriceBreakdown(pricing)})`
       : undefined,
     price_warning: amounts.price_warning ?? undefined,
+    ...(supermarketPaid !== undefined ? { supermarket_paid: supermarketPaid } : {}),
   }
 }
 
@@ -248,7 +253,8 @@ function buildUnmatchedRow(
   base: SpreadsheetRowMeta,
   qty: number,
   sheetLineTotal: number,
-  sheetUnitPrice: number
+  sheetUnitPrice: number,
+  supermarketPaid?: boolean
 ): ParsedSaleRow {
   const sheetUnit = roundMoney(sheetUnitPrice)
   const lineTotal = roundMoney(sheetLineTotal > 0 ? sheetLineTotal : sheetUnit * qty)
@@ -266,6 +272,7 @@ function buildUnmatchedRow(
     matched: false,
     error: 'Product not in database',
     price_mismatch: false,
+    ...(supermarketPaid !== undefined ? { supermarket_paid: supermarketPaid } : {}),
   }
 }
 
@@ -384,16 +391,18 @@ export function rematchImportRows(
 
     const { product, linkSource, manualId } = resolveRowProduct(base, products, manualProductLinks)
 
+    const paidFlag = row.supermarket_paid
+
     if (product) {
       return {
-        ...buildMatchedRow(base, product, row.qty_sold, sheetLine, sheetUnit),
+        ...buildMatchedRow(base, product, row.qty_sold, sheetLine, sheetUnit, paidFlag),
         manual_product_id: manualId,
         matched_product_name: product.name,
         product_link_source: linkSource,
       }
     }
 
-    const unmatched = buildUnmatchedRow(base, row.qty_sold, sheetLine, sheetUnit)
+    const unmatched = buildUnmatchedRow(base, row.qty_sold, sheetLine, sheetUnit, paidFlag)
     if (manualId) {
       return {
         ...unmatched,
@@ -405,10 +414,18 @@ export function rematchImportRows(
     return unmatched
   })
 
-  return buildImportPreview(rematched, usesBranchMatching)
+  return buildImportPreview(
+    rematched,
+    usesBranchMatching,
+    rematched.some((r) => r.supermarket_paid !== undefined)
+  )
 }
 
-function buildImportPreview(rows: ParsedSaleRow[], usesBranchMatching = false): ImportPreview {
+function buildImportPreview(
+  rows: ParsedSaleRow[],
+  usesBranchMatching = false,
+  hasSupermarketPaidColumn = false
+): ImportPreview {
   const unmatched = Array.from(
     new Set(
       rows
@@ -429,12 +446,21 @@ function buildImportPreview(rows: ParsedSaleRow[], usesBranchMatching = false): 
     : []
   const importableRows = rows.filter((r) => isRowReadyToImport(r, usesBranchMatching))
   const price_mismatch_count = rows.filter((r) => r.matched && r.price_mismatch).length
+  const supermarket_settled_count = hasSupermarketPaidColumn
+    ? rows.filter((r) => r.supermarket_paid === true).length
+    : undefined
+  const supermarket_unsettled_count = hasSupermarketPaidColumn
+    ? rows.filter((r) => r.supermarket_paid === false).length
+    : undefined
 
   return {
     rows,
     unmatched,
     unmatched_branches,
     uses_branch_matching: usesBranchMatching,
+    has_supermarket_paid_column: hasSupermarketPaidColumn,
+    supermarket_settled_count,
+    supermarket_unsettled_count,
     price_mismatch_count,
     totalSales: importableRows.reduce((s, r) => s + r.total_sales, 0),
     totalCommission: importableRows.reduce((s, r) => s + r.commission_amount, 0),
@@ -466,7 +492,8 @@ export async function parseExcelFile(
 
   const headers = detectColumns(worksheet.getRow(1))
   const palace = isPalaceFormat(headers)
-  const usesBranchMatching = palace && !!headers.branch
+  const usesBranchMatching = palace && !!(headers.branch || headers.store)
+  const hasPaidColumn = headers.paid != null
   const parsed: ParsedSaleRow[] = []
 
   const rowCount = worksheet.rowCount ?? 0
@@ -512,6 +539,10 @@ export async function parseExcelFile(
 
     if (!productName || qty === 0) continue
 
+    const supermarketPaid = hasPaidColumn
+      ? isSupermarketPaidMarker(headers.paid ? row.getCell(headers.paid).value : null)
+      : undefined
+
     const base = buildSpreadsheetBase({
       productName,
       productCode,
@@ -526,13 +557,13 @@ export async function parseExcelFile(
 
     const matchedProduct = matchProduct(productName, productCode, products)
     if (matchedProduct) {
-      parsed.push(buildMatchedRow(base, matchedProduct, qty, sheetLineTotal, sheetUnitPrice))
+      parsed.push(buildMatchedRow(base, matchedProduct, qty, sheetLineTotal, sheetUnitPrice, supermarketPaid))
     } else {
-      parsed.push(buildUnmatchedRow(base, qty, sheetLineTotal, sheetUnitPrice))
+      parsed.push(buildUnmatchedRow(base, qty, sheetLineTotal, sheetUnitPrice, supermarketPaid))
     }
   }
 
-  return buildImportPreview(parsed, usesBranchMatching)
+  return buildImportPreview(parsed, usesBranchMatching, hasPaidColumn)
 }
 
 export async function generateSampleExcel(): Promise<Blob> {

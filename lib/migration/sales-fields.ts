@@ -78,9 +78,18 @@ export function monthTextToReportMonth(monthRaw: unknown, yearRaw: unknown): str
   return `${year}-${String(monthNum).padStart(2, '0')}-01`
 }
 
-/** True when PAID cell indicates vendor was paid (any non-blank value = paid per Palace convention). */
-export function isPaidMarker(raw: unknown): boolean {
+/** True when PAID cell = supermarket has remitted to DistroGH for this sale line (non-blank). */
+export function isSupermarketPaidMarker(raw: unknown): boolean {
   return str(raw) !== ''
+}
+
+/** @deprecated Use isSupermarketPaidMarker — PAID is supermarket→DistroGH, not vendor payout. */
+export function isPaidMarker(raw: unknown): boolean {
+  return isSupermarketPaidMarker(raw)
+}
+
+export function rowHasPaidColumn(data: Record<string, unknown>): boolean {
+  return Object.keys(data).some((k) => normKey(k) === 'paid')
 }
 
 /** Normalize Palace / generic sales row headers into canonical migration fields. */
@@ -127,7 +136,10 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
 
   const paidRaw = pickSalesField(data, 'paid', 'PAID')
   if (paidRaw != null && out.paid == null) out.paid = paidRaw
-  out.vendor_paid = isPaidMarker(paidRaw)
+  // Only set when the source file includes PAID — absent column → leave unset (import defaults true).
+  if (rowHasPaidColumn(data)) {
+    out.supermarket_paid = isSupermarketPaidMarker(paidRaw)
+  }
 
   if (!str(out.report_month) && !str(out.week_start)) {
     const monthText = pickSalesField(data, 'month', 'MONTH', 'report_month')
