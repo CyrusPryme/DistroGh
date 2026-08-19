@@ -15,7 +15,7 @@ import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/F
 import { cn } from '@/lib/utils'
 import { MIGRATION_STAGES, type MigrationEntityType, type MigrationStatus } from '@/lib/migration/types'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
-import { canDeleteMigration, needsMigrationRetry, canRestartMigration, needsRevalidation } from '@/lib/migration/lifecycle'
+import { canDeleteMigration, needsMigrationRetry, canRestartMigration, needsRevalidation, migrationAwaitingImportStart } from '@/lib/migration/lifecycle'
 
 type Project = {
   id: string
@@ -296,6 +296,10 @@ export default function MigrationWizardPage() {
   // 'pending' and haven't actually been checked in their current form. Approving or starting an
   // import in this state used to silently import nothing while reporting "completed".
   const staleValidation = project ? needsRevalidation(project) : false
+  const awaitingImportStart =
+    project &&
+    migrationAwaitingImportStart(project) &&
+    !jobs.some((j) => j.job_type === 'import')
 
   const handleCancel = async () => {
     const reason = cancelReason.trim()
@@ -617,6 +621,25 @@ export default function MigrationWizardPage() {
           <span className="status-badge border bg-slate-50 text-slate-700 border-slate-200">{project.status.replace(/_/g, ' ')}</span>
         </div>
       </div>
+
+      {awaitingImportStart && (
+        <div className="flex items-start gap-3 bg-brand-50 border border-brand-200 rounded-xl px-4 py-3">
+          <CheckCircle2 className="w-5 h-5 text-brand-700 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-brand-900">Validation complete — import not started yet</p>
+            <p className="text-xs text-brand-800 mt-0.5">
+              {project.preview_summary?.entities?.[0]
+                ? `${String((project.preview_summary.entities[0] as Record<string, unknown>).total ?? 0)} intake rows are ready.`
+                : 'Staged rows are ready.'}{' '}
+              The progress bar stays low until import runs — go to <strong>Stage 7 · Approval</strong> and click{' '}
+              <strong>Start import</strong>.
+            </p>
+          </div>
+          <button type="button" className="btn-primary shrink-0" disabled={busy || staleValidation} onClick={() => saveStage(7)}>
+            Go to approval
+          </button>
+        </div>
+      )}
 
       {/* Stage 2 — Upload */}
       {(stage === 2 || stage === 1) && (

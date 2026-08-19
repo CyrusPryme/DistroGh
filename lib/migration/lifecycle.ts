@@ -47,3 +47,33 @@ export function needsRevalidation(project: FreshnessLike): boolean {
   if (!project.last_validated_at) return true
   return new Date(project.last_parsed_at).getTime() > new Date(project.last_validated_at).getTime()
 }
+
+/** Wizard-stage progress for the migration list/detail bar (pre-import). Import/reconcile override separately. */
+export function migrationProgressForStage(stage: number, status?: string): number {
+  if (status === 'completed' || status === 'rolled_back') return 100
+  if (status === 'importing') return 60
+  const byStage: Record<number, number> = {
+    1: 5,
+    2: 10,
+    3: 15,
+    4: 25,
+    5: 30,
+    6: 40,
+    7: 50,
+    8: 65,
+    9: 90,
+    10: 100,
+  }
+  return byStage[stage] ?? 15
+}
+
+/** True when validation passed but production import has not started yet. */
+export function migrationAwaitingImportStart(project: {
+  status: string
+  error_count?: number
+}): boolean {
+  return (
+    (project.status === 'ready' || project.status === 'approved') &&
+    (project.error_count ?? 0) === 0
+  )
+}

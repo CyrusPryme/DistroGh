@@ -171,7 +171,7 @@ export async function POST(req: Request) {
       const developerFee = roundMoney(feeResult.fee)
       // DistroGH keeps everything after vendor_due and developer_fee
       const distroghCommission = roundMoney(commissionAmount - developerFee)
-      const supermarketPaid = s.supermarket_paid !== false
+      const supermarketPaid = s.supermarket_paid === true
 
       await client.query(
         `

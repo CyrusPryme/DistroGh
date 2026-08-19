@@ -19,6 +19,7 @@ interface SalesFilter {
   vendor_id?: string
   product_id?: string
   supermarket_id?: string
+  supermarket_paid?: boolean
 }
 
 function salesQuery(filters: SalesFilter = {}): string {
@@ -28,6 +29,8 @@ function salesQuery(filters: SalesFilter = {}): string {
   if (filters.vendor_id) params.set('vendor_id', filters.vendor_id)
   if (filters.product_id) params.set('product_id', filters.product_id)
   if (filters.supermarket_id) params.set('supermarket_id', filters.supermarket_id)
+  if (filters.supermarket_paid === true) params.set('supermarket_paid', 'true')
+  if (filters.supermarket_paid === false) params.set('supermarket_paid', 'false')
   const qs = params.toString()
   return qs ? `?${qs}` : ''
 }
@@ -109,6 +112,21 @@ export const salesService = {
   async getSalesByVendor(): Promise<VendorSalesBreakdown[]> {
     return apiFetch<VendorSalesBreakdown[]>('/api/sales/by-vendor', {
       fallbackError: 'Failed to load sales by vendor',
+    })
+  },
+
+  async updateSettlement(input: {
+    supermarket_paid: boolean
+    week_start?: string
+    week_end?: string
+    supermarket_id?: string
+    sale_ids?: string[]
+  }): Promise<{ updated: number; supermarket_paid: boolean }> {
+    return apiFetch<{ updated: number; supermarket_paid: boolean }>('/api/sales/settlement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      fallbackError: 'Failed to update supermarket settlement',
     })
   },
 }

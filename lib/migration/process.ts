@@ -10,6 +10,7 @@ import { writeMigrationAudit } from '@/lib/migration/audit'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { refreshFinancialDiscrepancies } from '@/lib/migration/financial-integrity'
 import { clearProvenanceForMigration } from '@/lib/migration/provenance'
+import { migrationProgressForStage } from '@/lib/migration/lifecycle'
 
 /**
  * Row count per entity's backing production table — lets buildDependencyGraph() tell "this
@@ -569,6 +570,7 @@ export async function buildPreviewSummary(pool: Pool, migrationId: string) {
   await updateMigrationProject(pool, migrationId, {
     preview_summary: summary,
     current_stage: 6,
+    progress_pct: migrationProgressForStage(6, project?.status),
     wizard_state: { stage: 6, preview_at: summary.generated_at },
   })
   return summary

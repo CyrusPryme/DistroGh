@@ -6,6 +6,7 @@ import { matchSupermarketByBranch } from '@/lib/supermarket-match'
 import { validateVendorPhones } from '@/lib/migration/vendor-fields'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { updateMigrationProject } from '@/lib/migration/projects'
+import { migrationProgressForStage } from '@/lib/migration/lifecycle'
 import { normalizeCategoryName } from '@/lib/migration/category'
 import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination'
 import { toSqlDate, normalizeSaleMonthPeriod } from '@/lib/utils'
@@ -483,6 +484,11 @@ export async function validateMigrationStaging(
           code: 'SUPERMARKET_UNSETTLED',
           message: 'PAID blank — sold but not yet settled by supermarket',
         })
+      } else {
+        infos.push({
+          code: 'SUPERMARKET_UNSETTLED',
+          message: 'No PAID column — imports as awaiting supermarket payment; mark settled on Sales after DistroGH is paid',
+        })
       }
     }
 
@@ -570,6 +576,7 @@ export async function validateMigrationStaging(
 
   const validation_status = errorCount > 0 ? 'failed' : warningCount > 0 ? 'warnings' : 'passed'
   const status = errorCount > 0 ? 'awaiting_correction' : 'ready'
+  const nextStage = errorCount > 0 ? 5 : 6
 
   await updateMigrationProject(
     pool,
@@ -579,7 +586,8 @@ export async function validateMigrationStaging(
       status,
       error_count: errorCount,
       warning_count: warningCount,
-      current_stage: errorCount > 0 ? 5 : 6,
+      current_stage: nextStage,
+      progress_pct: migrationProgressForStage(nextStage, status),
       wizard_state: { stage: errorCount > 0 ? 5 : 6, validated_at: new Date().toISOString() },
       error_summary: { error_rows: errorCount },
       warning_summary: { warning_rows: warningCount },

@@ -662,6 +662,14 @@ export default function SalesImportPage() {
             </div>
           )}
 
+          {!preview.has_supermarket_paid_column && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <strong>No PAID column in this file.</strong> All rows will import as{' '}
+              <span className="font-medium">awaiting supermarket payment</span>. After the supermarket pays DistroGH,
+              mark the report month as settled on the Sales page.
+            </div>
+          )}
+
           {/* Import settings */}
           <div className="data-card">
             <h3 className="font-display font-semibold text-slate-900 mb-4">Import Settings</h3>

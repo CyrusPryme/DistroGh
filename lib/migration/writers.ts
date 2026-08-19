@@ -631,7 +631,7 @@ async function writeRow(
       const vendorDue = n(d.vendor_due, 0)
       const commission = Math.max(0, total - vendorDue)
       const supermarketPaid =
-        typeof d.supermarket_paid === 'boolean' ? d.supermarket_paid : true
+        typeof d.supermarket_paid === 'boolean' ? d.supermarket_paid : false
       const ins = await client.query(
         `INSERT INTO public.sales
           (product_id, supermarket_id, qty_sold, unit_price, total_sales, vendor_due, commission_amount,

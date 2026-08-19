@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Upload, Filter, ShoppingCart, AlertCircle, Download, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Upload, Filter, ShoppingCart, AlertCircle, Download, Search, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Clock, Banknote } from 'lucide-react'
 import { salesService } from '@/services/sales.service'
 import { vendorService } from '@/services/vendor.service'
 import { supermarketService } from '@/services/supermarket.service'
@@ -12,6 +12,8 @@ import { formatGHS, formatDate, formatSalesPeriod, reportMonthToRange, formatNum
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
+import { useToast } from '@/hooks/useToast'
 import { useSession } from '@/hooks/useSession'
 import { usePageSize } from '@/hooks/usePageSize'
 import type { Sale, Vendor, Supermarket, Product } from '@/types'
@@ -36,10 +38,13 @@ function SalesContent() {
   const [filterProduct, setFilterProduct] = useState('')
   const [filterSupermarket, setFilterSupermarket] = useState(searchParams?.get('supermarket_id') ?? '')
   const [filterMonth, setFilterMonth] = useState('')
+  const [filterSettlement, setFilterSettlement] = useState<'all' | 'settled' | 'awaiting'>('all')
+  const [settlementBusy, setSettlementBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('month')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
+  const { toast, showToast, dismissToast } = useToast(4000)
   const [salesPage, setSalesPage] = useState(1)
   const [salesPageSize, setSalesPageSize] = usePageSize('sales', DEFAULT_PAGE_SIZE)
 
@@ -51,6 +56,8 @@ function SalesContent() {
     try {
       const isVendor = role === 'vendor' && vendorId
       const monthRange = filterMonth ? reportMonthToRange(filterMonth) : null
+      const supermarketPaidFilter =
+        filterSettlement === 'settled' ? true : filterSettlement === 'awaiting' ? false : undefined
       const [s, v, sm, pr] = await Promise.all([
         salesService.getAll({
           week_start: monthRange?.week_start,
@@ -58,6 +65,7 @@ function SalesContent() {
           supermarket_id: filterSupermarket || undefined,
           product_id: filterProduct || undefined,
           vendor_id: isVendor ? vendorId! : filterVendor || undefined,
+          supermarket_paid: supermarketPaidFilter,
         }),
         isVendor ? [] : vendorService.getAll(),
         supermarketService.getAll(),
@@ -80,7 +88,7 @@ function SalesContent() {
   useEffect(() => {
     if (!canLoad) return
     load()
-  }, [canLoad, sessionLoading, filterMonth, filterSupermarket, filterProduct, filterVendor, role, vendorId])
+  }, [canLoad, sessionLoading, filterMonth, filterSupermarket, filterProduct, filterVendor, filterSettlement, role, vendorId])
 
   // Client-side filtering (vendor/product/supermarket/week already applied in load; search is client-side)
   const filtered = useMemo(() => {
@@ -130,7 +138,7 @@ function SalesContent() {
 
   useEffect(() => {
     setSalesPage(1)
-  }, [search, filterVendor, filterProduct, filterSupermarket, filterMonth, sortKey, sortDir])
+  }, [search, filterVendor, filterProduct, filterSupermarket, filterMonth, filterSettlement, sortKey, sortDir])
 
   const paginatedSales = useMemo(
     () => getPageSlice(filtered, salesPage, salesPageSize),
@@ -150,6 +158,7 @@ function SalesContent() {
           'Vendor',
           'Supermarket',
           'Report Month',
+          'Settlement',
           'Qty',
           'Unit Price',
           'Total Sales',
@@ -174,6 +183,7 @@ function SalesContent() {
         (s.product as { vendor?: { name?: string } })?.vendor?.name ?? '',
         (s.supermarket as { name?: string })?.name ?? '',
         periodLabel,
+        s.supermarket_paid ? 'Settled' : 'Awaiting payment',
         s.qty_sold ?? 0,
         Number(s.unit_price ?? 0).toFixed(2),
         e.totalSales.toFixed(2),
@@ -199,6 +209,50 @@ function SalesContent() {
     { qty: 0, sales: 0, markup: 0, vendorDue: 0 }
   )
 
+  const settlementCounts = useMemo(() => {
+    const settled = sales.filter((s) => s.supermarket_paid).length
+    const awaiting = sales.filter((s) => !s.supermarket_paid).length
+    return { settled, awaiting }
+  }, [sales])
+
+  const monthRangeForSettlement = filterMonth ? reportMonthToRange(filterMonth) : null
+
+  const handleBulkSettlement = async (supermarket_paid: boolean) => {
+    if (!monthRangeForSettlement) {
+      showToast('Select a report month first', 'error')
+      return
+    }
+    const action = supermarket_paid ? 'mark as settled' : 'mark as awaiting payment'
+    const scope = filterSupermarket
+      ? supermarkets.find((s) => s.id === filterSupermarket)?.name ?? 'selected supermarket'
+      : 'all supermarkets'
+    if (
+      !window.confirm(
+        `${supermarket_paid ? 'Mark' : 'Revert'} ${formatSalesPeriod(monthRangeForSettlement.week_start, monthRangeForSettlement.week_end)} sales for ${scope} as ${supermarket_paid ? 'settled (supermarket paid DistroGH)' : 'awaiting supermarket payment'}?`
+      )
+    ) {
+      return
+    }
+    setSettlementBusy(true)
+    try {
+      const result = await salesService.updateSettlement({
+        supermarket_paid,
+        week_start: monthRangeForSettlement.week_start,
+        week_end: monthRangeForSettlement.week_end,
+        supermarket_id: filterSupermarket || undefined,
+      })
+      showToast(
+        `${result.updated} sale line${result.updated === 1 ? '' : 's'} ${supermarket_paid ? 'marked settled' : 'marked awaiting payment'}`,
+        'success'
+      )
+      await load()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : `Failed to ${action}`, 'error')
+    } finally {
+      setSettlementBusy(false)
+    }
+  }
+
   if (!canLoad || loading) {
     return (
       <div className="page-container flex items-center justify-center min-h-[40vh]">
@@ -212,6 +266,7 @@ function SalesContent() {
 
   return (
     <div className="page-container">
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
       <PageHeader
         title="Sales Records"
         description={`${filtered.length} monthly sale records`}
@@ -262,6 +317,20 @@ function SalesContent() {
             </div>
             {role === 'admin' && (
               <div>
+                <label className="text-xs text-slate-500 mb-1 block">Settlement</label>
+                <select
+                  value={filterSettlement}
+                  onChange={e => setFilterSettlement(e.target.value as 'all' | 'settled' | 'awaiting')}
+                  className="form-input text-sm appearance-none"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="settled">Settled</option>
+                  <option value="awaiting">Awaiting payment</option>
+                </select>
+              </div>
+            )}
+            {role === 'admin' && (
+              <div>
                 <label className="text-xs text-slate-500 mb-1 block">Vendor</label>
                 <select
                   value={filterVendor}
@@ -297,15 +366,72 @@ function SalesContent() {
             </div>
           </div>
         </div>
-        {(filterMonth || filterVendor || filterSupermarket || filterProduct || search) && (
+        {(filterMonth || filterVendor || filterSupermarket || filterProduct || filterSettlement !== 'all' || search) && (
           <button
-            onClick={() => { setFilterMonth(''); setFilterVendor(''); setFilterSupermarket(''); setFilterProduct(''); setSearch('') }}
+            onClick={() => {
+              setFilterMonth('')
+              setFilterVendor('')
+              setFilterSupermarket('')
+              setFilterProduct('')
+              setFilterSettlement('all')
+              setSearch('')
+            }}
             className="mt-3 text-xs text-brand-600 hover:underline font-medium"
           >
             Clear all filters
           </button>
         )}
       </div>
+
+      {role === 'admin' && (
+        <div className="data-card border border-slate-200 bg-slate-50/80">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Banknote className="w-4 h-4 text-slate-500" />
+                <h3 className="font-display font-semibold text-slate-900">Supermarket settlement</h3>
+              </div>
+              <p className="text-sm text-slate-600 max-w-2xl">
+                When a supermarket pays DistroGH for a report month, mark those sales as settled.
+                Only settled sales count toward vendor balances. This is separate from vendor MoMo payouts.
+              </p>
+              <div className="flex flex-wrap gap-3 mt-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                  <CheckCircle2 className="w-4 h-4" />
+                  {settlementCounts.settled} settled
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-amber-700">
+                  <Clock className="w-4 h-4" />
+                  {settlementCounts.awaiting} awaiting payment
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={settlementBusy || !filterMonth}
+                onClick={() => handleBulkSettlement(true)}
+                className="btn-primary disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Mark month settled
+              </button>
+              <button
+                type="button"
+                disabled={settlementBusy || !filterMonth}
+                onClick={() => handleBulkSettlement(false)}
+                className="btn-secondary disabled:opacity-50"
+              >
+                <Clock className="w-4 h-4" />
+                Mark awaiting payment
+              </button>
+            </div>
+          </div>
+          {!filterMonth && (
+            <p className="text-xs text-amber-700 mt-3">Select a report month above to bulk-update settlement for that month.</p>
+          )}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className={cn('grid gap-4', isVendor ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4')}>
@@ -379,6 +505,7 @@ function SalesContent() {
                       Month {sortKey === 'month' ? (sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />) : <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />}
                     </button>
                   </th>
+                  {role === 'admin' && <th>Settlement</th>}
                   <th className="text-right">
                     <button type="button" onClick={() => handleSort('qty')} className="inline-flex items-center gap-1 hover:text-slate-900 font-medium ml-auto">
                       Qty {sortKey === 'qty' ? (sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />) : <ArrowUpDown className="w-3.5 h-3.5 opacity-40" />}
@@ -429,6 +556,21 @@ function SalesContent() {
                     <td className="text-xs text-slate-400">
                       {formatSalesPeriod(sale.week_start, sale.week_end)}
                     </td>
+                    {role === 'admin' && (
+                      <td>
+                        {sale.supermarket_paid ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Settled
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            <Clock className="w-3 h-3" />
+                            Awaiting
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="text-right text-slate-600">{formatNumber(sale.qty_sold)}</td>
                     <td className="text-right font-mono text-sm text-slate-600">
                       {formatGHS(
@@ -454,7 +596,8 @@ function SalesContent() {
               <tfoot>
                 {role === 'admin' && (
                   <tr>
-                    <td colSpan={4}>Totals ({filtered.length} records)</td>
+                    <td colSpan={5}>Totals ({filtered.length} records)</td>
+                    <td></td>
                     <td className="text-right">{formatNumber(totals.qty)}</td>
                     <td></td>
                     <td className="text-right font-mono">{formatGHS(totals.sales)}</td>

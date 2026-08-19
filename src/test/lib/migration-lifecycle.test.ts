@@ -3,6 +3,8 @@ import {
   canDeleteMigration,
   canRestartMigration,
   isMigrationUserCancelled,
+  migrationAwaitingImportStart,
+  migrationProgressForStage,
   needsMigrationRetry,
   needsRevalidation,
 } from '@/lib/migration/lifecycle'
@@ -102,5 +104,20 @@ describe('migration lifecycle', () => {
       last_parsed_at: '2026-01-01T00:00:10Z',
       last_validated_at: '2026-01-01T00:00:20Z',
     }))).toBe(false)
+  })
+
+  it('maps wizard stages to progress percentages', () => {
+    expect(migrationProgressForStage(3)).toBe(15)
+    expect(migrationProgressForStage(6, 'ready')).toBe(40)
+    expect(migrationProgressForStage(7, 'approved')).toBe(50)
+    expect(migrationProgressForStage(8, 'importing')).toBe(60)
+    expect(migrationProgressForStage(10, 'completed')).toBe(100)
+  })
+
+  it('detects migrations waiting for import start', () => {
+    expect(migrationAwaitingImportStart(project({ status: 'ready', error_count: 0 }))).toBe(true)
+    expect(migrationAwaitingImportStart(project({ status: 'approved', error_count: 0 }))).toBe(true)
+    expect(migrationAwaitingImportStart(project({ status: 'ready', error_count: 3 }))).toBe(false)
+    expect(migrationAwaitingImportStart(project({ status: 'importing', error_count: 0 }))).toBe(false)
   })
 })

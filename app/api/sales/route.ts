@@ -19,6 +19,15 @@ export async function GET(req: Request) {
   const range_end = (url.searchParams.get('range_end') ?? '').trim() || null
   const product_id = normalizeUuidParam(url.searchParams.get('product_id'))
   const supermarket_id = normalizeUuidParam(url.searchParams.get('supermarket_id'))
+  const supermarketPaidParam = url.searchParams.get('supermarket_paid')
+  const supermarket_paid_filter =
+    session.role === 'vendor'
+      ? true
+      : supermarketPaidParam === 'true'
+        ? true
+        : supermarketPaidParam === 'false'
+          ? false
+          : null
 
   const vendorIdParam = normalizeUuidParam(url.searchParams.get('vendor_id'))
   const vendor_id = session.role === 'vendor' ? (session.vendor_id ?? null) : vendorIdParam
@@ -63,9 +72,10 @@ export async function GET(req: Request) {
       and ($5::uuid is null or s.supermarket_id = $5::uuid)
       and ($6::date is null or s.week_start <= $6::date)
       and ($7::date is null or s.week_end >= $7::date)
+      and ($8::boolean is null or s.supermarket_paid = $8::boolean)
     order by s.week_start asc, s.imported_at desc
     `,
-    [week_start, week_end, vendor_id, product_id, supermarket_id, range_end, range_start]
+    [week_start, week_end, vendor_id, product_id, supermarket_id, range_end, range_start, supermarket_paid_filter]
   )
 
   return NextResponse.json({ success: true, data: rows })

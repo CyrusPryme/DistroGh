@@ -13,6 +13,7 @@ import {
   canDeleteMigration,
   canRestartMigration,
   isMigrationUserCancelled,
+  migrationProgressForStage,
 } from '@/lib/migration/lifecycle'
 
 export {
@@ -345,10 +346,15 @@ export async function saveWizardState(
   const existing = await getMigrationProject(db, id)
   if (!existing) return null
   const wizard_state = { ...existing.wizard_state, ...state, stage }
+  const syncProgress = !['importing', 'completed', 'rolled_back'].includes(existing.status)
   return updateMigrationProject(
     db,
     id,
-    { current_stage: stage, wizard_state },
+    {
+      current_stage: stage,
+      wizard_state,
+      ...(syncProgress ? { progress_pct: migrationProgressForStage(stage, existing.status) } : {}),
+    },
     actorId,
     'migration.wizard_saved'
   )

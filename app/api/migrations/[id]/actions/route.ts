@@ -6,7 +6,7 @@ import { enqueueJob, listJobs, cancelMigrationJobs, resetFailedMigrationJobs } f
 import { buildPreviewSummary, processMigrationJobs } from '@/lib/migration/process'
 import { getMigrationProject, updateMigrationProject, isMigrationWorkBlocked, isMigrationTerminal, prepareMigrationRetry, canRestartMigration } from '@/lib/migration/projects'
 import { clearMigrationUploads } from '@/lib/migration/files'
-import { needsMigrationRetry, needsRevalidation } from '@/lib/migration/lifecycle'
+import { needsMigrationRetry, needsRevalidation, migrationProgressForStage } from '@/lib/migration/lifecycle'
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -89,6 +89,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         {
           status: 'approved',
           current_stage: 7,
+          progress_pct: migrationProgressForStage(7, 'approved'),
           approved_by: session.user_id,
           wizard_state: { stage: 7, approved_at: new Date().toISOString() },
         },
