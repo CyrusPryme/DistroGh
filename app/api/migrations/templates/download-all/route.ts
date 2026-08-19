@@ -8,7 +8,7 @@ import {
 } from '@/lib/migration/template-xlsx'
 import { fetchActiveVendorNames } from '@/lib/migration/template-vendors'
 import { fetchActiveProductNames } from '@/lib/migration/template-products'
-import { fetchSupermarketBranchLabels } from '@/lib/migration/template-supermarkets'
+import { fetchSupermarketBranchLabels, fetchSupermarketChainNames } from '@/lib/migration/template-supermarkets'
 
 function mapTemplate(row: Record<string, unknown>): MigrationTemplateRecord {
   return {
@@ -29,15 +29,17 @@ export async function GET() {
     )
     const templates = rows.map(mapTemplate)
     const pool = getDbPool()
-    const [vendorNames, productNames, supermarketBranchLabels] = await Promise.all([
+    const [vendorNames, productNames, supermarketBranchLabels, supermarketNames] = await Promise.all([
       fetchActiveVendorNames(pool),
       fetchActiveProductNames(pool),
       fetchSupermarketBranchLabels(pool),
+      fetchSupermarketChainNames(pool),
     ])
     const buffer = await buildAllMigrationTemplatesWorkbook(templates, {
       vendorNames,
       productNames,
       supermarketBranchLabels,
+      supermarketNames,
     })
 
     return new NextResponse(new Uint8Array(buffer), {

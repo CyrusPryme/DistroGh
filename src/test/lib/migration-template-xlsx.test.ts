@@ -173,3 +173,54 @@ describe('template-xlsx — product dropdown (same pattern as the existing vendo
     expect(validation?.type).not.toBe('list')
   })
 })
+
+const deliveriesTemplate: MigrationTemplateRecord = {
+  entity_type: 'deliveries',
+  label: 'Deliveries',
+  description: 'Delivery runs + line items',
+  required_columns: ['supermarket_name', 'product_name', 'quantity', 'delivery_date'],
+  optional_columns: ['branch', 'store_code', 'transport_cost', 'barcode'],
+  sample_rows: [{
+    supermarket_name: 'Palace',
+    branch: 'Accra Mall',
+    product_name: 'Palm Oil 1L',
+    quantity: 20,
+    delivery_date: '2024-01-20',
+    transport_cost: 50,
+  }],
+}
+
+describe('template-xlsx — deliveries supermarket dropdowns', () => {
+  it('supermarket_name and branch columns get live dropdown lists', async () => {
+    const buf = await buildMigrationTemplateWorkbook(deliveriesTemplate, {
+      vendorNames: ['Acme Foods'],
+      productNames: ['Palm Oil 1L'],
+      supermarketNames: ['Palace', 'Shoprite'],
+      supermarketBranchLabels: ['Accra Mall', 'Palace — Osu'],
+    })
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const dataSheet = wb.getWorksheet('Data')!
+    const columns = [...deliveriesTemplate.required_columns, ...deliveriesTemplate.optional_columns]
+
+    const nameCol = columns.indexOf('supermarket_name') + 1
+    const branchCol = columns.indexOf('branch') + 1
+    const nameValidation = dataSheet.getCell(3, nameCol).dataValidation as ExcelJS.DataValidation
+    const branchValidation = dataSheet.getCell(3, branchCol).dataValidation as ExcelJS.DataValidation
+
+    expect(nameValidation.type).toBe('list')
+    expect(branchValidation.type).toBe('list')
+
+    const listsSheet = wb.getWorksheet('_lists')!
+    const readListCol = (range: string) => {
+      const match = /\$([A-Z]+)\$1:\$[A-Z]+\$(\d+)/.exec(range)
+      expect(match).not.toBeNull()
+      const colNum = match![1].split('').reduce((acc, ch) => acc * 26 + (ch.charCodeAt(0) - 64), 0)
+      const count = Number(match![2])
+      return Array.from({ length: count }, (_, i) => listsSheet.getCell(i + 1, colNum).value)
+    }
+
+    expect(readListCol(String((nameValidation.formulae ?? [])[0]))).toEqual(['Palace', 'Shoprite'])
+    expect(readListCol(String((branchValidation.formulae ?? [])[0]))).toEqual(['Accra Mall', 'Palace — Osu'])
+  })
+})

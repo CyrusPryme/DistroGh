@@ -15,10 +15,14 @@ export type MigrationTemplateRecord = {
 export type TemplateBuildOptions = {
   vendorNames?: string[]
   productNames?: string[]
+  /** Distinct supermarket chain names (deliveries/returns supermarket_name column). */
+  supermarketNames?: string[]
+  /** Branch/outlet labels (sales store_name, deliveries branch, etc.). */
   supermarketBranchLabels?: string[]
 }
 
 const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
+const SUPERMARKET_NAME_COLUMNS = new Set(['supermarket_name'])
 const SUPERMARKET_BRANCH_COLUMNS = new Set(['store_name', 'branch'])
 // Deliberately excludes 'name' (the Products template's own new-product name field) and the
 // free-text Palace-style sales identifiers (description/code/barcode) — those aren't a lookup
@@ -116,6 +120,15 @@ function getValidation(
       options: names.length
         ? names
         : ['(No vendors in system — add vendors first)'],
+    }
+  }
+  if (SUPERMARKET_NAME_COLUMNS.has(column)) {
+    const names = options?.supermarketNames ?? []
+    return {
+      kind: 'list',
+      options: names.length
+        ? names
+        : ['(No supermarkets in system — add supermarkets first)'],
     }
   }
   if (SUPERMARKET_BRANCH_COLUMNS.has(column)) {
@@ -364,6 +377,12 @@ function buildInstructionsSheet(
           [`Supermarket branch dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet(s) at download time.`],
         ]
       : []),
+    ...(template.entity_type === 'deliveries' || template.entity_type === 'returns'
+      ? [
+          [`Supermarket name dropdown lists ${options?.supermarketNames?.length ?? 0} chain(s) from the system at download time.`],
+          [`Branch dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet branch label(s) — use when the delivery/return targets a specific outlet.`],
+        ]
+      : []),
     [''],
     [`Entity type for upload: ${template.entity_type}`],
   ]
@@ -437,6 +456,14 @@ function populateTemplateSheets(
         cell.value = options.vendorNames.includes(String(val))
           ? String(val)
           : options.vendorNames[0]
+      } else if (SUPERMARKET_NAME_COLUMNS.has(key) && options?.supermarketNames?.length) {
+        cell.value = options.supermarketNames.includes(String(val))
+          ? String(val)
+          : options.supermarketNames[0]
+      } else if (SUPERMARKET_BRANCH_COLUMNS.has(key) && options?.supermarketBranchLabels?.length) {
+        cell.value = options.supermarketBranchLabels.includes(String(val))
+          ? String(val)
+          : options.supermarketBranchLabels[0]
       } else if (template.entity_type !== 'products' && PRODUCT_NAME_COLUMNS.has(key) && options?.productNames?.length) {
         cell.value = options.productNames.includes(String(val))
           ? String(val)
@@ -462,9 +489,13 @@ function populateTemplateSheets(
     if (validation.kind === 'list') {
       const listKey = VENDOR_NAME_COLUMNS.has(key)
         ? 'live:vendors'
-        : PRODUCT_NAME_COLUMNS.has(key)
-          ? 'live:products'
-          : `${template.entity_type}:${key}`
+        : SUPERMARKET_NAME_COLUMNS.has(key)
+          ? 'live:supermarket_names'
+          : SUPERMARKET_BRANCH_COLUMNS.has(key)
+            ? 'live:supermarket_branches'
+            : PRODUCT_NAME_COLUMNS.has(key)
+              ? 'live:products'
+              : `${template.entity_type}:${key}`
       listRange = registerList(
         listsSheet,
         listCol,

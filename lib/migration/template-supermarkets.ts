@@ -1,6 +1,19 @@
 import type { Pool } from 'pg'
 
-/** Branch labels for sales migration template dropdowns (Palace store_name column). */
+/** Distinct supermarket chain names (deliveries/returns supermarket_name column). */
+export async function fetchSupermarketChainNames(db: Pool): Promise<string[]> {
+  const { rows } = await db.query(
+    `SELECT DISTINCT name
+     FROM public.supermarkets
+     WHERE deleted_at IS NULL
+     ORDER BY name ASC`
+  )
+  return (rows as Array<{ name: string }>)
+    .map((r) => String(r.name ?? '').trim())
+    .filter(Boolean)
+}
+
+/** Branch labels for sales/deliveries migration template dropdowns. */
 export async function fetchSupermarketBranchLabels(db: Pool): Promise<string[]> {
   const { rows } = await db.query(
     `SELECT name, branch, store_code
