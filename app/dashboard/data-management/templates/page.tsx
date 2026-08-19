@@ -27,7 +27,16 @@ export default function MigrationTemplatesPage() {
     setDownloading(key)
     try {
       const res = await fetch(url)
-      if (!res.ok) throw new Error('Download failed')
+      if (!res.ok) {
+        let message = 'Download failed'
+        try {
+          const j = await res.json()
+          if (j?.error) message = String(j.error)
+        } catch {
+          /* binary or empty body */
+        }
+        throw new Error(message)
+      }
       const blob = await res.blob()
       const disposition = res.headers.get('Content-Disposition') || ''
       const match = disposition.match(/filename="([^"]+)"/)
@@ -37,8 +46,8 @@ export default function MigrationTemplatesPage() {
       a.download = filename
       a.click()
       URL.revokeObjectURL(a.href)
-    } catch {
-      alert('Could not download template. Please try again.')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not download template. Please try again.')
     } finally {
       setDownloading(null)
     }
