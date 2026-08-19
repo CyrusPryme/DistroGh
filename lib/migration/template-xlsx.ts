@@ -135,8 +135,7 @@ const ENTITY_FIELD_OVERRIDES: Partial<Record<string, Record<string, ColumnValida
     reason: { kind: 'list', options: ['expired', 'defective_product', 'defective_packaging', 'other'] },
   },
   sales: {
-    paid: { kind: 'list', options: ['Yes'] },
-    supermarket_paid: { kind: 'list', options: ['Yes', 'No'] },
+    paid: { kind: 'list', options: ['Yes', 'No'] },
     report_month: { kind: 'date' },
     month: { kind: 'list', options: MONTH_NAME_OPTIONS },
   },
@@ -478,7 +477,7 @@ function buildInstructionsSheet(
           ['Each row keeps its own TCostEx — past price changes stay on the sale; live product catalog prices are never overwritten.'],
           ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER) as recorded.'],
           ['report_month: first day of sales month (e.g. 2024-06-01). Legacy MONTH-only rows: use month + report_year columns.'],
-          ['paid / supermarket_paid: Yes = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
+          ['paid: Yes or PAID = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
         ]
       : []),
     ...(template.entity_type === 'deliveries'

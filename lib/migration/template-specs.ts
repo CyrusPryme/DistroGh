@@ -60,7 +60,6 @@ export const CANONICAL_MIGRATION_TEMPLATE_SPECS: TemplateColumnSpec[] = [
       'product_name',
       'branch',
       'paid',
-      'supermarket_paid',
       'month',
       'report_year',
       'store',
@@ -136,7 +135,6 @@ export function expectedDropdownExpectation(entityType: string, column: string):
       'status',
       'reason',
       'paid',
-      'supermarket_paid',
       'month',
       'destination_type',
     ].includes(column)

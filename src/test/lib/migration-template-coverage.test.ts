@@ -125,7 +125,6 @@ describe('migration template column coverage', () => {
       'product_name',
       'barcode',
       'paid',
-      'supermarket_paid',
       'month',
     ] as const
     for (const col of listCols) {
@@ -138,6 +137,7 @@ describe('migration template column coverage', () => {
     expect(sheet.getCell(3, columns.indexOf('report_year') + 1).dataValidation?.type).toBe('whole')
     expect(columns).not.toContain('unit_price')
     expect(columns).not.toContain('vendor')
+    expect(columns).not.toContain('supermarket_paid')
   })
 
   it('deliveries template includes destination_type static dropdown', async () => {

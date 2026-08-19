@@ -56,7 +56,12 @@ describe('sales-fields — Palace column normalization', () => {
     expect(isSupermarketPaidMarker(null)).toBe(false)
   })
 
-  it('supermarket_paid Yes/No column from historical template', () => {
+  it('paid Yes/No on template maps to supermarket_paid', () => {
+    expect(normalizeSalesRowData({ paid: 'Yes' }).supermarket_paid).toBe(true)
+    expect(normalizeSalesRowData({ paid: 'No' }).supermarket_paid).toBe(false)
+  })
+
+  it('legacy supermarket_paid column in uploads still maps via paid alias', () => {
     expect(normalizeSalesRowData({ supermarket_paid: 'Yes' }).supermarket_paid).toBe(true)
     expect(normalizeSalesRowData({ supermarket_paid: 'No' }).supermarket_paid).toBe(false)
   })

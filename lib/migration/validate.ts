@@ -483,30 +483,30 @@ export async function validateMigrationStaging(
         if (data.supermarket_paid) {
           infos.push({
             code: 'SUPERMARKET_SETTLED',
-            message: 'Supermarket paid DistroGH for this line — counts toward vendor balance',
+            message: 'paid = Yes — supermarket settled this line with DistroGH',
           })
         } else {
           infos.push({
             code: 'SUPERMARKET_UNSETTLED',
-            message: 'Sold but supermarket has not paid DistroGH yet — excluded from vendor balance until settled',
+            message: 'paid blank/No — sold but supermarket has not paid DistroGH yet',
           })
         }
       } else if (isSupermarketPaidMarker(data.paid ?? data.PAID)) {
         normalized.supermarket_paid = true
         infos.push({
           code: 'SUPERMARKET_SETTLED',
-          message: 'PAID marked — supermarket settled this line with DistroGH',
+          message: 'paid marked — supermarket settled this line with DistroGH',
         })
       } else if (data.PAID != null || data.paid != null) {
         normalized.supermarket_paid = false
         infos.push({
           code: 'SUPERMARKET_UNSETTLED',
-          message: 'PAID blank — sold but not yet settled by supermarket',
+          message: 'paid blank/No — sold but not yet settled by supermarket',
         })
       } else {
         infos.push({
           code: 'SUPERMARKET_UNSETTLED',
-          message: 'No PAID column — imports as awaiting supermarket payment; mark settled on Sales after DistroGH is paid',
+          message: 'No paid value — imports as awaiting supermarket payment; mark settled on Sales after DistroGH is paid',
         })
       }
     }

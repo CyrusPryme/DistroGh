@@ -94,16 +94,31 @@ export function monthTextToReportMonth(monthRaw: unknown, yearRaw: unknown): str
 
 /** True when PAID cell = supermarket has remitted to DistroGH for this sale line (non-blank). */
 export function isSupermarketPaidMarker(raw: unknown): boolean {
-  return str(raw) !== ''
+  return parsePaidSettlement(raw) === true
 }
 
-/** @deprecated Use isSupermarketPaidMarker — PAID is supermarket→DistroGH, not vendor payout. */
+/** @deprecated Use parsePaidSettlement — PAID/paid is supermarket→DistroGH, not vendor payout. */
 export function isPaidMarker(raw: unknown): boolean {
   return isSupermarketPaidMarker(raw)
 }
 
+/** Parse paid / PAID / Yes|No → supermarket settled with DistroGH (not vendor MoMo payout). */
+export function parsePaidSettlement(raw: unknown): boolean {
+  const token = str(raw).toLowerCase()
+  if (token === '' || token === 'no' || token === 'false' || token === '0') return false
+  return true
+}
+
 export function rowHasPaidColumn(data: Record<string, unknown>): boolean {
   return Object.keys(data).some((k) => normKey(k) === 'paid')
+}
+
+/** Legacy uploads may still use supermarket_paid — treated as an alias of paid. */
+export function rowHasSettlementColumn(data: Record<string, unknown>): boolean {
+  return Object.keys(data).some((k) => {
+    const nk = normKey(k)
+    return nk === 'paid' || nk === 'supermarketpaid'
+  })
 }
 
 /** Normalize Palace / generic sales row headers into canonical migration fields. */
@@ -149,17 +164,12 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
   if (vendor != null && !out.vendor && !out.vendor_name) out.vendor = vendor
 
   const paidRaw = pickSalesField(data, 'paid', 'PAID')
-  if (paidRaw != null && out.paid == null) out.paid = paidRaw
-  // Only set when the source file includes PAID — absent column → leave unset (import defaults false).
-  if (rowHasPaidColumn(data)) {
-    out.supermarket_paid = isSupermarketPaidMarker(paidRaw)
-  }
-
-  const settlementRaw = pickSalesField(data, 'supermarket_paid')
-  if (settlementRaw != null && typeof out.supermarket_paid !== 'boolean') {
-    const token = str(settlementRaw).toLowerCase()
-    if (token === 'yes' || token === 'true' || token === '1') out.supermarket_paid = true
-    else if (token === 'no' || token === 'false' || token === '0') out.supermarket_paid = false
+  const legacyPaidRaw = pickSalesField(data, 'supermarket_paid')
+  const settlementRaw = paidRaw ?? legacyPaidRaw
+  if (settlementRaw != null && out.paid == null) out.paid = settlementRaw
+  // paid / PAID column (or legacy supermarket_paid) → stored as supermarket_paid on import.
+  if (rowHasSettlementColumn(data)) {
+    out.supermarket_paid = parsePaidSettlement(settlementRaw)
   }
 
   if (!str(out.report_month) && !str(out.week_start)) {
