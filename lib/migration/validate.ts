@@ -141,6 +141,13 @@ export function validateRow(
           message: 'store_name / branch not provided — supermarket must be corrected manually before import',
         })
       }
+      const tcost = num(data.TCostEx ?? data.vendor_due)
+      if (tcost == null) {
+        errors.push({
+          code: 'MISSING_TCOST',
+          message: 'TCostEx is required — vendor line total (PAYMENT TO SUPPLIER) at time of recording',
+        })
+      }
       const amounts = resolveHistoricalSaleAmounts({ ...data, ...normalized })
       if (amounts) {
         normalized.vendor_due = amounts.vendor_due
@@ -148,8 +155,8 @@ export function validateRow(
         normalized.total_sales = amounts.total_sales
         normalized.commission_amount = amounts.commission_amount
       } else {
-        const tcost = num(data.TCostEx ?? data.vendor_due)
-        if (tcost != null) normalized.vendor_due = tcost
+        const tcostFallback = num(data.TCostEx ?? data.vendor_due)
+        if (tcostFallback != null) normalized.vendor_due = tcostFallback
       }
       if (typeof data.supermarket_paid === 'boolean') {
         normalized.supermarket_paid = data.supermarket_paid

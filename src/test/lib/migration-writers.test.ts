@@ -207,7 +207,7 @@ function salesRow(overrides: Record<string, unknown> = {}) {
     normalized_data: {
       product: 'Palm Oil 1L',
       qty: 5,
-      unit_price: 30,
+      TCostEx: 150,
       week_start: '2024-03-01',
       week_end: '2024-03-31',
       ...overrides,

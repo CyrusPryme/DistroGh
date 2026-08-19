@@ -81,10 +81,20 @@ describe('validateRow — sales are always reported by full calendar month', () 
     expect(errors.some((e) => e.code === 'MISSING_DATE')).toBe(true)
   })
 
+  it('missing TCostEx is a hard error', () => {
+    const { errors } = validateRow('sales', {
+      product: 'Palm Oil 1L',
+      qty: 5,
+      report_month: '2024-03-01',
+    })
+    expect(errors.some((e) => e.code === 'MISSING_TCOST')).toBe(true)
+  })
+
   it('a mid-month week_start is snapped to full calendar month bounds', () => {
     const { normalized } = validateRow('sales', {
       product: 'Palm Oil 1L',
       qty: 5,
+      TCostEx: 150,
       week_start: '2024-03-15',
     })
     expect(normalized.week_start).toBe('2024-03-01')
@@ -95,6 +105,7 @@ describe('validateRow — sales are always reported by full calendar month', () 
     const { normalized, errors } = validateRow('sales', {
       product: 'Palm Oil 1L',
       qty: 5,
+      TCostEx: 150,
       report_month: '2024-02',
     })
     expect(errors).toEqual([])
@@ -106,6 +117,7 @@ describe('validateRow — sales are always reported by full calendar month', () 
     const { warnings } = validateRow('sales', {
       product: 'Palm Oil 1L',
       qty: 5,
+      TCostEx: 150,
       week_start: '2024-03-01',
       week_end: '2024-03-15', // half a month, not the full month — a real misalignment
     })
@@ -116,6 +128,7 @@ describe('validateRow — sales are always reported by full calendar month', () 
     const { warnings } = validateRow('sales', {
       product: 'Palm Oil 1L',
       qty: 5,
+      TCostEx: 150,
       week_start: '2024-03-01',
       week_end: '2024-03-31',
     })

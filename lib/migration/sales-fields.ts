@@ -3,8 +3,9 @@
  * Maps legacy export headers (store_name, MONTH, PAID, PAYMENT TO SUPPLIER, …) to canonical
  * migration fields used by validate.ts and writers.ts.
  *
- * Historical migration amounts are always derived from the uploaded row (qty, TCostEx, optional
- * shop unit/total) — never from the live product catalog vendor_price.
+ * Historical sale amounts are derived only from qty + TCostEx (per-unit = TCostEx ÷ qty).
+ * Spreadsheet unit_price / shop totals are ignored. Vendor comes from the matched product,
+ * not from a template column (Palace vendor/NAME columns in uploads are informational only).
  */
 
 import { roundMoney } from '@/lib/utils'
@@ -172,12 +173,6 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
     }
   }
 
-  const unitRaw = pickSalesField(data, 'unit_price', 'shop_unit_price', 'price', 'selling_price')
-  if (unitRaw != null && out.unit_price == null) out.unit_price = unitRaw
-
-  const totalRaw = pickSalesField(data, 'total_sales', 'line_total', 'shop_total', 'total')
-  if (totalRaw != null && out.total_sales == null) out.total_sales = totalRaw
-
   const amounts = resolveHistoricalSaleAmounts(out)
   if (amounts) {
     out.vendor_due = amounts.vendor_due
@@ -190,35 +185,25 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
 }
 
 /**
- * Derive sale money fields from the spreadsheet row only.
- * TCostEx / vendor_due is the authoritative vendor line total for that historical period.
+ * Derive sale money fields from qty + TCostEx only (price at time of recording = TCostEx ÷ qty).
+ * Ignores spreadsheet unit_price / total_sales and never reads the live product catalog.
  */
 export function resolveHistoricalSaleAmounts(data: Record<string, unknown>): HistoricalSaleAmounts | null {
   const qty = num(data.qty ?? data.quantity)
   if (qty == null || qty <= 0) return null
 
   const vendorDueRaw = num(data.vendor_due ?? data.TCostEx ?? data.tcostex)
-  const vendorDue = vendorDueRaw != null && vendorDueRaw >= 0 ? vendorDueRaw : 0
+  if (vendorDueRaw == null || vendorDueRaw < 0) return null
 
-  let unitPrice = num(data.unit_price ?? data.shop_unit_price)
-  let totalSales = num(data.total_sales)
-
-  if ((totalSales == null || totalSales <= 0) && unitPrice != null && unitPrice > 0) {
-    totalSales = roundMoney(unitPrice * qty)
-  }
-  if (totalSales != null && totalSales > 0 && (unitPrice == null || unitPrice <= 0)) {
-    unitPrice = roundMoney(totalSales / qty)
-  }
-
-  const unit = unitPrice != null && unitPrice > 0 ? unitPrice : 0
-  const total = totalSales != null && totalSales > 0 ? totalSales : 0
-  const commission = total > vendorDue ? roundMoney(total - vendorDue) : 0
+  const vendorDue = roundMoney(vendorDueRaw)
+  const unit = roundMoney(vendorDue / qty)
+  const total = roundMoney(unit * qty)
 
   return {
     qty,
-    vendor_due: roundMoney(vendorDue),
+    vendor_due: vendorDue,
     unit_price: unit,
     total_sales: total,
-    commission_amount: commission,
+    commission_amount: 0,
   }
 }

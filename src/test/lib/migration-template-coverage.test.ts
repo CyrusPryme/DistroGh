@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import ExcelJS from 'exceljs'
 import {
   buildMigrationTemplateWorkbook,
+  getMigrationTemplateColumnOrder,
   resolveTemplateColumnValidation,
   type MigrationTemplateRecord,
 } from '@/lib/migration/template-xlsx'
@@ -111,16 +112,16 @@ describe('migration template column coverage', () => {
 
   it('sales template store_name gets branch dropdown; description stays free text', async () => {
     const spec = CANONICAL_MIGRATION_TEMPLATE_SPECS.find((s) => s.entity_type === 'sales')!
-    const buf = await buildMigrationTemplateWorkbook(specToTemplate(spec), LIVE_OPTIONS)
+    const template = specToTemplate(spec)
+    const buf = await buildMigrationTemplateWorkbook(template, LIVE_OPTIONS)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf as any)
     const sheet = wb.getWorksheet('Data')!
-    const columns = [...spec.required_columns, ...spec.optional_columns]
+    const columns = getMigrationTemplateColumnOrder(template)
 
     const listCols = [
       'store_name',
       'branch',
-      'vendor',
       'product_name',
       'barcode',
       'paid',
@@ -135,6 +136,8 @@ describe('migration template column coverage', () => {
     expect(sheet.getCell(3, columns.indexOf('code') + 1).dataValidation?.type).not.toBe('list')
     expect(sheet.getCell(3, columns.indexOf('report_month') + 1).dataValidation?.type).toBe('custom')
     expect(sheet.getCell(3, columns.indexOf('report_year') + 1).dataValidation?.type).toBe('whole')
+    expect(columns).not.toContain('unit_price')
+    expect(columns).not.toContain('vendor')
   })
 
   it('deliveries template includes destination_type static dropdown', async () => {

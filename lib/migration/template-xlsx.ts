@@ -413,8 +413,13 @@ function applyColumnValidation(
   }
 }
 
-function templateColumns(template: MigrationTemplateRecord): string[] {
+/** Excel column order (required columns first, then optional). */
+export function getMigrationTemplateColumnOrder(template: MigrationTemplateRecord): string[] {
   return [...(template.required_columns || []), ...(template.optional_columns || [])]
+}
+
+function templateColumns(template: MigrationTemplateRecord): string[] {
+  return getMigrationTemplateColumnOrder(template)
 }
 
 function templateHasColumn(template: MigrationTemplateRecord, columns: Set<string>): boolean {
@@ -467,11 +472,11 @@ function buildInstructionsSheet(
     ...(template.entity_type === 'sales'
       ? [
           ['For Palace exports: upload the supermarket file as-is, or use this template for manual historical rows.'],
-          ['Aggregated upload: one row per sale line — set report_month (or month + report_year) on every row so each period keeps its own price.'],
-          ['description + code (free text) match products by name/barcode — optional product_name dropdown for manual entry.'],
-          ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER) as recorded at that time.'],
-          ['Each row uses its own TCostEx/qty — past price changes are stored on the sale, never on the live product catalog.'],
-          ['Optional unit_price / total_sales: shop-side figures when known; commission = total_sales − TCostEx (row math only).'],
+          ['Aggregated upload: one row per sale line — set report_month (or month + report_year) on every row.'],
+          ['description + code (free text) match products by name/barcode — vendor comes from the matched product, not a column here.'],
+          ['qty + TCostEx only: per-unit price at recording = TCostEx ÷ qty (computed on import — do not add unit_price).'],
+          ['Each row keeps its own TCostEx — past price changes stay on the sale; live product catalog prices are never overwritten.'],
+          ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER) as recorded.'],
           ['report_month: first day of sales month (e.g. 2024-06-01). Legacy MONTH-only rows: use month + report_year columns.'],
           ['paid / supermarket_paid: Yes = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
         ]
@@ -504,10 +509,7 @@ function populateTemplateSheets(
   options?: TemplateBuildOptions
 ) {
   const requiredSet = new Set(template.required_columns || [])
-  const columns = [
-    ...(template.required_columns || []),
-    ...(template.optional_columns || []),
-  ]
+  const columns = templateColumns(template)
   if (!columns.length) return
 
   let listsSheet = shared?.listsSheet

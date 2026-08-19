@@ -78,17 +78,21 @@ describe('sales-fields — Palace column normalization', () => {
     })
     expect(jan.vendor_due).toBe(20)
     expect(jul.vendor_due).toBe(30)
+    expect(jan.unit_price).toBe(10)
+    expect(jul.unit_price).toBe(15)
+    expect(jan.total_sales).toBe(20)
   })
 
-  it('derives total_sales and commission from row unit_price when shop total is present', () => {
+  it('ignores spreadsheet unit_price — derives from TCostEx ÷ qty only', () => {
     const out = normalizeSalesRowData({
       qty: 10,
       TCostEx: 40,
-      unit_price: 5,
+      unit_price: 99,
       report_month: '2024-03-01',
     })
     expect(out.vendor_due).toBe(40)
-    expect(out.total_sales).toBe(50)
-    expect(out.commission_amount).toBe(10)
+    expect(out.unit_price).toBe(4)
+    expect(out.total_sales).toBe(40)
+    expect(out.commission_amount).toBe(0)
   })
 })
