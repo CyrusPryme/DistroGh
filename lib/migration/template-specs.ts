@@ -57,16 +57,18 @@ export const CANONICAL_MIGRATION_TEMPLATE_SPECS: TemplateColumnSpec[] = [
     entity_type: 'sales',
     required_columns: ['description', 'code', 'qty', 'store_name', 'TCostEx', 'report_month'],
     optional_columns: [
-      'store',
+      'product_name',
+      'branch',
       'vendor',
       'paid',
-      'barcode',
+      'supermarket_paid',
       'month',
       'report_year',
+      'store',
+      'barcode',
       'unit_price',
       'week_start',
       'week_end',
-      'supermarket_paid',
     ],
   },
   {
@@ -107,6 +109,7 @@ export type DropdownExpectation =
   | 'live_supermarket_chain'
   | 'live_supermarket_branch'
   | 'live_category'
+  | 'live_barcode'
   | 'static_list'
   | 'date'
   | 'phone'
@@ -126,6 +129,7 @@ export function expectedDropdownExpectation(entityType: string, column: string):
   if (column === 'supermarket_name') return 'live_supermarket_chain'
   if (column === 'store_name' || column === 'branch') return 'live_supermarket_branch'
   if (entityType !== 'products' && (column === 'product_name' || column === 'product')) return 'live_product'
+  if (entityType !== 'products' && column === 'barcode') return 'live_barcode'
   if (entityType === 'products' && column === 'category') return 'live_category'
 
   if (
@@ -134,6 +138,8 @@ export function expectedDropdownExpectation(entityType: string, column: string):
       'status',
       'reason',
       'paid',
+      'supermarket_paid',
+      'month',
       'destination_type',
     ].includes(column)
   ) {
@@ -161,7 +167,7 @@ export function expectedDropdownExpectation(entityType: string, column: string):
   }
 
   if (['momo_number', 'contact_phone', 'phone'].includes(column)) return 'phone'
-  if (['quantity', 'qty', 'years_paid'].includes(column)) return 'whole'
+  if (['quantity', 'qty', 'years_paid', 'report_year'].includes(column)) return 'whole'
   if (
     [
       'vendor_price',

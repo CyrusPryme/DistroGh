@@ -136,9 +136,16 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
 
   const paidRaw = pickSalesField(data, 'paid', 'PAID')
   if (paidRaw != null && out.paid == null) out.paid = paidRaw
-  // Only set when the source file includes PAID — absent column → leave unset (import defaults true).
+  // Only set when the source file includes PAID — absent column → leave unset (import defaults false).
   if (rowHasPaidColumn(data)) {
     out.supermarket_paid = isSupermarketPaidMarker(paidRaw)
+  }
+
+  const settlementRaw = pickSalesField(data, 'supermarket_paid')
+  if (settlementRaw != null && typeof out.supermarket_paid !== 'boolean') {
+    const token = str(settlementRaw).toLowerCase()
+    if (token === 'yes' || token === 'true' || token === '1') out.supermarket_paid = true
+    else if (token === 'no' || token === 'false' || token === '0') out.supermarket_paid = false
   }
 
   if (!str(out.report_month) && !str(out.week_start)) {

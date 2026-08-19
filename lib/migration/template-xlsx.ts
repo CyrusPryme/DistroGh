@@ -21,6 +21,8 @@ export type TemplateBuildOptions = {
   supermarketBranchLabels?: string[]
   /** Product category names (products template). */
   categoryNames?: string[]
+  /** Product barcodes (sales/intakes optional barcode column). */
+  productBarcodes?: string[]
 }
 
 const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
@@ -33,7 +35,35 @@ const SUPERMARKET_DROPDOWN_ENTITY_EXCLUSIONS = new Set(['supermarkets', 'superma
 // free-text Palace-style sales identifiers (description/code/barcode) — those aren't a lookup
 // against the existing catalogue, so forcing them into a dropdown would block legitimate values.
 const PRODUCT_NAME_COLUMNS = new Set(['product_name', 'product'])
+const PRODUCT_BARCODE_COLUMNS = new Set(['barcode'])
 const PHONE_COLUMNS = new Set(['momo_number', 'contact_phone', 'phone'])
+
+const MONTH_NAME_OPTIONS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+  'JANUARY',
+  'FEBRUARY',
+  'MARCH',
+  'APRIL',
+  'MAY',
+  'JUNE',
+  'JULY',
+  'AUGUST',
+  'SEPTEMBER',
+  'OCTOBER',
+  'NOVEMBER',
+  'DECEMBER',
+]
 
 const DATA_ROW_COUNT = 250
 const HEADER_ROW = 1
@@ -70,6 +100,7 @@ const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
   markup_amount: { kind: 'decimal', min: 0 },
   supermarket_selling_price: { kind: 'decimal', min: 0 },
   years_paid: { kind: 'whole', min: 1 },
+  report_year: { kind: 'whole', min: 2000 },
   momo_number: { kind: 'phone' },
   contact_phone: { kind: 'phone' },
   phone: { kind: 'phone' },
@@ -105,7 +136,9 @@ const ENTITY_FIELD_OVERRIDES: Partial<Record<string, Record<string, ColumnValida
   },
   sales: {
     paid: { kind: 'list', options: ['Yes'] },
+    supermarket_paid: { kind: 'list', options: ['Yes', 'No'] },
     report_month: { kind: 'date' },
+    month: { kind: 'list', options: MONTH_NAME_OPTIONS },
   },
 }
 
@@ -183,6 +216,15 @@ function getValidation(
       options: names.length
         ? names
         : ['(No products in system — add products first)'],
+    }
+  }
+  if (entityType !== 'products' && PRODUCT_BARCODE_COLUMNS.has(column)) {
+    const barcodes = options?.productBarcodes ?? []
+    return {
+      kind: 'list',
+      options: barcodes.length
+        ? barcodes
+        : ['(No product barcodes in system — add barcodes on products first)'],
     }
   }
   return ENTITY_FIELD_OVERRIDES[entityType]?.[column] ?? FIELD_VALIDATIONS[column] ?? null
@@ -407,8 +449,11 @@ function buildInstructionsSheet(
     ...(templateHasColumn(template, VENDOR_NAME_COLUMNS)
       ? [[`Vendor dropdown lists ${options?.vendorNames?.length ?? 0} vendor(s) from the system at download time — re-download after changes.`]]
       : []),
-    ...(template.entity_type !== 'products' && templateHasColumn(template, PRODUCT_NAME_COLUMNS)
+    ...(templateHasColumn(template, PRODUCT_NAME_COLUMNS)
       ? [[`Product dropdown lists ${options?.productNames?.length ?? 0} product(s) from the system at download time — re-download after changes.`]]
+      : []),
+    ...(templateHasColumn(template, PRODUCT_BARCODE_COLUMNS)
+      ? [[`Barcode dropdown lists ${options?.productBarcodes?.length ?? 0} barcode(s) at download time.`]]
       : []),
     ...(template.entity_type === 'products' && templateHasColumn(template, CATEGORY_COLUMNS)
       ? [[`Category dropdown lists ${options?.categoryNames?.length ?? 0} categor(ies) at download time.`]]
@@ -421,9 +466,11 @@ function buildInstructionsSheet(
       : []),
     ...(template.entity_type === 'sales'
       ? [
-          ['For Palace exports: description = product name, store_name = branch, TCostEx = vendor line total (PAYMENT TO SUPPLIER).'],
-          ['paid column (if used): supermarket has paid DistroGH for that sale line. Blank = not yet settled.'],
-          ['report_month: first day of the sales month (e.g. 2024-06-01). Legacy MONTH-only sheets need report_year added.'],
+          ['For Palace exports: upload the supermarket file as-is, or use this template for manual historical rows.'],
+          ['description + code (free text) match products by name/barcode — optional product_name dropdown for manual entry.'],
+          ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER).'],
+          ['report_month: first day of sales month (e.g. 2024-06-01). Legacy MONTH-only rows: use month + report_year columns.'],
+          ['paid / supermarket_paid: Yes = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
         ]
       : []),
     ...(template.entity_type === 'deliveries'
@@ -527,6 +574,14 @@ function populateTemplateSheets(
         cell.value = options.productNames.includes(String(val))
           ? String(val)
           : options.productNames[0]
+      } else if (
+        template.entity_type !== 'products' &&
+        PRODUCT_BARCODE_COLUMNS.has(key) &&
+        options?.productBarcodes?.length
+      ) {
+        cell.value = options.productBarcodes.includes(String(val))
+          ? String(val)
+          : options.productBarcodes[0]
       } else if (FIELD_VALIDATIONS[key]?.kind === 'date') {
         // Store as a real date (not the raw "2024-01-15" string) so it renders through the
         // yyyy-mm-dd numFmt applied below exactly like a value the user would enter themselves.
@@ -554,9 +609,11 @@ function populateTemplateSheets(
             ? 'live:supermarket_branches'
             : template.entity_type === 'products' && CATEGORY_COLUMNS.has(key)
               ? 'live:categories'
-              : PRODUCT_NAME_COLUMNS.has(key)
-                ? 'live:products'
-                : `${template.entity_type}:${key}`
+              : PRODUCT_BARCODE_COLUMNS.has(key)
+                ? 'live:product_barcodes'
+                : PRODUCT_NAME_COLUMNS.has(key)
+                  ? 'live:products'
+                  : `${template.entity_type}:${key}`
       listRange = registerList(
         listsSheet,
         listCol,

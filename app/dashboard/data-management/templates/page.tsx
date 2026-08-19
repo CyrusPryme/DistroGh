@@ -77,9 +77,10 @@ export default function MigrationTemplatesPage() {
       />
 
       <div className="data-card bg-brand-50 border-brand-200 text-sm text-brand-900">
-        Templates are generated fresh on each download. Product and other sheets with{' '}
-        <strong>vendor_name</strong> include a dropdown of current system vendors — re-download after
-        adding or removing vendors. Ghana phone columns use text format (10 digits starting with 0).
+        Templates are generated fresh on each download with live dropdowns (vendors, products, supermarket
+        outlets, categories, settlement flags). Re-download after master data changes. Ghana phone columns
+        use text format (10 digits starting with 0). Palace sales files can still be uploaded directly in
+        Historical Migrations without using this template.
       </div>
 
       <div className="space-y-4">

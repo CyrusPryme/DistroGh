@@ -14,6 +14,7 @@ import {
 const LIVE_OPTIONS = {
   vendorNames: ['Vendor A'],
   productNames: ['Product A'],
+  productBarcodes: ['1234567890'],
   supermarketNames: ['Palace'],
   supermarketBranchLabels: ['Accra Mall'],
   categoryNames: ['Beverages'],
@@ -37,6 +38,7 @@ function expectationToValidationKind(exp: DropdownExpectation): string | null {
     exp === 'live_supermarket_chain' ||
     exp === 'live_supermarket_branch' ||
     exp === 'live_category' ||
+    exp === 'live_barcode' ||
     exp === 'static_list'
   ) {
     return 'list'
@@ -114,9 +116,25 @@ describe('migration template column coverage', () => {
     await wb.xlsx.load(buf as any)
     const sheet = wb.getWorksheet('Data')!
     const columns = [...spec.required_columns, ...spec.optional_columns]
-    expect(sheet.getCell(3, columns.indexOf('store_name') + 1).dataValidation?.type).toBe('list')
+
+    const listCols = [
+      'store_name',
+      'branch',
+      'vendor',
+      'product_name',
+      'barcode',
+      'paid',
+      'supermarket_paid',
+      'month',
+    ] as const
+    for (const col of listCols) {
+      expect(sheet.getCell(3, columns.indexOf(col) + 1).dataValidation?.type, col).toBe('list')
+    }
+
     expect(sheet.getCell(3, columns.indexOf('description') + 1).dataValidation?.type).not.toBe('list')
-    expect(sheet.getCell(3, columns.indexOf('vendor') + 1).dataValidation?.type).toBe('list')
+    expect(sheet.getCell(3, columns.indexOf('code') + 1).dataValidation?.type).not.toBe('list')
+    expect(sheet.getCell(3, columns.indexOf('report_month') + 1).dataValidation?.type).toBe('custom')
+    expect(sheet.getCell(3, columns.indexOf('report_year') + 1).dataValidation?.type).toBe('whole')
   })
 
   it('deliveries template includes destination_type static dropdown', async () => {

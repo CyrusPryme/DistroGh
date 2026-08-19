@@ -55,4 +55,9 @@ describe('sales-fields — Palace column normalization', () => {
     expect(isSupermarketPaidMarker('')).toBe(false)
     expect(isSupermarketPaidMarker(null)).toBe(false)
   })
+
+  it('supermarket_paid Yes/No column from historical template', () => {
+    expect(normalizeSalesRowData({ supermarket_paid: 'Yes' }).supermarket_paid).toBe(true)
+    expect(normalizeSalesRowData({ supermarket_paid: 'No' }).supermarket_paid).toBe(false)
+  })
 })
