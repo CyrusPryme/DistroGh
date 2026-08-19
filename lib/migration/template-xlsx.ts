@@ -19,11 +19,16 @@ export type TemplateBuildOptions = {
   supermarketNames?: string[]
   /** Branch/outlet labels (sales store_name, deliveries branch, etc.). */
   supermarketBranchLabels?: string[]
+  /** Product category names (products template). */
+  categoryNames?: string[]
 }
 
 const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
 const SUPERMARKET_NAME_COLUMNS = new Set(['supermarket_name'])
 const SUPERMARKET_BRANCH_COLUMNS = new Set(['store_name', 'branch'])
+const CATEGORY_COLUMNS = new Set(['category'])
+/** Master-data templates define NEW outlets — never constrain name/branch to existing records. */
+const SUPERMARKET_DROPDOWN_ENTITY_EXCLUSIONS = new Set(['supermarkets', 'supermarket_chains'])
 // Deliberately excludes 'name' (the Products template's own new-product name field) and the
 // free-text Palace-style sales identifiers (description/code/barcode) — those aren't a lookup
 // against the existing catalogue, so forcing them into a dropdown would block legitimate values.
@@ -61,6 +66,7 @@ const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
   transport_cost: { kind: 'decimal', min: 0 },
   TCostEx: { kind: 'decimal', min: 0 },
   tcostex: { kind: 'decimal', min: 0 },
+  unit_price: { kind: 'decimal', min: 0 },
   markup_amount: { kind: 'decimal', min: 0 },
   supermarket_selling_price: { kind: 'decimal', min: 0 },
   years_paid: { kind: 'whole', min: 1 },
@@ -85,6 +91,12 @@ const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
 }
 
 const ENTITY_FIELD_OVERRIDES: Partial<Record<string, Record<string, ColumnValidation>>> = {
+  deliveries: {
+    destination_type: {
+      kind: 'list',
+      options: ['WAREHOUSE', 'DISTRIBUTION_POINT', 'UNKNOWN_HISTORICAL'],
+    },
+  },
   payouts: {
     status: { kind: 'list', options: ['completed', 'pending', 'failed'] },
   },
@@ -108,6 +120,20 @@ function colLetter(index: number): string {
   return s
 }
 
+function allowsSupermarketReferenceDropdown(entityType: string, column: string): boolean {
+  if (SUPERMARKET_DROPDOWN_ENTITY_EXCLUSIONS.has(entityType)) return false
+  return SUPERMARKET_NAME_COLUMNS.has(column) || SUPERMARKET_BRANCH_COLUMNS.has(column)
+}
+
+/** Exported for template coverage tests — resolves Excel validation for one template column. */
+export function resolveTemplateColumnValidation(
+  entityType: string,
+  column: string,
+  options?: TemplateBuildOptions
+): ColumnValidation | null {
+  return getValidation(entityType, column, options)
+}
+
 function getValidation(
   entityType: string,
   column: string,
@@ -122,7 +148,7 @@ function getValidation(
         : ['(No vendors in system — add vendors first)'],
     }
   }
-  if (SUPERMARKET_NAME_COLUMNS.has(column)) {
+  if (SUPERMARKET_NAME_COLUMNS.has(column) && allowsSupermarketReferenceDropdown(entityType, column)) {
     const names = options?.supermarketNames ?? []
     return {
       kind: 'list',
@@ -131,13 +157,20 @@ function getValidation(
         : ['(No supermarkets in system — add supermarkets first)'],
     }
   }
-  if (SUPERMARKET_BRANCH_COLUMNS.has(column)) {
+  if (SUPERMARKET_BRANCH_COLUMNS.has(column) && allowsSupermarketReferenceDropdown(entityType, column)) {
     const branches = options?.supermarketBranchLabels ?? []
     return {
       kind: 'list',
       options: branches.length
         ? branches
         : ['(No supermarkets in system — add supermarkets first)'],
+    }
+  }
+  if (entityType === 'products' && CATEGORY_COLUMNS.has(column)) {
+    const names = options?.categoryNames ?? []
+    return {
+      kind: 'list',
+      options: names.length ? names : ['(No categories in system — add categories first)'],
     }
   }
   // The Products template's own 'name' column defines a *new* product — never turn that into a
@@ -338,6 +371,14 @@ function applyColumnValidation(
   }
 }
 
+function templateColumns(template: MigrationTemplateRecord): string[] {
+  return [...(template.required_columns || []), ...(template.optional_columns || [])]
+}
+
+function templateHasColumn(template: MigrationTemplateRecord, columns: Set<string>): boolean {
+  return templateColumns(template).some((c) => columns.has(c))
+}
+
 function buildInstructionsSheet(
   workbook: ExcelJS.Workbook,
   template: MigrationTemplateRecord,
@@ -363,24 +404,32 @@ function buildInstructionsSheet(
     ['4. Ghana phones: exactly 10 digits starting with 0 (e.g. 0243222222).'],
     ['5. Required columns are marked with * in the header.'],
     ['6. Save as .xlsx and upload in Data Management → Historical Migrations.'],
-    ...(template.entity_type === 'products' || (template.required_columns || []).some((c) => VENDOR_NAME_COLUMNS.has(c))
-      ? [[`Vendor dropdown lists ${options?.vendorNames?.length ?? 0} vendor(s) from the system at download time — re-download after adding/removing vendors.`]]
+    ...(templateHasColumn(template, VENDOR_NAME_COLUMNS)
+      ? [[`Vendor dropdown lists ${options?.vendorNames?.length ?? 0} vendor(s) from the system at download time — re-download after changes.`]]
       : []),
-    ...(template.entity_type !== 'products' && (template.required_columns || []).some((c) => PRODUCT_NAME_COLUMNS.has(c))
-      ? [[`Product dropdown lists ${options?.productNames?.length ?? 0} product(s) from the system at download time — re-download after adding/removing products.`]]
+    ...(template.entity_type !== 'products' && templateHasColumn(template, PRODUCT_NAME_COLUMNS)
+      ? [[`Product dropdown lists ${options?.productNames?.length ?? 0} product(s) from the system at download time — re-download after changes.`]]
+      : []),
+    ...(template.entity_type === 'products' && templateHasColumn(template, CATEGORY_COLUMNS)
+      ? [[`Category dropdown lists ${options?.categoryNames?.length ?? 0} categor(ies) at download time.`]]
+      : []),
+    ...(templateHasColumn(template, SUPERMARKET_NAME_COLUMNS)
+      ? [[`Supermarket name dropdown lists ${options?.supermarketNames?.length ?? 0} chain(s) at download time.`]]
+      : []),
+    ...(templateHasColumn(template, SUPERMARKET_BRANCH_COLUMNS)
+      ? [[`Branch / store_name dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet label(s) at download time.`]]
       : []),
     ...(template.entity_type === 'sales'
       ? [
           ['For Palace exports: description = product name, store_name = branch, TCostEx = vendor line total (PAYMENT TO SUPPLIER).'],
-          ['PAID column: supermarket has paid DistroGH for that sale line. Blank = sold but not settled — excluded from vendor balance.'],
+          ['paid column (if used): supermarket has paid DistroGH for that sale line. Blank = not yet settled.'],
           ['report_month: first day of the sales month (e.g. 2024-06-01). Legacy MONTH-only sheets need report_year added.'],
-          [`Supermarket branch dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet(s) at download time.`],
         ]
       : []),
-    ...(template.entity_type === 'deliveries' || template.entity_type === 'returns'
+    ...(template.entity_type === 'deliveries'
       ? [
-          [`Supermarket name dropdown lists ${options?.supermarketNames?.length ?? 0} chain(s) from the system at download time.`],
-          [`Branch dropdown lists ${options?.supermarketBranchLabels?.length ?? 0} outlet branch label(s) — use when the delivery/return targets a specific outlet.`],
+          ['destination_type: use WAREHOUSE / DISTRIBUTION_POINT / UNKNOWN_HISTORICAL when stock did not go to a registered outlet branch.'],
+          ['destination_reference: free-text warehouse or distribution point name when destination_type is not BRANCH.'],
         ]
       : []),
     [''],
@@ -456,14 +505,24 @@ function populateTemplateSheets(
         cell.value = options.vendorNames.includes(String(val))
           ? String(val)
           : options.vendorNames[0]
-      } else if (SUPERMARKET_NAME_COLUMNS.has(key) && options?.supermarketNames?.length) {
+      } else if (
+        allowsSupermarketReferenceDropdown(template.entity_type, key) &&
+        SUPERMARKET_NAME_COLUMNS.has(key) &&
+        options?.supermarketNames?.length
+      ) {
         cell.value = options.supermarketNames.includes(String(val))
           ? String(val)
           : options.supermarketNames[0]
-      } else if (SUPERMARKET_BRANCH_COLUMNS.has(key) && options?.supermarketBranchLabels?.length) {
+      } else if (
+        allowsSupermarketReferenceDropdown(template.entity_type, key) &&
+        SUPERMARKET_BRANCH_COLUMNS.has(key) &&
+        options?.supermarketBranchLabels?.length
+      ) {
         cell.value = options.supermarketBranchLabels.includes(String(val))
           ? String(val)
           : options.supermarketBranchLabels[0]
+      } else if (template.entity_type === 'products' && CATEGORY_COLUMNS.has(key) && options?.categoryNames?.length) {
+        cell.value = options.categoryNames.includes(String(val)) ? String(val) : options.categoryNames[0]
       } else if (template.entity_type !== 'products' && PRODUCT_NAME_COLUMNS.has(key) && options?.productNames?.length) {
         cell.value = options.productNames.includes(String(val))
           ? String(val)
@@ -489,13 +548,15 @@ function populateTemplateSheets(
     if (validation.kind === 'list') {
       const listKey = VENDOR_NAME_COLUMNS.has(key)
         ? 'live:vendors'
-        : SUPERMARKET_NAME_COLUMNS.has(key)
+        : allowsSupermarketReferenceDropdown(template.entity_type, key) && SUPERMARKET_NAME_COLUMNS.has(key)
           ? 'live:supermarket_names'
-          : SUPERMARKET_BRANCH_COLUMNS.has(key)
+          : allowsSupermarketReferenceDropdown(template.entity_type, key) && SUPERMARKET_BRANCH_COLUMNS.has(key)
             ? 'live:supermarket_branches'
-            : PRODUCT_NAME_COLUMNS.has(key)
-              ? 'live:products'
-              : `${template.entity_type}:${key}`
+            : template.entity_type === 'products' && CATEGORY_COLUMNS.has(key)
+              ? 'live:categories'
+              : PRODUCT_NAME_COLUMNS.has(key)
+                ? 'live:products'
+                : `${template.entity_type}:${key}`
       listRange = registerList(
         listsSheet,
         listCol,
