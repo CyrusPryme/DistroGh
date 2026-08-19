@@ -467,8 +467,11 @@ function buildInstructionsSheet(
     ...(template.entity_type === 'sales'
       ? [
           ['For Palace exports: upload the supermarket file as-is, or use this template for manual historical rows.'],
+          ['Aggregated upload: one row per sale line — set report_month (or month + report_year) on every row so each period keeps its own price.'],
           ['description + code (free text) match products by name/barcode — optional product_name dropdown for manual entry.'],
-          ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER).'],
+          ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER) as recorded at that time.'],
+          ['Each row uses its own TCostEx/qty — past price changes are stored on the sale, never on the live product catalog.'],
+          ['Optional unit_price / total_sales: shop-side figures when known; commission = total_sales − TCostEx (row math only).'],
           ['report_month: first day of sales month (e.g. 2024-06-01). Legacy MONTH-only rows: use month + report_year columns.'],
           ['paid / supermarket_paid: Yes = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
         ]

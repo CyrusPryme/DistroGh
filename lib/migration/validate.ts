@@ -1,7 +1,11 @@
 import type { Pool } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { normalizeMomoNetwork, momoNetworkWasNormalized } from '@/lib/migration/normalize'
-import { normalizeSalesRowData, isSupermarketPaidMarker } from '@/lib/migration/sales-fields'
+import {
+  normalizeSalesRowData,
+  isSupermarketPaidMarker,
+  resolveHistoricalSaleAmounts,
+} from '@/lib/migration/sales-fields'
 import { matchSupermarketByBranch } from '@/lib/supermarket-match'
 import { validateVendorPhones } from '@/lib/migration/vendor-fields'
 import { writeMigrationAudit } from '@/lib/migration/audit'
@@ -137,8 +141,16 @@ export function validateRow(
           message: 'store_name / branch not provided — supermarket must be corrected manually before import',
         })
       }
-      const tcost = num(data.TCostEx ?? data.vendor_due)
-      if (tcost != null) normalized.vendor_due = tcost
+      const amounts = resolveHistoricalSaleAmounts({ ...data, ...normalized })
+      if (amounts) {
+        normalized.vendor_due = amounts.vendor_due
+        normalized.unit_price = amounts.unit_price
+        normalized.total_sales = amounts.total_sales
+        normalized.commission_amount = amounts.commission_amount
+      } else {
+        const tcost = num(data.TCostEx ?? data.vendor_due)
+        if (tcost != null) normalized.vendor_due = tcost
+      }
       if (typeof data.supermarket_paid === 'boolean') {
         normalized.supermarket_paid = data.supermarket_paid
       }

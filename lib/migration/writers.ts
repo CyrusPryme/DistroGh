@@ -8,6 +8,7 @@ import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination
 import { findExistingProvenance, recordProvenance } from '@/lib/migration/provenance'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { resolveHistoricalTransportCost } from '@/lib/migration/transport-cost'
+import { resolveHistoricalSaleAmounts } from '@/lib/migration/sales-fields'
 
 type StagingRow = {
   id: string
@@ -218,6 +219,7 @@ async function writeRow(
       })
 
       if (existingProductId) {
+        // Historical migration never overwrites live catalog pricing — vendor_price / markup stay as-is.
         if (categoryResult.outcome === 'overridden' || categoryResult.outcome === 'populated') {
           await client.query(
             `UPDATE public.products SET category = $2, updated_at = now() WHERE id = $1`,
@@ -626,10 +628,11 @@ async function writeRow(
       const period = normalizeSaleMonthPeriod(toSqlDate(periodSource))
       const weekStart = period.week_start
       const weekEnd = period.week_end
-      const unit = n(d.unit_price ?? d.shop_unit_price)
-      const total = n(d.total_sales, unit * qty)
-      const vendorDue = n(d.vendor_due, 0)
-      const commission = Math.max(0, total - vendorDue)
+      const amounts = resolveHistoricalSaleAmounts(d)
+      const unit = amounts?.unit_price ?? n(d.unit_price ?? d.shop_unit_price)
+      const total = amounts?.total_sales ?? n(d.total_sales, unit * qty)
+      const vendorDue = amounts?.vendor_due ?? n(d.vendor_due, 0)
+      const commission = amounts?.commission_amount ?? Math.max(0, total - vendorDue)
       const supermarketPaid =
         typeof d.supermarket_paid === 'boolean' ? d.supermarket_paid : false
       const ins = await client.query(

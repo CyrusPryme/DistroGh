@@ -60,4 +60,35 @@ describe('sales-fields — Palace column normalization', () => {
     expect(normalizeSalesRowData({ supermarket_paid: 'Yes' }).supermarket_paid).toBe(true)
     expect(normalizeSalesRowData({ supermarket_paid: 'No' }).supermarket_paid).toBe(false)
   })
+
+  it('aggregated rows keep per-row TCostEx — not derived from catalog', () => {
+    const jan = normalizeSalesRowData({
+      description: 'Juice',
+      code: '111',
+      qty: 2,
+      TCostEx: 20,
+      report_month: '2024-01-01',
+    })
+    const jul = normalizeSalesRowData({
+      description: 'Juice',
+      code: '111',
+      qty: 2,
+      TCostEx: 30,
+      report_month: '2024-07-01',
+    })
+    expect(jan.vendor_due).toBe(20)
+    expect(jul.vendor_due).toBe(30)
+  })
+
+  it('derives total_sales and commission from row unit_price when shop total is present', () => {
+    const out = normalizeSalesRowData({
+      qty: 10,
+      TCostEx: 40,
+      unit_price: 5,
+      report_month: '2024-03-01',
+    })
+    expect(out.vendor_due).toBe(40)
+    expect(out.total_sales).toBe(50)
+    expect(out.commission_amount).toBe(10)
+  })
 })
