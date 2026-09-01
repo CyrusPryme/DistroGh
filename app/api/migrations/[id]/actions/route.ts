@@ -10,6 +10,7 @@ import { needsMigrationRetry, needsRevalidation, migrationProgressForStage } fro
 import { CANONICAL_IMPORT_ORDER } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
 import { writeMigrationAudit } from '@/lib/migration/audit'
+import { countStagingRowsMissingProductId } from '@/lib/migration/validate'
 
 type Action =
   | 'analyse'
@@ -203,6 +204,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
             success: false,
             error:
               'Files were re-parsed after the last successful validation, so the current data has not actually been validated. Run "Validate" again before importing.',
+          },
+          { status: 400 }
+        )
+      }
+      if ((project.error_count ?? 0) > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Validation still has error rows — fix them in Corrections and re-validate before importing.',
+          },
+          { status: 400 }
+        )
+      }
+      const missingProductRows = await countStagingRowsMissingProductId(pool, id)
+      if (missingProductRows > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `${missingProductRows} row(s) are missing a resolvable product — add the products to this migration or production, then re-validate before importing.`,
           },
           { status: 400 }
         )

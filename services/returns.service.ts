@@ -57,11 +57,12 @@ export const returnsService = {
   },
 
   async getTopReturnedProducts(
-    limit = 5
+    limit = 5,
+    range?: { from?: string; to?: string }
   ): Promise<
     { product_id: string; product_name: string; total_quantity_returned: number; return_count: number }[]
   > {
-    const data = await this.getAll()
+    const data = await this.getAll(range)
     const byProduct = new Map<
       string,
       { product_name: string; total_quantity_returned: number; return_count: number }

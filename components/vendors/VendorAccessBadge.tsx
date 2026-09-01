@@ -14,10 +14,10 @@ export function VendorAccessBadge({ accessMode, className, showTitle = true }: V
     <span
       title={showTitle ? vendorAccessDescription(accessMode ?? undefined) : undefined}
       className={cn(
-        'status-badge text-[10px] uppercase tracking-wide shrink-0',
+        'status-badge text-[10px] font-semibold uppercase tracking-wide shrink-0 whitespace-nowrap',
         managed
-          ? 'bg-amber-100 text-amber-800 border-amber-200'
-          : 'bg-emerald-100 text-emerald-800 border-emerald-200',
+          ? 'bg-amber-50 text-amber-800 border-amber-200'
+          : 'bg-indigo-50 text-indigo-700 border-indigo-200',
         className
       )}
     >

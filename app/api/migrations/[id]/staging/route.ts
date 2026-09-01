@@ -19,7 +19,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       params.push(entity)
       where.push(`entity_type = $${params.length}`)
     }
-    if (status) {
+    if (status === 'issues') {
+      where.push(`validation_status IN ('error', 'warning')`)
+    } else if (status) {
       params.push(status)
       where.push(`validation_status = $${params.length}`)
     }

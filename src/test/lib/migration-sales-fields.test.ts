@@ -4,6 +4,7 @@ import {
   monthTextToReportMonth,
   normalizeSalesRowData,
   parseMonthName,
+  resolveHistoricalSaleAmounts,
   rowHasPaidColumn,
 } from '@/lib/migration/sales-fields'
 
@@ -23,7 +24,9 @@ describe('sales-fields — Palace column normalization', () => {
     expect(out.branch).toBe('LABONE')
     expect(out.code).toBe('342787011143')
     expect(out.report_month).toBe('2024-06-01')
-    expect(out.vendor_due).toBe(35)
+    expect(out.total_sales).toBe(35)
+    expect(out.unit_price).toBe(35)
+    expect(out.vendor_due).toBeUndefined()
     expect(out.supermarket_paid).toBe(true)
   })
 
@@ -66,7 +69,7 @@ describe('sales-fields — Palace column normalization', () => {
     expect(normalizeSalesRowData({ supermarket_paid: 'No' }).supermarket_paid).toBe(false)
   })
 
-  it('aggregated rows keep per-row TCostEx — not derived from catalog', () => {
+  it('keeps per-row TCostEx as DistroGH supermarket totals — not vendor due', () => {
     const jan = normalizeSalesRowData({
       description: 'Juice',
       code: '111',
@@ -81,23 +84,38 @@ describe('sales-fields — Palace column normalization', () => {
       TCostEx: 30,
       report_month: '2024-07-01',
     })
-    expect(jan.vendor_due).toBe(20)
-    expect(jul.vendor_due).toBe(30)
+    expect(jan.total_sales).toBe(20)
+    expect(jul.total_sales).toBe(30)
     expect(jan.unit_price).toBe(10)
     expect(jul.unit_price).toBe(15)
-    expect(jan.total_sales).toBe(20)
+    expect(jan.vendor_due).toBeUndefined()
+    expect(jul.vendor_due).toBeUndefined()
   })
 
-  it('ignores spreadsheet unit_price — derives from TCostEx ÷ qty only', () => {
+  it('ignores spreadsheet unit_price — derives shop unit from TCostEx ÷ qty only', () => {
     const out = normalizeSalesRowData({
       qty: 10,
       TCostEx: 40,
       unit_price: 99,
       report_month: '2024-03-01',
     })
-    expect(out.vendor_due).toBe(40)
-    expect(out.unit_price).toBe(4)
     expect(out.total_sales).toBe(40)
-    expect(out.commission_amount).toBe(0)
+    expect(out.unit_price).toBe(4)
+    expect(out.vendor_due).toBeUndefined()
+    expect(out.commission_amount).toBeUndefined()
+  })
+
+  it('splits TCostEx into vendor due + Distro markup when catalog vendor price is known', () => {
+    const split = resolveHistoricalSaleAmounts(
+      { qty: 5, TCostEx: 150 },
+      { vendorPrice: 20 }
+    )
+    expect(split).toMatchObject({
+      unit_price: 30,
+      total_sales: 150,
+      vendor_due: 100,
+      commission_amount: 50,
+      splitFromCatalog: true,
+    })
   })
 })

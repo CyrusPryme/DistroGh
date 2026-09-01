@@ -220,8 +220,16 @@ function salesRow(overrides: Record<string, unknown> = {}) {
 }
 
 describe('importStagingRow — sales (always full calendar month)', () => {
+  const productPricingHandler = {
+    match: /FROM public\.products WHERE id/i,
+    respond: () => ({
+      rows: [{ vendor_price: 20, distrogh_markup: 10, selling_price: 30 }],
+    }),
+  }
+
   it('re-snaps to full calendar month bounds at write time even if corrections left a partial period', async () => {
     const client = createMockClient([
+      productPricingHandler,
       {
         match: /INSERT INTO public\.sales/,
         respond: ({ params }) => {
@@ -242,6 +250,26 @@ describe('importStagingRow — sales (always full calendar month)', () => {
     const row = salesRow({ week_start: null, week_end: null })
     await expect(importStagingRow(client, 'sales', row, baseCtx)).rejects.toThrow(/week_start|report_month/)
     expect(client.calledMatching(/INSERT INTO public\.sales/).length).toBe(0)
+  })
+
+  it('treats TCostEx as DistroGH supermarket price and splits vendor due from catalog', async () => {
+    const client = createMockClient([
+      productPricingHandler,
+      {
+        match: /INSERT INTO public\.sales/,
+        respond: ({ params }) => {
+          expect(params[2]).toBe(5)
+          expect(params[3]).toBe(30)
+          expect(params[4]).toBe(150)
+          expect(params[5]).toBe(100)
+          expect(params[6]).toBe(50)
+          return { rows: [{ id: 'sale-1' }] }
+        },
+      },
+    ])
+    const row = salesRow()
+    const result = await importStagingRow(client, 'sales', row, baseCtx)
+    expect(result).toEqual({ productionId: 'sale-1', action: 'create' })
   })
 })
 

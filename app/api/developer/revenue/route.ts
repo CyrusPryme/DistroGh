@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireDeveloper } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
+import { sqlEffectiveDistroMarkup } from '@/lib/sale-amounts'
 
 /** GET /api/developer/revenue — platform revenue breakdown */
 export async function GET(req: Request) {
@@ -74,7 +75,7 @@ export async function GET(req: Request) {
               ROUND(SUM(s.total_sales)::numeric, 2) as total_sales,
               ROUND(SUM(s.vendor_due)::numeric, 2) as vendor_due,
               ROUND(SUM(s.developer_fee)::numeric, 2) as developer_revenue,
-              ROUND(SUM(s.commission_amount)::numeric, 2) as distrogh_revenue,
+              ROUND(SUM(${sqlEffectiveDistroMarkup('s', 'p')})::numeric, 2) as distrogh_revenue,
               SUM(s.qty_sold) as total_qty
        FROM public.sales s
        ${joinClause}
@@ -90,10 +91,12 @@ export async function GET(req: Request) {
       `SELECT ROUND(SUM(s.total_sales)::numeric,2) as total_sales,
               ROUND(SUM(s.vendor_due)::numeric,2) as vendor_due,
               ROUND(SUM(s.developer_fee)::numeric,2) as developer_revenue,
-              ROUND(SUM(s.commission_amount)::numeric,2) as distrogh_revenue,
+              ROUND(SUM(${sqlEffectiveDistroMarkup('s', 'p')})::numeric,2) as distrogh_revenue,
               SUM(s.qty_sold) as total_qty,
               COUNT(*) as record_count
-       FROM public.sales s WHERE ${where}`,
+       FROM public.sales s
+       JOIN public.products p ON p.id = s.product_id
+       WHERE ${where}`,
       vals
     )
 

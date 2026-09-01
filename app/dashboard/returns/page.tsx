@@ -23,6 +23,8 @@ import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { DataTableShell } from '@/components/shared/DataTableShell'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
@@ -288,9 +290,18 @@ function ReturnsContent() {
           )}
         </div>
       ) : (
-        <div className="data-card p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="data-table">
+        <DataTableShell
+          pagination={
+            <PaginationBar
+              page={returnsPage}
+              pageSize={returnsPageSize}
+              totalItems={returns.length}
+              onPageChange={setReturnsPage}
+              onPageSizeChange={setReturnsPageSize}
+            />
+          }
+        >
+            <table className="data-table min-w-[800px]">
               <thead>
                 <tr>
                   <th>Product</th>
@@ -311,7 +322,7 @@ function ReturnsContent() {
                       <td>
                         <div className="flex items-center gap-2">
                           <Package className="w-4 h-4 text-slate-400" />
-                          <span className="font-medium text-slate-800">{(r.product as any)?.name ?? '—'}</span>
+                          <span className="font-semibold text-slate-800 truncate">{formatDisplayName((r.product as { name?: string })?.name)}</span>
                         </div>
                       </td>
                       <td className="text-slate-600">
@@ -319,9 +330,9 @@ function ReturnsContent() {
                           ? formatSupermarketLabel(r.supermarket as Supermarket)
                           : '—'}
                       </td>
-                      <td className="text-right font-mono">{r.quantity_returned}</td>
-                      <td className="text-right font-mono">{formatGHS(Number(r.unit_price))}</td>
-                      <td className="text-right font-mono font-semibold text-red-600">−{formatGHS(amount)}</td>
+                      <td className="text-right tabular-nums">{r.quantity_returned}</td>
+                      <td className="text-right tabular-nums">{formatGHS(Number(r.unit_price))}</td>
+                      <td className="text-right tabular-nums font-semibold text-red-600">−{formatGHS(amount)}</td>
                       <td>
                         <span className="status-badge bg-amber-100 text-amber-800 border-amber-200">
                           {REASON_LABELS[r.reason]}
@@ -336,15 +347,7 @@ function ReturnsContent() {
                 })}
               </tbody>
             </table>
-            <PaginationBar
-              page={returnsPage}
-              pageSize={returnsPageSize}
-              totalItems={returns.length}
-              onPageChange={setReturnsPage}
-              onPageSizeChange={setReturnsPageSize}
-            />
-          </div>
-        </div>
+        </DataTableShell>
       )}
 
       <FormModal

@@ -82,6 +82,36 @@ export async function computeFinancialIntegrityChecks(
           severity: 'warning',
         })
       }
+
+      // Palace TCostEx copied onto vendor_due (commission 0) while a catalog vendor
+      // price on the row implies Distro markup should exist.
+      const catalogVendor = num(d.catalog_vendor_price)
+      if (
+        qty != null &&
+        qty > 0 &&
+        catalogVendor != null &&
+        catalogVendor >= 0 &&
+        Math.abs(commission) <= TOLERANCE &&
+        Math.abs(vendorDue - totalSales) <= TOLERANCE
+      ) {
+        const expectedDue = Math.round(qty * catalogVendor * 100) / 100
+        if (expectedDue + TOLERANCE < totalSales) {
+          discrepancies.push({
+            entity_type: 'sales',
+            category: 'palace_tcostex_stored_as_vendor_due',
+            expected_value: expectedDue,
+            actual_value: vendorDue,
+            difference: Math.round((vendorDue - expectedDue) * 100) / 100,
+            details: {
+              row_number: row.row_number,
+              file_id: row.file_id,
+              message:
+                'TCostEx is DistroGH\'s supermarket total, not vendor due. Split using catalog vendor_price.',
+            },
+            severity: 'error',
+          })
+        }
+      }
     }
   }
 

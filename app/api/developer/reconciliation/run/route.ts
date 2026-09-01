@@ -3,6 +3,7 @@ import { getDbPool } from '@/lib/db'
 import { requireDeveloper } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { writeAuditLog, actorFromSession, ipFromRequest } from '@/lib/rbac/audit'
+import { sqlEffectiveDistroMarkup } from '@/lib/sale-amounts'
 
 /** POST /api/developer/reconciliation/run — execute reconciliation for a period */
 export async function POST(req: Request) {
@@ -24,8 +25,10 @@ export async function POST(req: Request) {
                 ROUND(SUM(s.total_sales)::numeric,2) as total_sales,
                 ROUND(SUM(s.vendor_due)::numeric,2) as vendor_due,
                 ROUND(SUM(s.developer_fee)::numeric,2) as developer_revenue,
-                ROUND(SUM(s.commission_amount)::numeric,2) as distrogh_revenue
-         FROM public.sales s WHERE s.deleted_at IS NULL AND s.week_start BETWEEN $1 AND $2`,
+                ROUND(SUM(${sqlEffectiveDistroMarkup('s', 'p')})::numeric,2) as distrogh_revenue
+         FROM public.sales s
+         JOIN public.products p ON p.id = s.product_id
+         WHERE s.deleted_at IS NULL AND s.week_start BETWEEN $1 AND $2`,
         [period_start, period_end]
       ),
       pool.query(

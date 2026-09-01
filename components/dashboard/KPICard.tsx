@@ -11,6 +11,7 @@ interface KPICardProps {
   trend?: number
   prefix?: string
   isCurrency?: boolean
+  compact?: boolean
   className?: string
 }
 
@@ -24,6 +25,7 @@ export function KPICard({
   trend,
   prefix,
   isCurrency = false,
+  compact = false,
   className,
 }: KPICardProps) {
   const displayValue = isCurrency
@@ -40,10 +42,14 @@ export function KPICard({
     : 'text-slate-400'
 
   return (
-    <div className={cn('kpi-card', className)}>
-      <div className="flex items-start justify-between">
-        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', iconBg)}>
-          <Icon className={cn('w-5 h-5', iconColor)} />
+    <div className={cn('kpi-card', compact && 'p-4', className)}>
+      <div className="flex items-start justify-between gap-2">
+        <div className={cn(
+          'rounded-xl flex items-center justify-center shrink-0',
+          compact ? 'w-9 h-9' : 'w-10 h-10',
+          iconBg
+        )}>
+          <Icon className={cn(compact ? 'w-4 h-4' : 'w-5 h-5', iconColor)} />
         </div>
         {trend !== undefined && (
           <div className={cn('flex items-center gap-1 text-xs font-medium', trendColor)}>
@@ -53,14 +59,17 @@ export function KPICard({
         )}
       </div>
 
-      <div className="mt-4">
-        <p className="text-2xl font-display font-bold text-slate-900 leading-none">
+      <div className={cn(compact ? 'mt-3' : 'mt-4')}>
+        <p className={cn(
+          'font-display font-bold text-slate-900 leading-none',
+          compact ? 'text-lg lg:text-xl' : 'text-2xl'
+        )}>
           {prefix && <span className="text-base font-semibold text-slate-500 mr-1">{prefix}</span>}
           {displayValue}
         </p>
-        <p className="mt-1.5 text-sm font-medium text-slate-500">{title}</p>
+        <p className={cn('font-medium text-slate-500', compact ? 'mt-1 text-xs' : 'mt-1.5 text-sm')}>{title}</p>
         {subtitle && (
-          <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>
+          <p className="mt-0.5 text-[11px] text-slate-400 leading-snug">{subtitle}</p>
         )}
       </div>
     </div>

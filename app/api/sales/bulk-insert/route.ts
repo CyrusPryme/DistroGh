@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
 import { roundMoney, normalizeSaleMonthPeriod } from '@/lib/utils'
-import { resolveProductPricing } from '@/lib/product-pricing'
+import { resolveProductPricing, assertSupermarketTotalNotStoredAsVendorDue } from '@/lib/product-pricing'
 import {
   loadActiveFeeConfigs,
   isDeveloperFeeEnabled,
@@ -154,6 +154,16 @@ export async function POST(req: Request) {
         commissionAmount = roundMoney(qty * (pricing.markup + pricing.addOnTotal))
         totalSales = roundMoney(qty * unitPrice)
       }
+
+      const pricing = resolveProductPricing({
+        vendor_price: product.vendor_price,
+        distrogh_markup: product.distrogh_markup,
+      })
+      assertSupermarketTotalNotStoredAsVendorDue({
+        totalSales,
+        vendorDue,
+        catalogMarkup: pricing.markup + pricing.addOnTotal,
+      })
 
       const period = normalizeSaleMonthPeriod(String(s.week_start))
 

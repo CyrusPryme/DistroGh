@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import {
-  Users, Plus, Search, Shield, ChevronDown, ChevronUp,
+  Users, Plus, Shield, ChevronDown, ChevronUp,
   Edit2, Trash2, Lock, RefreshCw, AlertCircle, CheckCircle,
   UserX, UserCheck, Eye, EyeOff, X
 } from 'lucide-react'
@@ -10,6 +10,9 @@ import { cn } from '@/lib/utils'
 import { MODULES, ROLE_PRESETS, type PermissionAction } from '@/lib/auth/permissions'
 import { PageToast } from '@/components/shared/PageToast'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { SearchInput } from '@/components/shared/SearchInput'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { IconAction } from '@/components/shared/IconAction'
 import { useToast } from '@/hooks/useToast'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -412,6 +415,7 @@ export default function AdminAccountsPage() {
     [showToastMsgFirst]
   )
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<AdminUser | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -447,13 +451,18 @@ export default function AdminAccountsPage() {
   }
 
   async function handleDelete(user: AdminUser) {
-    if (!confirm(`Permanently delete ${user.email}? This cannot be undone.`)) return
-    setDeleting(user.user_id)
-    const res = await fetch(`/api/admin/users/${user.user_id}`, { method: 'DELETE' })
+    setPendingDelete(user)
+  }
+
+  async function runDelete() {
+    if (!pendingDelete) return
+    setDeleting(pendingDelete.user_id)
+    const res = await fetch(`/api/admin/users/${pendingDelete.user_id}`, { method: 'DELETE' })
     const json = await res.json()
     setDeleting(null)
     if (json.success) {
       showToast('success', 'Account deleted.')
+      setPendingDelete(null)
       load()
     } else {
       showToast('error', json.error ?? 'Failed to delete account.')
@@ -495,12 +504,12 @@ export default function AdminAccountsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-          <input
+          <SearchInput
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder="Search by name, email, phone…"
-            className="pl-9 input-base text-sm"
+            aria-label="Search admin accounts"
+            className="max-w-none"
           />
         </div>
         <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className="input-base text-sm w-40">
@@ -579,28 +588,23 @@ export default function AdminAccountsPage() {
                         <div className="flex items-center justify-end gap-1">
                           {u.admin_role !== 'super_admin' && (
                             <>
-                              <button
-                                onClick={() => setModal(u)}
-                                title="Edit"
-                                className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-brand-700 transition"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
+                              <IconAction label="Edit" onClick={() => setModal(u)}>
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </IconAction>
+                              <IconAction
+                                label={u.status === 'active' ? 'Suspend' : 'Reactivate'}
                                 onClick={() => handleStatusToggle(u)}
-                                title={u.status === 'active' ? 'Suspend' : 'Reactivate'}
-                                className="p-1.5 rounded hover:bg-slate-100 text-slate-500 hover:text-amber-600 transition"
                               >
-                                {u.status === 'active' ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
-                              </button>
-                              <button
-                                onClick={() => handleDelete(u)}
+                                {u.status === 'active' ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
+                              </IconAction>
+                              <IconAction
+                                label="Delete"
+                                destructive
                                 disabled={deleting === u.user_id}
-                                title="Delete"
-                                className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition disabled:opacity-50"
+                                onClick={() => handleDelete(u)}
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </IconAction>
                             </>
                           )}
                         </div>
@@ -637,6 +641,19 @@ export default function AdminAccountsPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={`Permanently delete ${pendingDelete?.email ?? 'this account'}?`}
+        description="This cannot be undone."
+        confirmLabel="Delete account"
+        destructive
+        busy={Boolean(deleting)}
+        onConfirm={runDelete}
+        onClose={() => {
+          if (!deleting) setPendingDelete(null)
+        }}
+      />
     </div>
   )
 }

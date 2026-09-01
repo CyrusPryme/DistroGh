@@ -13,7 +13,8 @@ import { updateMigrationProject } from '@/lib/migration/projects'
 import { migrationProgressForStage } from '@/lib/migration/lifecycle'
 import { normalizeCategoryName } from '@/lib/migration/category'
 import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination'
-import { toSqlDate, normalizeSaleMonthPeriod } from '@/lib/utils'
+import { toSqlDate, normalizeSaleMonthPeriod, roundMoney } from '@/lib/utils'
+import { resolveProductPricing } from '@/lib/product-pricing'
 
 function str(v: unknown): string {
   return v == null ? '' : String(v).trim()
@@ -37,6 +38,64 @@ function parseDate(v: unknown): Date | null {
 }
 
 type Issue = { code: string; message: string }
+
+/** Writers for these entities require a real product_id — they never create products on import. */
+export const ENTITIES_REQUIRING_RESOLVABLE_PRODUCT = new Set<MigrationEntityType>([
+  'intakes',
+  'deliveries',
+  'sales',
+  'returns',
+])
+
+/** Classifies a missing product reference during FK validation (exported for unit tests). */
+export function missingProductIssues(
+  entity: MigrationEntityType,
+  pname: string,
+  barcode: string,
+  productNamesStagedThisMigration: Set<string>,
+  productBarcodesStagedThisMigration: Set<string>
+): { errors: Issue[]; warnings: Issue[] } {
+  const errors: Issue[] = []
+  const warnings: Issue[] = []
+  const label = pname || barcode
+  if (!label) return { errors, warnings }
+
+  const stagedByBarcode = Boolean(barcode && productBarcodesStagedThisMigration.has(barcode))
+  const stagedByName = Boolean(pname && productNamesStagedThisMigration.has(pname))
+  if (stagedByBarcode || stagedByName) {
+    warnings.push({
+      code: 'PRODUCT_NOT_FOUND',
+      message:
+        'Product not found in production yet — will be created from this migration\'s own products upload',
+    })
+  } else if (ENTITIES_REQUIRING_RESOLVABLE_PRODUCT.has(entity)) {
+    errors.push({
+      code: 'PRODUCT_UNRESOLVABLE',
+      message: `Product "${label}" does not exist in production and is not included as a product row in this migration — add/upload it first, or correct this row's product name/barcode`,
+    })
+  } else {
+    warnings.push({
+      code: 'PRODUCT_NOT_FOUND',
+      message: 'Product not found in production (may be created from staging)',
+    })
+  }
+  return { errors, warnings }
+}
+
+/** Rows eligible for import that still lack resolved_refs.product_id (defense in depth). */
+export async function countStagingRowsMissingProductId(pool: Pool, migrationId: string): Promise<number> {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM public.migration_staging_rows
+     WHERE migration_id = $1
+       AND entity_type = ANY($2::text[])
+       AND production_id IS NULL
+       AND intended_action <> 'skip'
+       AND validation_status IN ('valid', 'warning', 'corrected')
+       AND COALESCE(resolved_refs->>'product_id', '') = ''`,
+    [migrationId, [...ENTITIES_REQUIRING_RESOLVABLE_PRODUCT]]
+  )
+  return rows[0].c as number
+}
 
 /** Exported for unit testing — the pure per-row rules (required fields, date accuracy, sales
  *  monthly-period normalization). The FK/cross-entity checks that need production data live in
@@ -145,18 +204,17 @@ export function validateRow(
       if (tcost == null) {
         errors.push({
           code: 'MISSING_TCOST',
-          message: 'TCostEx is required — vendor line total (PAYMENT TO SUPPLIER) at time of recording',
+          message: 'TCostEx is required — DistroGH line total charged to the supermarket (Palace supplier cost)',
         })
       }
       const amounts = resolveHistoricalSaleAmounts({ ...data, ...normalized })
       if (amounts) {
-        normalized.vendor_due = amounts.vendor_due
         normalized.unit_price = amounts.unit_price
         normalized.total_sales = amounts.total_sales
-        normalized.commission_amount = amounts.commission_amount
-      } else {
-        const tcostFallback = num(data.TCostEx ?? data.vendor_due)
-        if (tcostFallback != null) normalized.vendor_due = tcostFallback
+        if (amounts.splitFromCatalog) {
+          normalized.vendor_due = amounts.vendor_due
+          normalized.commission_amount = amounts.commission_amount
+        }
       }
       if (typeof data.supermarket_paid === 'boolean') {
         normalized.supermarket_paid = data.supermarket_paid
@@ -286,17 +344,48 @@ export async function validateMigrationStaging(
   ])
 
   const { rows: products } = await pool.query(
-    `SELECT id, vendor_id, category, lower(trim(name)) AS name, lower(trim(coalesce(barcode,''))) AS barcode
+    `SELECT id, vendor_id, category, vendor_price, distrogh_markup, selling_price,
+            lower(trim(name)) AS name, lower(trim(coalesce(barcode,''))) AS barcode
      FROM public.products WHERE deleted_at IS NULL`
   )
   const productByName = new Map(products.map((p: { id: string; name: string }) => [p.name, p.id]))
   const productByBarcode = new Map(
     products.filter((p: { barcode: string }) => p.barcode).map((p: { id: string; barcode: string }) => [p.barcode, p.id])
   )
-  type ProductRow = { id: string; vendor_id: string; category: string | null; name: string; barcode: string }
+  type ProductRow = {
+    id: string
+    vendor_id: string
+    category: string | null
+    name: string
+    barcode: string
+    vendor_price: number
+    distrogh_markup: number
+    selling_price: number
+  }
   const productByBarcodeFull = new Map((products as ProductRow[]).filter((p) => p.barcode).map((p) => [p.barcode, p]))
   const productByVendorAndName = new Map(
     (products as ProductRow[]).map((p) => [`${p.vendor_id}::${p.name}`, p])
+  )
+
+  const { rows: stagedProductRows } = await pool.query(
+    `SELECT raw_data, corrections FROM public.migration_staging_rows WHERE migration_id = $1 AND entity_type = 'products'`,
+    [migrationId]
+  )
+  const productNamesStagedThisMigration = new Set(
+    stagedProductRows
+      .map((r: { raw_data: unknown; corrections: unknown }) => {
+        const merged = { ...(r.raw_data as Record<string, unknown>), ...(r.corrections as Record<string, unknown>) }
+        return str(merged.name || merged.product_name).toLowerCase()
+      })
+      .filter((name: string) => name.length > 0)
+  )
+  const productBarcodesStagedThisMigration = new Set(
+    stagedProductRows
+      .map((r: { raw_data: unknown; corrections: unknown }) => {
+        const merged = { ...(r.raw_data as Record<string, unknown>), ...(r.corrections as Record<string, unknown>) }
+        return str(merged.barcode || merged.code).toLowerCase()
+      })
+      .filter((code: string) => code.length > 0)
   )
 
   const { rows: staging } = await pool.query(
@@ -425,15 +514,39 @@ export async function validateMigrationStaging(
       if (pid) {
         resolved.product_id = pid
         infos.push({ code: 'PRODUCT_MATCHED', message: 'Existing product matched' })
-        if (entity === 'sales' && !resolved.vendor_id) {
-          const fromProduct = (products as ProductRow[]).find((p) => p.id === pid)
-          if (fromProduct?.vendor_id) {
-            resolved.vendor_id = fromProduct.vendor_id
-            infos.push({ code: 'VENDOR_FROM_PRODUCT', message: 'Vendor resolved from matched product' })
+        const fromProduct = (products as ProductRow[]).find((p) => p.id === pid)
+        if (entity === 'sales' && !resolved.vendor_id && fromProduct?.vendor_id) {
+          resolved.vendor_id = fromProduct.vendor_id
+          infos.push({ code: 'VENDOR_FROM_PRODUCT', message: 'Vendor resolved from matched product' })
+        }
+        if (entity === 'sales' && fromProduct) {
+          const pricing = resolveProductPricing(fromProduct)
+          const split = resolveHistoricalSaleAmounts(normalized, { vendorPrice: pricing.vendorPrice })
+          if (split) {
+            normalized.unit_price = split.unit_price
+            normalized.total_sales = split.total_sales
+              normalized.vendor_due = split.vendor_due
+              normalized.commission_amount = split.commission_amount
+              normalized.catalog_vendor_price = pricing.vendorPrice
+            const catalogShopTotal = roundMoney(split.qty * pricing.shopPrice)
+            if (Math.abs(catalogShopTotal - split.total_sales) > 0.05) {
+              warnings.push({
+                code: 'SALES_PRICE_VS_CATALOG',
+                message: `Palace TCostEx (GHS ${split.total_sales.toFixed(2)}) differs from current Distro shop price (GHS ${catalogShopTotal.toFixed(2)}). Recording the Palace amount; vendor due uses catalog vendor price.`,
+              })
+            }
           }
         }
       } else if (pname || barcode) {
-        warnings.push({ code: 'PRODUCT_NOT_FOUND', message: 'Product not found in production (may be created from staging)' })
+        const productIssues = missingProductIssues(
+          entity,
+          pname,
+          barcode,
+          productNamesStagedThisMigration,
+          productBarcodesStagedThisMigration
+        )
+        errors.push(...productIssues.errors)
+        warnings.push(...productIssues.warnings)
       }
     }
 

@@ -191,6 +191,17 @@ export interface Intake {
   vendor?: Vendor
 }
 
+/** Admin dashboard: vendors ranked by stock received (value = qty × vendor_price at intake). */
+export interface VendorIntakeLeaderboard {
+  vendor_id: string
+  vendor_name: string
+  total_intake_value: number
+  total_quantity_received: number
+  intake_events: number
+  receiving_days: number
+  distinct_products: number
+}
+
 /** Per-vendor share of a delivery run transport cost (deducted from payout balance) */
 export interface DeliveryRunVendorCharge {
   vendor_id: string
@@ -346,9 +357,9 @@ export interface ParsedSaleRow {
   import_supermarket_id?: string | null
   supermarket_matched?: boolean
   supermarket_error?: string
-  /** TCostEx (line total) from spreadsheet */
+  /** TCostEx (line total) from spreadsheet — DistroGH price to the supermarket */
   sheet_line_total?: number | null
-  /** TCostEx ÷ Qty — supermarket unit price from spreadsheet */
+  /** TCostEx ÷ Qty — DistroGH unit price charged to the supermarket */
   sheet_unit_price?: number | null
   /** Catalog shop price (vendor + markup) at import time */
   catalog_shop_price?: number | null

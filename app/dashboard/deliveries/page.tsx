@@ -28,6 +28,7 @@ import {
   sumAllocationAmounts,
 } from '@/lib/delivery-cost-allocation'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { DataTableShell } from '@/components/shared/DataTableShell'
 import { usePageSize } from '@/hooks/usePageSize'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { PageToast } from '@/components/shared/PageToast'
@@ -639,9 +640,18 @@ function DeliveriesContent() {
             </button>
           </div>
         ) : (
-          <div className="data-card p-0 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="data-table">
+          <DataTableShell
+            pagination={
+              <PaginationBar
+                page={runPage}
+                pageSize={runPageSize}
+                totalItems={runs.length}
+                onPageChange={setRunPage}
+                onPageSizeChange={setRunPageSize}
+              />
+            }
+          >
+              <table className="data-table min-w-[900px]">
                 <thead>
                   <tr>
                     <th>Supermarket</th>
@@ -677,7 +687,7 @@ function DeliveriesContent() {
                           </div>
                         </td>
                         <td className="text-slate-600">{formatDate(run.delivery_date)}</td>
-                        <td className="text-right font-mono font-semibold text-brand-700">
+                        <td className="text-right tabular-nums font-semibold text-brand-700">
                           {formatGHS(Number(run.total_transport_cost))}
                         </td>
                         <td className="text-slate-600">
@@ -747,15 +757,7 @@ function DeliveriesContent() {
                   })}
                 </tbody>
               </table>
-              <PaginationBar
-                page={runPage}
-                pageSize={runPageSize}
-                totalItems={runs.length}
-                onPageChange={setRunPage}
-                onPageSizeChange={setRunPageSize}
-              />
-            </div>
-          </div>
+          </DataTableShell>
         )}
 
         <FormModal

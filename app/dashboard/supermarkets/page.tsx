@@ -1,14 +1,20 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import Link from 'next/link'
 import { Building2, ShoppingCart, RotateCcw, Truck, Loader2, AlertCircle, Plus, Edit2 } from 'lucide-react'
 import { supermarketService, type SupermarketSummary } from '@/services/supermarket.service'
 import { SupermarketModal } from '@/components/supermarkets/SupermarketModal'
 import { useSession } from '@/hooks/useSession'
 import { formatGHS, formatNumber } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { PageToast } from '@/components/shared/PageToast'
+import { SearchInput } from '@/components/shared/SearchInput'
+import { ListToolbar, DataTableShell } from '@/components/shared/DataTableShell'
+import { IconAction } from '@/components/shared/IconAction'
+import { KPICard } from '@/components/dashboard/KPICard'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
 import type { Supermarket } from '@/types'
@@ -25,7 +31,8 @@ export default function SupermarketsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editSupermarket, setEditSupermarket] = useState<Supermarket | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const { toast, showToast } = useToast(3000)
+  const [search, setSearch] = useState('')
+  const { toast, showToast, dismissToast } = useToast(3000)
 
   const load = async () => {
     try {
@@ -42,10 +49,25 @@ export default function SupermarketsPage() {
     load()
   }, [])
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((s) =>
+      [s.name, s.branch, s.location, s.store_code].some((v) => (v ?? '').toLowerCase().includes(q))
+    )
+  }, [list, search])
+
+  useEffect(() => {
+    setSmPage(1)
+  }, [search])
+
   const paginatedList = useMemo(
-    () => getPageSlice(list, smPage, smPageSize),
-    [list, smPage, smPageSize]
+    () => getPageSlice(filtered, smPage, smPageSize),
+    [filtered, smPage, smPageSize]
   )
+
+  const totalSales = useMemo(() => list.reduce((sum, s) => sum + Number(s.total_sales ?? 0), 0), [list])
+  const totalDeliveries = useMemo(() => list.reduce((sum, s) => sum + Number(s.delivery_run_count ?? 0), 0), [list])
 
   const handleSubmit = async (data: SupermarketFormValues) => {
     setSubmitting(true)
@@ -83,30 +105,44 @@ export default function SupermarketsPage() {
 
   return (
     <div className="page-container space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Supermarkets</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            Retailer outlets you distribute to. Add a branch for chains with multiple locations.
-          </p>
-        </div>
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => { setEditSupermarket(null); setModalOpen(true) }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700"
-          >
-            <Plus className="w-4 h-4" />
-            Add supermarket
-          </button>
-        )}
+      <PageToast message={toast?.message ?? null} type={toast?.type} onDismiss={dismissToast} />
+
+      <PageHeader
+        title="Supermarkets"
+        description="Retailer outlets you distribute to. Add a branch for chains with multiple locations."
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <KPICard compact title="Outlets" value={list.length} icon={Building2} iconBg="bg-blue-50" iconColor="text-blue-600" />
+        <KPICard compact title="Total sales" value={totalSales} icon={ShoppingCart} iconBg="bg-emerald-50" iconColor="text-emerald-600" isCurrency />
+        <KPICard compact title="Delivery runs" value={totalDeliveries} icon={Truck} iconBg="bg-cyan-50" iconColor="text-cyan-600" />
       </div>
 
-      {toast && (
-        <div className="p-3 rounded-xl bg-brand-50 border border-brand-200 text-brand-800 text-sm font-medium">
-          {toast.message}
-        </div>
-      )}
+      <ListToolbar
+        search={
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search outlet, branch, location…"
+            aria-label="Search supermarkets"
+          />
+        }
+        actions={
+          isAdmin ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEditSupermarket(null)
+                setModalOpen(true)
+              }}
+              className="btn-primary"
+            >
+              <Plus className="w-4 h-4" />
+              Add supermarket
+            </button>
+          ) : undefined
+        }
+      />
 
       {error && (
         <div className="flex items-center gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
@@ -123,87 +159,84 @@ export default function SupermarketsPage() {
             Add retailer outlets with branch names for multi-location chains.
           </p>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="data-card text-center py-12">
+          <p className="font-semibold text-slate-600">No outlets match search</p>
+          <p className="text-slate-400 text-sm mt-1">Try a different name, branch, or location.</p>
+        </div>
       ) : (
-        <div className="data-card p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="data-table">
+        <DataTableShell
+          pagination={
+            <PaginationBar
+              page={smPage}
+              pageSize={smPageSize}
+              totalItems={filtered.length}
+              onPageChange={setSmPage}
+              onPageSizeChange={setSmPageSize}
+            />
+          }
+        >
+            <table className="data-table min-w-[900px]">
               <thead>
                 <tr>
-                  <th>Retailer</th>
+                  <th className="min-w-[220px]">Retailer</th>
                   <th>Branch</th>
                   <th>Store code</th>
                   <th>Location</th>
-                  <th className="text-right">Total sales</th>
+                  <th className="min-w-[120px] text-right">Total sales</th>
                   <th className="text-right">Sales entries</th>
                   <th className="text-right">Returns</th>
                   <th className="text-right">Deliveries</th>
-                  <th className="w-24" />
+                  <th className="text-right min-w-[128px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedList.map((s) => (
                   <tr key={s.id}>
-                    <td>
-                      <div className="flex items-center gap-2">
+                    <td className="min-w-[220px] max-w-[280px]">
+                      <div className="flex items-center gap-2 min-w-0">
                         <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className="font-medium text-slate-800">{s.name}</span>
+                        <span className="font-semibold text-slate-800 truncate" title={s.name}>
+                          {formatDisplayName(s.name)}
+                        </span>
                       </div>
                     </td>
-                    <td className="text-slate-600 text-sm">{s.branch?.trim() || '—'}</td>
-                    <td className="text-slate-600 text-sm font-mono">{s.store_code?.trim() || '—'}</td>
-                    <td className="text-slate-600 text-sm">{s.location || '—'}</td>
-                    <td className="text-right font-mono font-semibold text-slate-800">{formatGHS(s.total_sales ?? 0)}</td>
-                    <td className="text-right font-mono text-slate-600">{formatNumber(s.sales_count ?? 0)}</td>
-                    <td className="text-right font-mono text-slate-600">{formatNumber(s.return_count ?? 0)}</td>
-                    <td className="text-right font-mono text-slate-600">{formatNumber(s.delivery_run_count ?? 0)}</td>
+                    <td className="text-slate-600 text-sm whitespace-nowrap">{s.branch?.trim() || '—'}</td>
+                    <td className="text-slate-600 text-sm font-mono tabular-nums">{s.store_code?.trim() || '—'}</td>
+                    <td className="text-slate-600 text-sm truncate max-w-[160px]">{s.location || '—'}</td>
+                    <td className="text-right tabular-nums font-semibold text-slate-800">{formatGHS(s.total_sales ?? 0)}</td>
+                    <td className="text-right tabular-nums text-slate-600">{formatNumber(s.sales_count ?? 0)}</td>
+                    <td className="text-right tabular-nums text-slate-600">{formatNumber(s.return_count ?? 0)}</td>
+                    <td className="text-right tabular-nums text-slate-600">{formatNumber(s.delivery_run_count ?? 0)}</td>
                     <td>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-end gap-0.5">
                         {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => { setEditSupermarket(s); setModalOpen(true) }}
-                            className="p-1.5 rounded text-slate-400 hover:bg-slate-100 hover:text-brand-600"
-                            title="Edit"
+                          <IconAction
+                            label="Edit"
+                            onClick={() => {
+                              setEditSupermarket(s)
+                              setModalOpen(true)
+                            }}
                           >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
+                            <Edit2 className="h-4 w-4" />
+                          </IconAction>
                         )}
-                        <Link
-                          href={`/dashboard/sales?supermarket_id=${s.id}`}
-                          className="p-1.5 rounded text-slate-400 hover:bg-slate-100 hover:text-brand-600"
-                          title={`View sales — ${formatSupermarketLabel(s)}`}
-                        >
-                          <ShoppingCart className="w-4 h-4" />
-                        </Link>
-                        <Link
-                          href={`/dashboard/returns?supermarket_id=${s.id}`}
-                          className="p-1.5 rounded text-slate-400 hover:bg-slate-100 hover:text-amber-600"
-                          title="View returns"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                        </Link>
-                        <Link
-                          href={`/dashboard/deliveries?supermarket_id=${s.id}`}
-                          className="p-1.5 rounded text-slate-400 hover:bg-slate-100 hover:text-blue-600"
-                          title="View deliveries"
-                        >
-                          <Truck className="w-4 h-4" />
-                        </Link>
+                        <IconAction label={`View sales — ${formatSupermarketLabel(s)}`} href={`/dashboard/sales?supermarket_id=${s.id}`}>
+                          <ShoppingCart className="h-4 w-4" />
+                        </IconAction>
+                        <IconAction label="View returns" href={`/dashboard/returns?supermarket_id=${s.id}`}>
+                          <RotateCcw className="h-4 w-4" />
+                        </IconAction>
+                        <IconAction label="View deliveries" href={`/dashboard/deliveries?supermarket_id=${s.id}`}>
+                          <Truck className="h-4 w-4" />
+                        </IconAction>
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <PaginationBar
-              page={smPage}
-              pageSize={smPageSize}
-              totalItems={list.length}
-              onPageChange={setSmPage}
-              onPageSizeChange={setSmPageSize}
-            />
-          </div>
-        </div>
+        </DataTableShell>
       )}
 
       <p className="text-xs text-slate-400">

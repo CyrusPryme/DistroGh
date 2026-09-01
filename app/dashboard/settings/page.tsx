@@ -29,6 +29,8 @@ import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
 import { PageToast } from '@/components/shared/PageToast'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { IconAction } from '@/components/shared/IconAction'
 
 export default function SettingsPage() {
   const { role, loading: sessionLoading } = useSession({ requireAuth: true })
@@ -49,6 +51,7 @@ export default function SettingsPage() {
   const [expiryReminderDays, setExpiryReminderDays] = useState(30)
   const [categoryPage, setCategoryPage] = useState(1)
   const [categoryPageSize, setCategoryPageSize] = usePageSize('settings-categories', DEFAULT_PAGE_SIZE)
+  const [pendingDelete, setPendingDelete] = useState<Category | null>(null)
 
   const paginatedCategories = useMemo(
     () => getPageSlice(categories, categoryPage, categoryPageSize),
@@ -121,20 +124,21 @@ export default function SettingsPage() {
     }
   }
 
-  const handleDeleteCategory = async (cat: Category) => {
-    if (!confirm(`Delete category "${cat.name}"? Products with this category will have their category cleared.`)) return
+  const handleDeleteCategory = async () => {
+    if (!pendingDelete) return
     setCategorySubmitting(true)
     try {
-      const result = await deleteCategory(cat.id)
+      const result = await deleteCategory(pendingDelete.id)
       if ('error' in result) {
         showToast(result.error, 'error')
         return
       }
       showToast('Category deleted')
       setCategoryEditingId(null)
+      setPendingDelete(null)
       load()
-    } catch (e: any) {
-      showToast(e.message, 'error')
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to delete category', 'error')
     } finally {
       setCategorySubmitting(false)
     }
@@ -257,42 +261,36 @@ export default function SettingsPage() {
                       <td className="text-right">
                         {categoryEditingId === cat.id ? (
                           <div className="flex gap-1 justify-end">
-                            <button
+                            <IconAction
+                              label="Save"
                               onClick={handleUpdateCategory}
                               disabled={categorySubmitting}
-                              className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50"
-                              title="Save"
                             >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setCategoryEditingId(null)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100"
-                              title="Cancel"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
+                              <Check className="h-4 w-4" />
+                            </IconAction>
+                            <IconAction label="Cancel" onClick={() => setCategoryEditingId(null)}>
+                              <X className="h-4 w-4" />
+                            </IconAction>
                           </div>
                         ) : (
                           <div className="flex gap-1 justify-end">
-                            <button
+                            <IconAction
+                              label="Edit"
                               onClick={() => {
                                 setCategoryEditingId(cat.id)
                                 setCategoryEditName(cat.name)
                               }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                              title="Edit"
                             >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteCategory(cat)}
+                              <Edit2 className="h-4 w-4" />
+                            </IconAction>
+                            <IconAction
+                              label="Delete"
+                              destructive
                               disabled={categorySubmitting}
-                              className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
-                              title="Delete"
+                              onClick={() => setPendingDelete(cat)}
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                              <Trash2 className="h-4 w-4" />
+                            </IconAction>
                           </div>
                         )}
                       </td>
@@ -373,6 +371,19 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={`Delete category "${pendingDelete?.name ?? ''}"?`}
+        description="Products with this category will have their category cleared."
+        confirmLabel="Delete category"
+        destructive
+        busy={categorySubmitting}
+        onConfirm={handleDeleteCategory}
+        onClose={() => {
+          if (!categorySubmitting) setPendingDelete(null)
+        }}
+      />
     </div>
   )
 }

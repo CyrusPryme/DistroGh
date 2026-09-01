@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
+import { sqlEffectiveDistroMarkup } from '@/lib/sale-amounts'
 
 export async function GET() {
   try {
@@ -12,7 +13,7 @@ export async function GET() {
         v.id as vendor_id,
         v.name as vendor_name,
         coalesce(sum(s.total_sales), 0) as total_sales,
-        coalesce(sum(s.commission_amount), 0) as total_commission,
+        coalesce(sum(${sqlEffectiveDistroMarkup('s', 'p')}), 0) as total_commission,
         coalesce(sum(s.vendor_due), 0) as total_vendor_due
       from public.sales s
       join public.products p on p.id = s.product_id

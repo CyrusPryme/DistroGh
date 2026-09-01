@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
   Plus,
-  Search,
   Package,
   AlertCircle,
   RotateCcw,
@@ -32,6 +31,11 @@ import type { ProductFormValues } from '@/lib/validations'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE, ALL_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { SearchInput } from '@/components/shared/SearchInput'
+import { ListToolbar, DataTableShell } from '@/components/shared/DataTableShell'
+import { KPICard } from '@/components/dashboard/KPICard'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
@@ -101,6 +105,8 @@ function ProductsContent() {
   const [productPageSize, setProductPageSize] = usePageSize('products', DEFAULT_PAGE_SIZE)
   const [returnsPage, setReturnsPage] = useState(1)
   const [returnsPageSize, setReturnsPageSize] = usePageSize('products-returns', DEFAULT_PAGE_SIZE)
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const isAdmin = role === 'admin'
 
@@ -183,15 +189,19 @@ function ProductsContent() {
     }
   }
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Soft delete product "${name}"? This will hide the product but preserve all data.`)) return
+  const handleDelete = async () => {
+    if (!pendingDelete) return
+    setDeleting(true)
     try {
-      await productService.delete(id)
+      await productService.delete(pendingDelete.id)
       showToast('Product soft deleted successfully')
-      if (detailProduct?.id === id) setDetailProduct(null)
+      if (detailProduct?.id === pendingDelete.id) setDetailProduct(null)
+      setPendingDelete(null)
       load()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to delete product', 'error')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -252,7 +262,42 @@ function ProductsContent() {
 
       <PageHeader
         title="Products"
-        description={`${products.length} in catalog${filtered.length !== products.length ? ` · ${filtered.length} shown` : ''}`}
+        description="Catalog, pricing, and warehouse stock"
+      />
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
+        <KPICard compact title="In catalog" value={products.length} icon={Package} iconBg="bg-cyan-50" iconColor="text-cyan-600" />
+        <KPICard compact title="Showing" value={filtered.length} icon={SlidersHorizontal} iconBg="bg-slate-100" iconColor="text-slate-600" subtitle={filtered.length !== products.length ? 'After search & filters' : 'All products'} />
+        <KPICard compact title="With returns" value={returnsList.length} icon={RotateCcw} iconBg="bg-amber-50" iconColor="text-amber-600" className="col-span-2 lg:col-span-1" />
+      </div>
+
+      <ListToolbar
+        search={
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search name, barcode, or vendor…"
+            aria-label="Search products"
+          />
+        }
+        filters={
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((v) => !v)}
+            className={cn(
+              'btn-secondary shrink-0',
+              (filtersOpen || activeFilterCount > 0) && 'border-brand-300 bg-brand-50 text-brand-800'
+            )}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-semibold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        }
         actions={
           isAdmin ? (
             <button
@@ -268,35 +313,6 @@ function ProductsContent() {
           ) : undefined
         }
       />
-
-      {/* Compact search + filters */}
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="form-input pl-10 w-full"
-            placeholder="Search name, barcode, or vendor…"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((v) => !v)}
-          className={cn(
-            'btn-secondary shrink-0',
-            (filtersOpen || activeFilterCount > 0) && 'border-brand-300 bg-brand-50 text-brand-800'
-          )}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-semibold text-white">
-              {activeFilterCount}
-            </span>
-          )}
-        </button>
-      </div>
 
       {filtersOpen && (
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 flex flex-wrap gap-3 items-end">
@@ -354,7 +370,19 @@ function ProductsContent() {
         </div>
       )}
 
-      <div className="data-card p-0 overflow-hidden">
+      <DataTableShell
+        pagination={
+          !error && filtered.length > 0 ? (
+            <PaginationBar
+              page={productPage}
+              pageSize={productPageSize}
+              totalItems={filtered.length}
+              onPageChange={setProductPage}
+              onPageSizeChange={setProductPageSize}
+            />
+          ) : undefined
+        }
+      >
         {error ? (
           <div className="flex items-center gap-3 p-6 text-red-600">
             <AlertCircle className="w-5 h-5" />
@@ -377,16 +405,16 @@ function ProductsContent() {
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="data-table">
+            <div className="hidden md:block">
+              <table className="data-table min-w-[800px]">
                 <thead>
                   <tr>
-                    <th>Product</th>
-                    {isAdmin && <th>Vendor</th>}
+                    <th className="min-w-[220px]">Product</th>
+                    {isAdmin && <th className="min-w-[140px]">Vendor</th>}
                     <th>Category</th>
                     <th>Barcode</th>
-                    <th className="text-right">{isAdmin ? 'Selling price' : 'Your price'}</th>
-                    <th className="text-right">Stock</th>
+                    <th className="min-w-[120px] text-right">{isAdmin ? 'Selling price' : 'Your price'}</th>
+                    <th className="min-w-[80px] text-right">Stock</th>
                     <th>Status</th>
                     <th className="w-12" />
                   </tr>
@@ -403,29 +431,32 @@ function ProductsContent() {
                         className="cursor-pointer hover:bg-slate-50/80"
                         onClick={() => setDetailProduct(product)}
                       >
-                        <td>
-                          <div className="flex items-center gap-3 min-w-[12rem]">
+                        <td className="min-w-[220px] max-w-[280px]">
+                          <div className="flex items-center gap-3 min-w-0">
                             <ProductThumbnail product={product} />
-                            <span className="font-medium text-slate-800 truncate">{product.name}</span>
+                            <span className="font-semibold text-slate-800 truncate" title={product.name}>
+                              {formatDisplayName(product.name)}
+                            </span>
                           </div>
                         </td>
                         {isAdmin && (
-                          <td>
+                          <td className="min-w-[140px] max-w-[180px]">
                             <Link
                               href={`/dashboard/vendors/${product.vendor_id}`}
-                              className="text-brand-600 hover:underline text-sm"
+                              className="text-brand-600 hover:underline text-sm truncate block"
                               onClick={(e) => e.stopPropagation()}
+                              title={vendor?.name}
                             >
-                              {vendor?.name ?? '—'}
+                              {formatDisplayName(vendor?.name)}
                             </Link>
                           </td>
                         )}
-                        <td className="text-slate-600 text-sm">{product.category?.trim() || '—'}</td>
-                        <td className="font-mono text-sm text-slate-600">{product.barcode?.trim() || '—'}</td>
-                        <td className="text-right font-mono font-semibold text-slate-800">
+                        <td className="text-slate-600 text-sm whitespace-nowrap">{product.category?.trim() || '—'}</td>
+                        <td className="font-mono text-sm text-slate-600 tabular-nums whitespace-nowrap">{product.barcode?.trim() || '—'}</td>
+                        <td className="text-right font-semibold text-slate-800 tabular-nums whitespace-nowrap">
                           {formatGHS(isAdmin ? distroPrice : vendorPrice)}
                         </td>
-                        <td className="text-right font-mono text-slate-600 tabular-nums">
+                        <td className="text-right text-slate-600 tabular-nums">
                           {onHand != null ? onHand : '—'}
                         </td>
                         <td>
@@ -453,7 +484,7 @@ function ProductsContent() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-red-600 focus:text-red-600"
-                                onClick={() => handleDelete(product.id, product.name)}
+                                onClick={() => setPendingDelete({ id: product.id, name: product.name })}
                               >
                                 <Trash2 className="w-4 h-4" />
                                 Delete
@@ -510,17 +541,9 @@ function ProductsContent() {
                 )
               })}
             </div>
-
-            <PaginationBar
-              page={productPage}
-              pageSize={productPageSize}
-              totalItems={filtered.length}
-              onPageChange={setProductPage}
-              onPageSizeChange={setProductPageSize}
-            />
           </>
         )}
-      </div>
+      </DataTableShell>
 
       {returnsList.length > 0 && (
         <div className="data-card">
@@ -600,6 +623,19 @@ function ProductsContent() {
         isSubmitting={submitting}
         defaultVendorId={role === 'vendor' && vendorId ? vendorId : undefined}
         vendorOnly={role === 'vendor'}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={`Delete ${pendingDelete?.name ?? 'product'}?`}
+        description="This will hide the product but preserve all related sales, intakes, and returns."
+        confirmLabel="Delete product"
+        destructive
+        busy={deleting}
+        onConfirm={handleDelete}
+        onClose={() => {
+          if (!deleting) setPendingDelete(null)
+        }}
       />
     </div>
   )

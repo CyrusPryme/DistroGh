@@ -12,6 +12,9 @@ import { MOMO_NETWORK_COLORS, PAYOUT_STATUS_STYLES } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
@@ -65,6 +68,7 @@ export default function PayoutsPage() {
   const [pendingPageSize, setPendingPageSize] = usePageSize('payouts-pending', DEFAULT_PAGE_SIZE)
   const [historyPage, setHistoryPage] = useState(1)
   const [historyPageSize, setHistoryPageSize] = usePageSize('payouts-history', DEFAULT_PAGE_SIZE)
+  const [pendingConfirm, setPendingConfirm] = useState<'bulk' | 'dupes' | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -140,7 +144,11 @@ export default function PayoutsPage() {
   }
 
   const handleBulkCreate = async () => {
-    if (!confirm(`Create pending payouts for all ${balances.length} vendors with outstanding balances?`)) return
+    if (!balances.length) return
+    setPendingConfirm('bulk')
+  }
+
+  const runBulkCreate = async () => {
     setBulkProcessing(true)
     try {
       const result = await payoutService.bulkCreateForVendors(
@@ -156,6 +164,7 @@ export default function PayoutsPage() {
       await load()
       setActiveTab('pending')
       dispatchPayoutUpdated()
+      setPendingConfirm(null)
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to create payouts', 'error')
     } finally {
@@ -282,19 +291,17 @@ export default function PayoutsPage() {
   )
   const handleRemoveAllDuplicates = async () => {
     if (duplicatePendingIds.size === 0) return
-    if (
-      !confirm(
-        `Remove ${duplicatePendingIds.size} duplicate pending payout(s)? The newest record for each vendor/week is kept.`
-      )
-    ) {
-      return
-    }
+    setPendingConfirm('dupes')
+  }
+
+  const runRemoveDuplicates = async () => {
     setBulkProcessing(true)
     try {
       for (const id of duplicatePendingIds) {
         await payoutService.softDelete(id)
       }
       showToast(`Removed ${duplicatePendingIds.size} duplicate payout(s)`)
+      setPendingConfirm(null)
       await load()
       dispatchPayoutUpdated()
     } catch (e: unknown) {
@@ -476,40 +483,21 @@ export default function PayoutsPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit flex-wrap">
-        {[
-          { key: 'balances', label: 'Vendor Balances', count: balances.length },
-          { key: 'pending', label: 'Pending Payments', count: pendingPayouts.length },
-          { key: 'history', label: 'Payout History', count: payouts.length },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => {
-              setActiveTab(tab.key as 'balances' | 'pending' | 'history')
-              if (tab.key === 'balances') setBalancePage(1)
-              else if (tab.key === 'pending') setPendingPage(1)
-              else setHistoryPage(1)
-            }}
-            className={cn(
-              'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2',
-              activeTab === tab.key
-                ? 'bg-white shadow-sm text-slate-900'
-                : 'text-slate-500 hover:text-slate-700'
-            )}
-          >
-            {tab.label}
-            <span
-              className={cn(
-                'text-xs rounded-full px-1.5 py-0.5 font-semibold',
-                activeTab === tab.key ? 'bg-brand-100 text-brand-700' : 'bg-slate-200 text-slate-500',
-                tab.key === 'pending' && tab.count > 0 && activeTab !== tab.key && 'bg-amber-200 text-amber-800'
-              )}
-            >
-              {tab.count}
-            </span>
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        aria-label="Payout views"
+        value={activeTab}
+        onChange={(key) => {
+          setActiveTab(key)
+          if (key === 'balances') setBalancePage(1)
+          else if (key === 'pending') setPendingPage(1)
+          else setHistoryPage(1)
+        }}
+        options={[
+          { value: 'balances', label: 'Vendor Balances', count: balances.length },
+          { value: 'pending', label: 'Pending Payments', count: pendingPayouts.length, accent: true },
+          { value: 'history', label: 'Payout History', count: payouts.length },
+        ]}
+      />
 
       {activeTab === 'balances' && (
         <div className="data-card p-0 overflow-hidden">
@@ -546,12 +534,14 @@ export default function PayoutsPage() {
                     const hasPendingPayout = pendingByVendorId.has(b.vendor_id)
                     return (
                       <tr key={b.vendor_id}>
-                        <td>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold">
-                              {b.vendor_name.slice(0, 2).toUpperCase()}
+                        <td className="min-w-[220px] max-w-[280px]">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold shrink-0">
+                              {formatDisplayName(b.vendor_name).slice(0, 2).toUpperCase()}
                             </div>
-                            <span className="font-medium text-slate-800">{b.vendor_name}</span>
+                            <span className="font-semibold text-slate-800 truncate" title={b.vendor_name}>
+                              {formatDisplayName(b.vendor_name)}
+                            </span>
                           </div>
                         </td>
                         <td>
@@ -764,6 +754,30 @@ export default function PayoutsPage() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingConfirm === 'bulk'}
+        title="Create pending payouts?"
+        description={`Create pending payouts for all ${balances.length} vendors with outstanding balances? You will still confirm each MoMo payment separately.`}
+        confirmLabel="Create payouts"
+        busy={bulkProcessing}
+        onConfirm={runBulkCreate}
+        onClose={() => {
+          if (!bulkProcessing) setPendingConfirm(null)
+        }}
+      />
+      <ConfirmDialog
+        open={pendingConfirm === 'dupes'}
+        title="Remove duplicate payouts?"
+        description={`Remove ${duplicatePendingIds.size} duplicate pending payout(s)? The newest record for each vendor/week is kept.`}
+        confirmLabel="Remove duplicates"
+        destructive
+        busy={bulkProcessing}
+        onConfirm={runRemoveDuplicates}
+        onClose={() => {
+          if (!bulkProcessing) setPendingConfirm(null)
+        }}
+      />
     </div>
   )
 }

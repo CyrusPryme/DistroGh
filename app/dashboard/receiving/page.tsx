@@ -18,6 +18,8 @@ import { formatDate, formatNumber, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { DataTableShell } from '@/components/shared/DataTableShell'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
@@ -222,11 +224,21 @@ export default function ReceivingPage() {
               <Package className="w-4 h-4" />
               Stock at DistroGH (received − delivered)
             </h2>
-            <div className="overflow-x-auto">
+            <DataTableShell
+              pagination={
+                <PaginationBar
+                  page={stockPage}
+                  pageSize={stockPageSize}
+                  totalItems={stock.length}
+                  onPageChange={setStockPage}
+                  onPageSizeChange={setStockPageSize}
+                />
+              }
+            >
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Product</th>
+                    <th className="min-w-[220px]">Product</th>
                     <th className="text-right">Received</th>
                     <th className="text-right">Delivered</th>
                     <th className="text-right">On hand</th>
@@ -235,22 +247,15 @@ export default function ReceivingPage() {
                 <tbody>
                   {paginatedStock.map((row) => (
                     <tr key={row.product_id}>
-                      <td className="font-medium text-slate-800">{row.product_name}</td>
-                      <td className="text-right font-mono">{formatNumber(row.received)}</td>
-                      <td className="text-right font-mono">{formatNumber(row.delivered)}</td>
-                      <td className="text-right font-mono font-semibold text-brand-700">{formatNumber(row.on_hand)}</td>
+                      <td className="min-w-[220px] font-semibold text-slate-800 truncate">{formatDisplayName(row.product_name)}</td>
+                      <td className="text-right tabular-nums">{formatNumber(row.received)}</td>
+                      <td className="text-right tabular-nums">{formatNumber(row.delivered)}</td>
+                      <td className="text-right tabular-nums font-semibold text-brand-700">{formatNumber(row.on_hand)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <PaginationBar
-                page={stockPage}
-                pageSize={stockPageSize}
-                totalItems={stock.length}
-                onPageChange={setStockPage}
-                onPageSizeChange={setStockPageSize}
-              />
-            </div>
+            </DataTableShell>
             <button
               type="button"
               onClick={() => setShowStock(false)}
@@ -303,13 +308,22 @@ export default function ReceivingPage() {
             )}
           </div>
         ) : (
-          <div className="data-card p-0 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="data-table">
+          <DataTableShell
+            pagination={
+              <PaginationBar
+                page={intakePage}
+                pageSize={intakePageSize}
+                totalItems={intakes.length}
+                onPageChange={setIntakePage}
+                onPageSizeChange={setIntakePageSize}
+              />
+            }
+          >
+              <table className="data-table min-w-[640px]">
                 <thead>
                   <tr>
-                    {!isVendor && <th>Vendor</th>}
-                    <th>Product</th>
+                    {!isVendor && <th className="min-w-[160px]">Vendor</th>}
+                    <th className="min-w-[220px]">Product</th>
                     <th className="text-right">Qty</th>
                     <th>Reference</th>
                     <th>Received date</th>
@@ -319,35 +333,27 @@ export default function ReceivingPage() {
                   {paginatedIntakes.map((r) => (
                     <tr key={r.id}>
                       {!isVendor && (
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <Building2 className="w-4 h-4 text-slate-400" />
-                            <span className="text-slate-800">{(r.vendor as any)?.name ?? '—'}</span>
+                        <td className="min-w-[160px]">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span className="text-slate-800 truncate">{formatDisplayName((r.vendor as { name?: string })?.name)}</span>
                           </div>
                         </td>
                       )}
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <Package className="w-4 h-4 text-slate-400" />
-                          <span className="font-medium text-slate-800">{(r.product as any)?.name ?? '—'}</span>
+                      <td className="min-w-[220px]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Package className="w-4 h-4 text-slate-400 shrink-0" />
+                          <span className="font-semibold text-slate-800 truncate">{formatDisplayName((r.product as { name?: string })?.name)}</span>
                         </div>
                       </td>
-                      <td className="text-right font-mono">{r.quantity_received}</td>
+                      <td className="text-right tabular-nums">{r.quantity_received}</td>
                       <td className="text-slate-500 text-sm">{r.reference ?? '—'}</td>
-                      <td className="text-slate-600">{formatDate(r.received_date)}</td>
+                      <td className="text-slate-600 whitespace-nowrap">{formatDate(r.received_date)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <PaginationBar
-                page={intakePage}
-                pageSize={intakePageSize}
-                totalItems={intakes.length}
-                onPageChange={setIntakePage}
-                onPageSizeChange={setIntakePageSize}
-              />
-            </div>
-          </div>
+          </DataTableShell>
         )}
 
         <FormModal

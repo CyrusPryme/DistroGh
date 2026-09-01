@@ -9,13 +9,14 @@ import {
   Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings,
   Shield, UserCog, KeyRound, ScrollText,
   Crown, BadgeDollarSign, Scale, ClipboardList, HeartPulse, ArchiveRestore,
-  ShieldAlert, Database, SlidersHorizontal, DatabaseBackup
+  ShieldAlert, Database, SlidersHorizontal, DatabaseBackup, PanelLeftClose, PanelLeft
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deliveryService } from '@/services/delivery.service'
 import { payoutService } from '@/services/payout.service'
 import { ServiceChargeBanner } from '@/components/vendors/ServiceChargeBanner'
 import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import type { ServiceChargeBanner as ServiceChargeBannerData } from '@/lib/vendor-service-charge'
 
 // Define navigation items with role-based access
@@ -140,6 +141,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [userAdminRole, setUserAdminRole] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string>('')
@@ -149,6 +151,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [pendingDeliveries, setPendingDeliveries] = useState(0)
   const [pendingPayoutAlerts, setPendingPayoutAlerts] = useState(0)
   const [serviceChargeBanner, setServiceChargeBanner] = useState<ServiceChargeBannerData | null>(null)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('distrogh-sidebar-collapsed')
+      if (stored === 'true') setSidebarCollapsed(true)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('distrogh-sidebar-collapsed', String(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
 
   // Fetch user role on mount
   useEffect(() => {
@@ -238,18 +261,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isProfileActive =
     pathname === profileHref || pathname.startsWith(`${profileHref}/`)
 
-  const sidebarContent = (
+  const sidebarContent = (collapsed: boolean) => (
     <div className="flex flex-col h-full">
       {/* Logo - compact */}
-      <div className="px-4 py-3 border-b border-slate-100">
-        <DistroGHLogo size="sm" href="/dashboard" />
+      <div className={cn('px-4 py-3 border-b border-slate-100', collapsed && 'px-2 flex justify-center')}>
+        {collapsed ? (
+          <DistroGHLogo size="sm" href="/dashboard" />
+        ) : (
+          <DistroGHLogo size="sm" href="/dashboard" />
+        )}
       </div>
 
       {/* Ghana accent strip */}
       <div className="ghana-accent" />
 
       {/* User info badge - compact */}
-      {userRole && (
+      {userRole && !collapsed && (
         <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <div className={cn(
@@ -270,9 +297,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Navigation - compact so all items fit without scrolling on typical screens */}
       <nav className="flex-1 min-h-0 px-2 py-3 overflow-y-auto custom-scrollbar">
-        <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-          Main Menu
-        </p>
+        {!collapsed && (
+          <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+            Main Menu
+          </p>
+        )}
         <div className="space-y-0.5">
           {visibleNavItems.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href ||
@@ -292,18 +321,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 onClick={() => setSidebarOpen(false)}
                 className={cn(
                   'sidebar-link',
+                  collapsed && 'justify-center px-2',
                   hasPending && !isActive && 'text-red-600 hover:bg-red-50 hover:text-red-700',
                   isActive && !hasPending && 'active',
                   isActive && hasPending && 'bg-red-50 text-red-800 font-semibold border-l-2 border-red-500'
                 )}
+                title={collapsed ? label : undefined}
               >
                 <Icon className={cn('w-4 h-4 flex-shrink-0', hasPending && 'text-red-500')} />
-                <span className="flex-1 truncate">{label}</span>
-                {hasPending && (
+                {!collapsed && <span className="flex-1 truncate">{label}</span>}
+                {!collapsed && hasPending && (
                   <span className="shrink-0 w-2 h-2 rounded-full bg-red-500" title={pendingTitle} />
                 )}
-                {isActive && !hasPending && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
-                {isActive && hasPending && <ChevronRight className="w-3 h-3 text-red-500 flex-shrink-0" />}
+                {!collapsed && isActive && !hasPending && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
+                {!collapsed && isActive && hasPending && <ChevronRight className="w-3 h-3 text-red-500 flex-shrink-0" />}
               </Link>
             )
           })}
@@ -312,9 +343,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Administration section — visible to super_admin and developer */}
         {(userAdminRole === 'super_admin' || userAdminRole === 'developer') && (
           <div className="mt-4">
-            <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-purple-400">
-              Administration
-            </p>
+            {!collapsed && (
+              <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-purple-400">
+                Administration
+              </p>
+            )}
             <div className="space-y-0.5">
               {[
                 { href: '/dashboard/administration/admin-accounts', label: 'Admin Accounts', icon: UserCog },
@@ -329,14 +362,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     onClick={() => setSidebarOpen(false)}
                     className={cn(
                       'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-150 text-xs font-medium',
+                      collapsed && 'justify-center px-2',
                       isActive
                         ? 'bg-purple-50 text-purple-800 font-semibold border-l-2 border-purple-500'
                         : 'text-slate-600 hover:bg-purple-50 hover:text-purple-700'
                     )}
+                    title={collapsed ? label : undefined}
                   >
                     <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="flex-1 truncate">{label}</span>
-                    {isActive && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
+                    {!collapsed && <span className="flex-1 truncate">{label}</span>}
+                    {!collapsed && isActive && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
                   </Link>
                 )
               })}
@@ -347,9 +382,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Platform Management section — visible to developer only */}
         {userAdminRole === 'developer' && (
           <div className="mt-4">
-            <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-400">
-              Platform Management
-            </p>
+            {!collapsed && (
+              <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-violet-400">
+                Platform Management
+              </p>
+            )}
             <div className="space-y-0.5">
               {[
                 { href: '/dashboard/platform', label: 'Overview', icon: LayoutDashboard },
@@ -372,14 +409,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     onClick={() => setSidebarOpen(false)}
                     className={cn(
                       'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-150 text-xs font-medium',
+                      collapsed && 'justify-center px-2',
                       isActive
                         ? 'bg-violet-50 text-violet-800 font-semibold border-l-2 border-violet-500'
                         : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
                     )}
+                    title={collapsed ? label : undefined}
                   >
                     <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="flex-1 truncate">{label}</span>
-                    {isActive && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
+                    {!collapsed && <span className="flex-1 truncate">{label}</span>}
+                    {!collapsed && isActive && <ChevronRight className="w-3 h-3 opacity-50 flex-shrink-0" />}
                   </Link>
                 )
               })}
@@ -394,32 +433,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link
             href="/dashboard/support"
             onClick={() => setSidebarOpen(false)}
-            className={cn(
-              'sidebar-link w-full',
-              (pathname === '/dashboard/support' || pathname.startsWith('/dashboard/support/')) && 'active'
-            )}
+            className={cn('sidebar-link w-full', collapsed && 'justify-center px-2', (pathname === '/dashboard/support' || pathname.startsWith('/dashboard/support/')) && 'active')}
+            title={collapsed ? 'Contact / Support' : undefined}
           >
             <HelpCircle className="w-3.5 h-3.5" />
-            Contact / Support
+            {!collapsed && 'Contact / Support'}
           </Link>
         )}
         {userRole && (
           <Link
             href={profileHref}
             onClick={() => setSidebarOpen(false)}
-            className={cn('sidebar-link w-full', isProfileActive && 'active')}
+            className={cn('sidebar-link w-full', collapsed && 'justify-center px-2', isProfileActive && 'active')}
+            title={collapsed ? 'Profile' : undefined}
           >
             <User className="w-3.5 h-3.5" />
-            Profile
+            {!collapsed && 'Profile'}
           </Link>
         )}
         <button
           type="button"
           onClick={() => { setSidebarOpen(false); handleLogout() }}
-          className="sidebar-link w-full text-slate-500 hover:bg-red-50 hover:text-red-600"
+          className={cn('sidebar-link w-full text-slate-500 hover:bg-red-50 hover:text-red-600', collapsed && 'justify-center px-2')}
+          title={collapsed ? 'Sign Out' : undefined}
         >
           <LogOut className="w-3.5 h-3.5" />
-          Sign Out
+          {!collapsed && 'Sign Out'}
         </button>
       </div>
     </div>
@@ -428,8 +467,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-layout-root flex h-screen bg-slate-50 overflow-hidden">
       {/* Desktop Sidebar */}
-      <aside className="app-layout-sidebar no-print hidden lg:flex flex-col w-64 bg-white border-r border-slate-200/80 shrink-0 shadow-sm">
-        {sidebarContent}
+      <aside className={cn(
+        'app-layout-sidebar no-print hidden lg:flex flex-col bg-white border-r border-slate-200/80 shrink-0 shadow-sm transition-[width] duration-200',
+        sidebarCollapsed ? 'w-[4.5rem]' : 'w-64'
+      )}>
+        {sidebarContent(sidebarCollapsed)}
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -443,13 +485,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             className="absolute left-0 top-0 h-full w-60 bg-white shadow-xl transform transition-transform duration-300 ease-in-out"
             onClick={(e) => e.stopPropagation()}
           >
-            {sidebarContent}
+            {sidebarContent(false)}
           </aside>
         </div>
       )}
 
       {/* Main Content */}
-      <main className="app-layout-main flex-1 flex flex-col overflow-hidden">
+      <main className="app-layout-main flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Desktop shell bar — sidebar toggle + space for page actions */}
+        <header className="app-layout-header no-print hidden lg:flex items-center gap-3 px-4 py-2.5 bg-white border-b border-slate-100 shrink-0">
+          <button
+            type="button"
+            onClick={toggleSidebarCollapsed}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+          </button>
+        </header>
+
         {/* Top bar - vendor profile dropdown (visible for vendors on desktop) */}
         {userRole === 'vendor' && (
           <header className="app-layout-header no-print hidden lg:flex items-center justify-end px-4 py-2 sm:px-6 bg-white border-b border-slate-100 shrink-0">
@@ -578,7 +632,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Page Content — horizontal padding lives here; pages use .page-container for width */}
         <div className="app-layout-content flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 bg-slate-50/90">
-          {children}
+          <TooltipProvider delayDuration={250}>{children}</TooltipProvider>
         </div>
       </main>
     </div>

@@ -473,9 +473,10 @@ function buildInstructionsSheet(
           ['For Palace exports: upload the supermarket file as-is, or use this template for manual historical rows.'],
           ['Aggregated upload: one row per sale line — set report_month (or month + report_year) on every row.'],
           ['description + code (free text) match products by name/barcode — vendor comes from the matched product, not a column here.'],
-          ['qty + TCostEx only: per-unit price at recording = TCostEx ÷ qty (computed on import — do not add unit_price).'],
-          ['Each row keeps its own TCostEx — past price changes stay on the sale; live product catalog prices are never overwritten.'],
-          ['store_name / branch = supermarket outlet (dropdown). TCostEx = vendor line total (PAYMENT TO SUPPLIER) as recorded.'],
+          ['qty + TCostEx only: TCostEx is DistroGH\'s price to the supermarket (Palace supplier cost). Per-unit = TCostEx ÷ qty.'],
+          ['Vendor due and Distro markup are split from the matched product (catalog vendor_price + distrogh_markup). Palace never sees vendor pricing.'],
+          ['Each row keeps its own TCostEx — past Distro-to-Palace prices stay on the sale.'],
+          ['store_name / branch = supermarket outlet (dropdown). TCostEx = PAYMENT TO SUPPLIER on Palace exports (paid to DistroGH).'],
           ['report_month: first day of sales month (e.g. 2024-06-01). Legacy MONTH-only rows: use month + report_year columns.'],
           ['paid: Yes or PAID = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
         ]

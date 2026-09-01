@@ -56,6 +56,39 @@ describe('computeFinancialIntegrityChecks — financial integrity flagged before
     expect(totalInfo?.severity).toBe('info')
   })
 
+  it('errors when Palace TCostEx was stored as vendor due despite catalog vendor price implying markup', async () => {
+    const client = createMockClient([
+      {
+        match: /entity_type = 'sales'/,
+        respond: () => ({
+          rows: [
+            {
+              id: 'row-1',
+              row_number: 5,
+              file_id: 'file-1',
+              normalized_data: {
+                qty: 5,
+                unit_price: 30,
+                total_sales: 150,
+                vendor_due: 150,
+                commission_amount: 0,
+                catalog_vendor_price: 20,
+              },
+              corrections: {},
+            },
+          ],
+        }),
+      },
+      { match: /entity_type = 'payouts'/, respond: () => ({ rows: [] }) },
+      { match: /entity_type = 'returns'/, respond: () => ({ rows: [{ c: 0 }] }) },
+    ])
+    const discrepancies = await computeFinancialIntegrityChecks(client, 'MIG-1')
+    const palaceBug = discrepancies.find((d) => d.category === 'palace_tcostex_stored_as_vendor_due')
+    expect(palaceBug).toBeDefined()
+    expect(palaceBug?.severity).toBe('error')
+    expect(palaceBug?.expected_value).toBe(100)
+  })
+
   it('flags a payout whose amount_paid does not match amount_due', async () => {
     const client = createMockClient([
       { match: /entity_type = 'sales'/, respond: () => ({ rows: [] }) },

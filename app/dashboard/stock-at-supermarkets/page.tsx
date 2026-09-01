@@ -6,6 +6,9 @@ import { supermarketService, type SupermarketInventoryRow } from '@/services/sup
 import { useSession } from '@/hooks/useSession'
 import { formatNumber, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { DataTableShell } from '@/components/shared/DataTableShell'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { usePageSize } from '@/hooks/usePageSize'
 
 export default function StockAtSupermarketsPage() {
@@ -66,12 +69,10 @@ export default function StockAtSupermarketsPage() {
 
   return (
     <div className="page-container space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-slate-900">Stock at supermarkets</h1>
-        <p className="text-slate-500 text-sm mt-0.5">
-          Which supermarkets have which products. Updated when deliveries are confirmed and when sales are imported.
-        </p>
-      </div>
+      <PageHeader
+        title="Stock at supermarkets"
+        description="Which supermarkets have which products. Updated when deliveries are confirmed and when sales are imported."
+      />
 
       {error && (
         <div className="flex items-center gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
@@ -115,43 +116,47 @@ export default function StockAtSupermarketsPage() {
               <div key={supId} className="data-card overflow-hidden">
                 <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50/50">
                   <Building2 className="w-5 h-5 text-slate-500" />
-                  <h2 className="font-display font-semibold text-slate-800">{name}</h2>
+                  <h2 className="font-display font-semibold text-slate-800 truncate">{formatDisplayName(name)}</h2>
                   <span className="text-slate-500 text-sm">
                     {products.length} product(s), {formatNumber(products.reduce((s, p) => s + p.quantity, 0))} units
                   </span>
                 </div>
-                <div className="overflow-x-auto">
+                <DataTableShell
+                  pagination={
+                    <PaginationBar
+                      page={pPage}
+                      pageSize={productPageSize}
+                      totalItems={sortedProducts.length}
+                      onPageChange={(p) => setProductPages((prev) => ({ ...prev, [supId]: p }))}
+                      onPageSizeChange={setProductPageSize}
+                    />
+                  }
+                  className="rounded-none border-0 shadow-none"
+                >
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Product</th>
+                        <th className="min-w-[220px]">Product</th>
                         <th className="text-right">Quantity on hand</th>
                       </tr>
                     </thead>
                     <tbody>
                       {paginatedProducts.map((r) => (
                           <tr key={`${r.supermarket_id}-${r.product_id}`}>
-                            <td>
-                              <div className="flex items-center gap-2">
-                                <Package className="w-4 h-4 text-slate-400" />
-                                <span className="font-medium text-slate-800">{r.product_name}</span>
+                            <td className="min-w-[220px]">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Package className="w-4 h-4 text-slate-400 shrink-0" />
+                                <span className="font-semibold text-slate-800 truncate">{formatDisplayName(r.product_name)}</span>
                               </div>
                             </td>
-                            <td className="text-right font-mono font-semibold text-emerald-700">
+                            <td className="text-right tabular-nums font-semibold text-emerald-700">
                               {formatNumber(r.quantity)}
                             </td>
                           </tr>
                         ))}
                     </tbody>
                   </table>
-                  <PaginationBar
-                    page={pPage}
-                    pageSize={productPageSize}
-                    totalItems={sortedProducts.length}
-                    onPageChange={(p) => setProductPages((prev) => ({ ...prev, [supId]: p }))}
-                    onPageSizeChange={setProductPageSize}
-                  />
-                </div>
+                </DataTableShell>
               </div>
             )
           })}

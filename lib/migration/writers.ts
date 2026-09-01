@@ -9,6 +9,7 @@ import { findExistingProvenance, recordProvenance } from '@/lib/migration/proven
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { resolveHistoricalTransportCost } from '@/lib/migration/transport-cost'
 import { resolveHistoricalSaleAmounts } from '@/lib/migration/sales-fields'
+import { computeImportSaleAmounts, resolveProductPricing, assertSupermarketTotalNotStoredAsVendorDue } from '@/lib/product-pricing'
 
 type StagingRow = {
   id: string
@@ -628,11 +629,27 @@ async function writeRow(
       const period = normalizeSaleMonthPeriod(toSqlDate(periodSource))
       const weekStart = period.week_start
       const weekEnd = period.week_end
-      const amounts = resolveHistoricalSaleAmounts(d)
-      const unit = amounts?.unit_price ?? n(d.unit_price ?? d.shop_unit_price)
-      const total = amounts?.total_sales ?? n(d.total_sales, unit * qty)
-      const vendorDue = amounts?.vendor_due ?? n(d.vendor_due, 0)
-      const commission = amounts?.commission_amount ?? Math.max(0, total - vendorDue)
+      const shop = resolveHistoricalSaleAmounts(d)
+      if (!shop) throw new Error('Sales row missing TCostEx — DistroGH supermarket line total')
+      const productPricing = await client.query(
+        `SELECT vendor_price, distrogh_markup, selling_price
+         FROM public.products WHERE id = $1::uuid AND deleted_at IS NULL`,
+        [productId]
+      )
+      if (!productPricing.rows[0]) {
+        throw new Error('Sales product not found — cannot split DistroGH supermarket price vs vendor due')
+      }
+      const pricing = resolveProductPricing(productPricing.rows[0])
+      const split = computeImportSaleAmounts(qty, shop.unit_price, pricing.vendorPrice, shop.total_sales)
+      assertSupermarketTotalNotStoredAsVendorDue({
+        totalSales: split.total_sales,
+        vendorDue: split.vendor_due,
+        catalogMarkup: pricing.markup + pricing.addOnTotal,
+      })
+      const unit = split.unit_price
+      const total = split.total_sales
+      const vendorDue = split.vendor_due
+      const commission = split.commission_amount
       const supermarketPaid =
         typeof d.supermarket_paid === 'boolean' ? d.supermarket_paid : false
       const ins = await client.query(

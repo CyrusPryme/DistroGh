@@ -11,6 +11,10 @@ import { ArrowLeft, PowerOff, Loader2, CheckCircle, XCircle } from 'lucide-react
 import { formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageToast } from '@/components/shared/PageToast'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
 
@@ -21,6 +25,7 @@ export default function DeactivationRequestsPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
   const [acting, setActing] = useState<string | null>(null)
+  const [pendingAction, setPendingAction] = useState<{ id: string; kind: 'approve' | 'reject'; name: string } | null>(null)
   const { toast, showToast, dismissToast } = useToast(3500)
   const [reqPage, setReqPage] = useState(1)
   const [reqPageSize, setReqPageSize] = usePageSize('deactivation-requests', DEFAULT_PAGE_SIZE)
@@ -97,28 +102,22 @@ export default function DeactivationRequestsPage() {
         </Link>
       </div>
 
-      <div>
-        <h1 className="font-display text-2xl font-bold text-slate-900">Deactivation requests</h1>
-        <p className="text-slate-500 text-sm mt-0.5">
-          Vendor requests to deactivate their account. Approve only after financial obligations are cleared.
-        </p>
-      </div>
+      <PageHeader
+        title="Deactivation requests"
+        description="Vendor requests to deactivate their account. Approve only after financial obligations are cleared."
+      />
 
-      <div className="flex gap-2">
-        {(['pending', 'approved', 'rejected', 'all'] as const).map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f)}
-            className={cn(
-              'px-3 py-1.5 rounded-lg text-sm font-medium',
-              filter === f ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            )}
-          >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        aria-label="Request status"
+        value={filter}
+        onChange={setFilter}
+        options={[
+          { value: 'pending', label: 'Pending', accent: true },
+          { value: 'approved', label: 'Approved' },
+          { value: 'rejected', label: 'Rejected' },
+          { value: 'all', label: 'All' },
+        ]}
+      />
 
       <div className="data-card p-0 overflow-hidden">
         {loading ? (
@@ -146,7 +145,7 @@ export default function DeactivationRequestsPage() {
               <tbody>
                 {paginatedRequests.map((r) => (
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="py-3 px-4 font-medium text-slate-900">{r.vendor?.name ?? '—'}</td>
+                    <td className="py-3 px-4 font-semibold text-slate-900 truncate max-w-[220px]">{formatDisplayName(r.vendor?.name)}</td>
                     <td className="py-3 px-4 text-slate-600">
                       {r.vendor?.login_email ?? '—'}
                       {r.vendor?.contact_phone && (
@@ -174,7 +173,7 @@ export default function DeactivationRequestsPage() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => handleApprove(r.id)}
+                            onClick={() => setPendingAction({ id: r.id, kind: 'approve', name: r.vendor?.name ?? 'vendor' })}
                             disabled={acting === r.id}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-60"
                           >
@@ -183,7 +182,7 @@ export default function DeactivationRequestsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleReject(r.id)}
+                            onClick={() => setPendingAction({ id: r.id, kind: 'reject', name: r.vendor?.name ?? 'vendor' })}
                             disabled={acting === r.id}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-50 disabled:opacity-60"
                           >
@@ -207,6 +206,32 @@ export default function DeactivationRequestsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        title={
+          pendingAction?.kind === 'approve'
+            ? `Approve deactivation for ${formatDisplayName(pendingAction.name)}?`
+            : `Reject deactivation request for ${formatDisplayName(pendingAction?.name)}?`
+        }
+        description={
+          pendingAction?.kind === 'approve'
+            ? 'This will soft-delete the vendor. Approve only after financial obligations are cleared.'
+            : 'The vendor will remain active and can continue using the portal.'
+        }
+        confirmLabel={pendingAction?.kind === 'approve' ? 'Approve deactivation' : 'Reject request'}
+        destructive={pendingAction?.kind === 'approve'}
+        busy={Boolean(acting)}
+        onConfirm={async () => {
+          if (!pendingAction) return
+          if (pendingAction.kind === 'approve') await handleApprove(pendingAction.id)
+          else await handleReject(pendingAction.id)
+          setPendingAction(null)
+        }}
+        onClose={() => {
+          if (!acting) setPendingAction(null)
+        }}
+      />
     </div>
   )
 }

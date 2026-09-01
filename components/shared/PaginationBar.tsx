@@ -74,7 +74,7 @@ export function PaginationBar({
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center justify-between gap-3 py-3 px-1 border-t border-slate-100 text-sm text-slate-600',
+        'flex flex-wrap items-center justify-between gap-3 py-3 px-4 border-t border-slate-200 text-sm text-slate-600 w-full',
         className
       )}
     >

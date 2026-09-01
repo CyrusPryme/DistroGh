@@ -107,6 +107,8 @@ export default function MigrationWizardPage() {
   const [files, setFiles] = useState<MigFile[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [staging, setStaging] = useState<StagingRow[]>([])
+  const [stagingTotal, setStagingTotal] = useState(0)
+  const [stagingFilter, setStagingFilter] = useState<'error' | 'warning' | 'issues'>('error')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [busyLabel, setBusyLabel] = useState<{ label: string; sublabel?: string } | null>(null)
@@ -131,11 +133,14 @@ export default function MigrationWizardPage() {
   }, [id])
 
   const loadStaging = useCallback(async (status?: string) => {
-    const qs = new URLSearchParams({ limit: '50' })
+    const qs = new URLSearchParams({ limit: '200' })
     if (status) qs.set('status', status)
     const res = await fetch(`/api/migrations/${id}/staging?${qs}`)
     const j = await res.json()
-    if (j.success) setStaging(j.data)
+    if (j.success) {
+      setStaging(j.data)
+      setStagingTotal(typeof j.total === 'number' ? j.total : j.data.length)
+    }
   }, [id])
 
   useEffect(() => { load() }, [load])
@@ -162,10 +167,16 @@ export default function MigrationWizardPage() {
   }, [project?.status, jobs, id, load])
 
   useEffect(() => {
+    if (!project || project.current_stage !== 5) return
+    if (project.error_count > 0) setStagingFilter('error')
+    else if (project.warning_count > 0) setStagingFilter('issues')
+  }, [project?.current_stage, project?.error_count, project?.warning_count])
+
+  useEffect(() => {
     if (project && project.current_stage >= 4) {
-      loadStaging(project.current_stage === 5 ? 'error' : undefined)
+      loadStaging(project.current_stage === 5 ? stagingFilter : undefined)
     }
-  }, [project?.current_stage, loadStaging])
+  }, [project?.current_stage, loadStaging, stagingFilter])
 
   const runAction = async (action: string, extra: Record<string, unknown> = {}) => {
     setBusyLabel(ACTION_BUSY_LABELS[action] ?? { label: 'Working…' })
@@ -831,13 +842,51 @@ export default function MigrationWizardPage() {
           </div>
 
           <div className="data-card p-0 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-800">
-                {stage === 5 ? 'Correction workspace' : 'Validation sample'}
-              </p>
-              <button type="button" className="btn-ghost text-xs" onClick={() => loadStaging(stage === 5 ? 'error' : undefined)}>
-                Reload rows
-              </button>
+            <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {stage === 5 ? 'Correction workspace' : 'Validation sample'}
+                </p>
+                {stage === 5 && stagingTotal > staging.length ? (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Showing {staging.length} of {stagingTotal} rows — narrow with filters or fix in spreadsheet
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {stage === 5 ? (
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs">
+                    {([
+                      ['error', 'Errors'],
+                      ['warning', 'Warnings'],
+                      ['issues', 'All issues'],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={cn(
+                          'px-2.5 py-1.5 font-medium transition-colors',
+                          stagingFilter === value
+                            ? value === 'error'
+                              ? 'bg-red-50 text-red-700'
+                              : 'bg-amber-50 text-amber-800'
+                            : 'bg-white text-slate-600 hover:bg-slate-50'
+                        )}
+                        onClick={() => setStagingFilter(value)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  onClick={() => loadStaging(stage === 5 ? stagingFilter : undefined)}
+                >
+                  Reload rows
+                </button>
+              </div>
             </div>
             <table className="data-table">
               <thead>
@@ -851,7 +900,13 @@ export default function MigrationWizardPage() {
               </thead>
               <tbody>
                 {staging.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center text-slate-400 py-8">No rows to show</td></tr>
+                  <tr>
+                    <td colSpan={5} className="text-center text-slate-400 py-8">
+                      {stage === 5 && project.warning_count > 0 && project.error_count === 0
+                        ? 'No error rows — switch to Warnings or All issues to review rows that still need attention'
+                        : 'No rows to show'}
+                    </td>
+                  </tr>
                 ) : staging.map((row) => (
                   <tr key={row.id}>
                     <td className="text-xs">{row.entity_type}</td>

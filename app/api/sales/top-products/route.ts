@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireSession } from '@/lib/auth/require'
 
+import { parseQueryDateRange, salesWeekStartFilter } from '@/lib/api/query-date-range'
+
 function normalizeUuidParam(v: string | null) {
   const s = (v ?? '').toString().trim()
   return s ? s : null
@@ -19,6 +21,14 @@ export async function GET(req: Request) {
     const vendor_id = session.role === 'vendor' ? (session.vendor_id ?? null) : vendorIdParam
 
     const pool = getDbPool()
+    const { from, to } = parseQueryDateRange(url)
+    const params: unknown[] = [vendor_id, limit]
+    let dateFilter = ''
+    if (from && to) {
+      params.splice(1, 0, from, to)
+      dateFilter = salesWeekStartFilter('s', 2, 3)
+    }
+
     const { rows } = await pool.query(
       `
       select
@@ -33,11 +43,12 @@ export async function GET(req: Request) {
       where s.deleted_at is null
         and p.deleted_at is null
         and ($1::uuid is null or p.vendor_id = $1::uuid)
+        ${dateFilter}
       group by s.product_id, p.name, v.name
       order by total_sales ${sort === 'asc' ? 'asc' : 'desc'}
-      limit $2
+      limit $${params.length}
       `,
-      [vendor_id, limit]
+      params
     )
 
     return NextResponse.json({ success: true, data: rows })

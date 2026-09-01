@@ -1,6 +1,7 @@
 import { format, parseISO, startOfMonth } from 'date-fns'
 import type { Sale, WeeklyRevenue, ProductPerformance, VendorSalesBreakdown, DashboardKPIs, ProductReturn } from '@/types'
 import { normalizeSaleMonthPeriod, salesPeriodMonthKey } from '@/lib/utils'
+import { getSaleMarkupAmount } from '@/lib/sale-amounts'
 
 function monthPeriodFromKey(monthKey: string): { week_start: string; week_end: string } {
   return normalizeSaleMonthPeriod(`${monthKey}-01`)
@@ -26,7 +27,7 @@ export function aggregateSalesToReport(sales: Sale[]): {
 
   for (const sale of sales) {
     const totalSales = Number(sale.total_sales ?? 0)
-    const commission = Number(sale.commission_amount ?? 0)
+    const commission = getSaleMarkupAmount(sale)
     const vendorDue = Number(sale.vendor_due ?? 0)
     const product = sale.product as { id: string; name: string; vendor_id: string; vendor?: { id: string; name: string } } | undefined
     const monthKey = sale.week_start ? salesPeriodMonthKey(sale.week_start) : ''

@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api/client'
-import type { Intake } from '@/types'
+import type { Intake, VendorIntakeLeaderboard } from '@/types'
 
 export interface CreateIntakePayload {
   vendor_id: string
@@ -67,20 +67,12 @@ export const intakeService = {
     })
   },
 
-  async getTopVendorsByIntake(
-    limit = 5
-  ): Promise<{ vendor_id: string; vendor_name: string; total_quantity_received: number }[]> {
-    const rows = await this.getAll()
-    const byVendor = new Map<string, { vendor_name: string; total_quantity_received: number }>()
-    for (const row of rows) {
-      const vid = row.vendor_id
-      const name = row.vendor?.name ?? 'Unknown'
-      if (!byVendor.has(vid)) byVendor.set(vid, { vendor_name: name, total_quantity_received: 0 })
-      byVendor.get(vid)!.total_quantity_received += Number(row.quantity_received ?? 0)
-    }
-    return Array.from(byVendor.entries())
-      .map(([vendor_id, r]) => ({ vendor_id, ...r }))
-      .sort((a, b) => b.total_quantity_received - a.total_quantity_received)
-      .slice(0, limit)
+  async getTopVendorsByIntake(limit = 5, range?: { from?: string; to?: string }): Promise<VendorIntakeLeaderboard[]> {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (range?.from) params.set('from', range.from)
+    if (range?.to) params.set('to', range.to)
+    return apiFetch<VendorIntakeLeaderboard[]>(`/api/intakes/top-vendors?${params}`, {
+      fallbackError: 'Failed to load top vendors by intake',
+    })
   },
 }

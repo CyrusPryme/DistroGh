@@ -80,6 +80,7 @@ import { VendorAccessBadge } from '@/components/vendors/VendorAccessBadge'
 import { VendorPortalReport } from '@/components/vendors/VendorPortalReport'
 import { isAdminManagedVendor } from '@/lib/vendor-access'
 import { formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, salesPeriodMonthKey, normalizeSaleMonthPeriod, cn, MOMO_NETWORK_COLORS } from '@/lib/utils'
+import { getSaleMarkupAmount } from '@/lib/sale-amounts'
 import { printReport } from '@/lib/print'
 import { canAdminActivateVendor, getVendorStatus } from '@/lib/vendor-verification'
 import { vendorHasFdaCertificate } from '@/lib/fda-certificate'
@@ -141,7 +142,15 @@ interface VendorSaleRow {
   vendor_due: number
   week_start: string
   week_end: string
-  product?: { id: string; name: string; vendor_id: string; commission_percent?: number }
+  product?: {
+    id: string
+    name: string
+    vendor_id: string
+    commission_percent?: number
+    distrogh_markup?: number
+    vendor_price?: number
+    selling_price?: number
+  }
   supermarket?: { id: string; name: string; location?: string }
 }
 
@@ -159,7 +168,7 @@ function aggregateVendorSalesByMonth(sales: VendorSaleRow[]): { week_start: stri
     if (!monthKey) continue
     const cur = map.get(monthKey) ?? { total_sales: 0, total_commission: 0, total_vendor_due: 0 }
     cur.total_sales += Number(s.total_sales ?? 0)
-    cur.total_commission += Number(s.commission_amount ?? 0)
+    cur.total_commission += getSaleMarkupAmount(s)
     cur.total_vendor_due += Number(s.vendor_due ?? 0)
     map.set(monthKey, cur)
   }
@@ -292,7 +301,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
   const productAgg = aggregateVendorSalesByProduct(filteredSales)
   const rangeLabel = rangeStart && rangeEnd ? `${formatDate(rangeStart)} – ${formatDate(rangeEnd)}` : 'All time'
   const totalSalesInRange = filteredSales.reduce((s, r) => s + Number(r.total_sales ?? 0), 0)
-  const totalMarkupInRange = filteredSales.reduce((s, r) => s + Number(r.commission_amount ?? 0), 0)
+  const totalMarkupInRange = filteredSales.reduce((s, r) => s + getSaleMarkupAmount(r), 0)
   const totalVendorDueInRange = filteredSales.reduce((s, r) => s + Number(r.vendor_due ?? 0), 0)
 
   const weeklyChartData = weeklyAgg.map((w) => ({

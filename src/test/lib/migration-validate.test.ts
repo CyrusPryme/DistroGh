@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateRow } from '@/lib/migration/validate'
+import { validateRow, missingProductIssues } from '@/lib/migration/validate'
 import { normalizeSalesRowData } from '@/lib/migration/sales-fields'
 
 describe('validateRow — date accuracy (never silently default a historical date to "today")', () => {
@@ -151,6 +151,44 @@ describe('validateRow — sales are always reported by full calendar month', () 
     expect(errors.filter((e) => e.code === 'MISSING_DATE' || e.code === 'INVALID_DATE')).toEqual([])
     expect(normalized.week_start).toBe('2024-06-01')
     expect(normalized.week_end).toBe('2024-06-30')
-    expect(normalized.vendor_due).toBe(150)
+    expect(normalized.total_sales).toBe(150)
+    expect(normalized.unit_price).toBe(30)
+    expect(normalized.vendor_due).toBeUndefined()
+  })
+})
+
+describe('missingProductIssues — FK resolution for product-dependent entities', () => {
+  const stagedNames = new Set(['new soap'])
+  const stagedBarcodes = new Set(['999'])
+
+  it('deliveries-only migration: unknown product is a hard error', () => {
+    const { errors, warnings } = missingProductIssues(
+      'deliveries',
+      'chocho natural beauty soap',
+      '',
+      new Set(),
+      new Set()
+    )
+    expect(errors.some((e) => e.code === 'PRODUCT_UNRESOLVABLE')).toBe(true)
+    expect(warnings).toEqual([])
+  })
+
+  it('companion products upload: unknown-in-production product stays a warning', () => {
+    const { errors, warnings } = missingProductIssues(
+      'deliveries',
+      'new soap',
+      '',
+      stagedNames,
+      stagedBarcodes
+    )
+    expect(errors).toEqual([])
+    expect(warnings.some((w) => w.code === 'PRODUCT_NOT_FOUND')).toBe(true)
+  })
+
+  it('sales and returns also require a resolvable product', () => {
+    for (const entity of ['sales', 'returns'] as const) {
+      const { errors } = missingProductIssues(entity, 'missing sku', '', new Set(), new Set())
+      expect(errors.some((e) => e.code === 'PRODUCT_UNRESOLVABLE')).toBe(true)
+    }
   })
 })

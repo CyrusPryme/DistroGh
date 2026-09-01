@@ -3,11 +3,14 @@
  * Maps legacy export headers (store_name, MONTH, PAID, PAYMENT TO SUPPLIER, …) to canonical
  * migration fields used by validate.ts and writers.ts.
  *
- * Historical sale amounts are derived only from qty + TCostEx (per-unit = TCostEx ÷ qty).
- * Spreadsheet unit_price / shop totals are ignored. Vendor comes from the matched product,
- * not from a template column (Palace vendor/NAME columns in uploads are informational only).
+ * Palace only knows DistroGH as its supplier. TCostEx / PAYMENT TO SUPPLIER is DistroGH's
+ * price to the supermarket (qty × Distro shop unit), not the vendor payout.
+ * Vendor due and Distro markup are split from the matched product catalog
+ * (vendor_price + distrogh_markup). Spreadsheet unit_price is ignored.
+ * Vendor comes from the matched product, not from a template column.
  */
 
+import { computeImportSaleAmounts } from '@/lib/product-pricing'
 import { roundMoney } from '@/lib/utils'
 
 export type HistoricalSaleAmounts = {
@@ -154,9 +157,9 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
   )
   if (tcost != null) {
     if (out.TCostEx == null) out.TCostEx = tcost
-    if (out.vendor_due == null) {
+    if (out.total_sales == null) {
       const n = num(tcost)
-      if (n != null) out.vendor_due = n
+      if (n != null) out.total_sales = n
     }
   }
 
@@ -185,35 +188,63 @@ export function normalizeSalesRowData(data: Record<string, unknown>): Record<str
 
   const amounts = resolveHistoricalSaleAmounts(out)
   if (amounts) {
-    out.vendor_due = amounts.vendor_due
     out.unit_price = amounts.unit_price
     out.total_sales = amounts.total_sales
-    out.commission_amount = amounts.commission_amount
+    if (amounts.splitFromCatalog) {
+      out.vendor_due = amounts.vendor_due
+      out.commission_amount = amounts.commission_amount
+    }
   }
 
   return out
 }
 
+export type HistoricalSaleCatalog = {
+  vendorPrice: number
+}
+
 /**
- * Derive sale money fields from qty + TCostEx only (price at time of recording = TCostEx ÷ qty).
- * Ignores spreadsheet unit_price / total_sales and never reads the live product catalog.
+ * TCostEx is DistroGH's line total to the supermarket (Palace supplier cost).
+ * Per-unit shop price = TCostEx ÷ qty. When catalog vendor price is known, vendor due
+ * is qty × vendor_price and Distro markup is the remainder (same split as live sales import).
  */
-export function resolveHistoricalSaleAmounts(data: Record<string, unknown>): HistoricalSaleAmounts | null {
+export function resolveHistoricalSaleAmounts(
+  data: Record<string, unknown>,
+  catalog?: HistoricalSaleCatalog | null
+): (HistoricalSaleAmounts & { splitFromCatalog: boolean }) | null {
   const qty = num(data.qty ?? data.quantity)
   if (qty == null || qty <= 0) return null
 
-  const vendorDueRaw = num(data.vendor_due ?? data.TCostEx ?? data.tcostex)
-  if (vendorDueRaw == null || vendorDueRaw < 0) return null
+  const shopTotalRaw = num(data.TCostEx ?? data.tcostex ?? data.total_sales ?? data.vendor_due)
+  if (shopTotalRaw == null || shopTotalRaw < 0) return null
 
-  const vendorDue = roundMoney(vendorDueRaw)
-  const unit = roundMoney(vendorDue / qty)
+  const shopTotal = roundMoney(shopTotalRaw)
+  const unit = roundMoney(shopTotal / qty)
   const total = roundMoney(unit * qty)
+
+  const catalogVendor =
+    catalog != null && Number.isFinite(catalog.vendorPrice)
+      ? catalog.vendorPrice
+      : num(data.catalog_vendor_price)
+
+  if (catalogVendor != null && catalogVendor >= 0) {
+    const split = computeImportSaleAmounts(qty, unit, catalogVendor, total)
+    return {
+      qty,
+      vendor_due: split.vendor_due,
+      unit_price: split.unit_price,
+      total_sales: split.total_sales,
+      commission_amount: split.commission_amount,
+      splitFromCatalog: true,
+    }
+  }
 
   return {
     qty,
-    vendor_due: vendorDue,
+    vendor_due: 0,
     unit_price: unit,
     total_sales: total,
     commission_amount: 0,
+    splitFromCatalog: false,
   }
 }

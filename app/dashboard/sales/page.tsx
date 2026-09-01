@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Upload, Filter, ShoppingCart, AlertCircle, Download, Search, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Clock, Banknote } from 'lucide-react'
+import { Upload, Filter, ShoppingCart, AlertCircle, Download, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, Clock, Banknote } from 'lucide-react'
 import { salesService } from '@/services/sales.service'
 import { vendorService } from '@/services/vendor.service'
 import { supermarketService } from '@/services/supermarket.service'
@@ -13,6 +13,10 @@ import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { PageToast } from '@/components/shared/PageToast'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { SearchInput } from '@/components/shared/SearchInput'
+import { DataTableShell } from '@/components/shared/DataTableShell'
+import { formatDisplayName } from '@/lib/format-display-name'
 import { useToast } from '@/hooks/useToast'
 import { useSession } from '@/hooks/useSession'
 import { usePageSize } from '@/hooks/usePageSize'
@@ -47,6 +51,7 @@ function SalesContent() {
   const { toast, showToast, dismissToast } = useToast(4000)
   const [salesPage, setSalesPage] = useState(1)
   const [salesPageSize, setSalesPageSize] = usePageSize('sales', DEFAULT_PAGE_SIZE)
+  const [pendingSettlement, setPendingSettlement] = useState<boolean | null>(null)
 
   const isVendor = role === 'vendor'
   const vendorDueLabel = role === 'admin' ? 'Vendor Due' : 'Your amount'
@@ -222,17 +227,13 @@ function SalesContent() {
       showToast('Select a report month first', 'error')
       return
     }
+    setPendingSettlement(supermarket_paid)
+  }
+
+  const confirmBulkSettlement = async () => {
+    if (pendingSettlement === null || !monthRangeForSettlement) return
+    const supermarket_paid = pendingSettlement
     const action = supermarket_paid ? 'mark as settled' : 'mark as awaiting payment'
-    const scope = filterSupermarket
-      ? supermarkets.find((s) => s.id === filterSupermarket)?.name ?? 'selected supermarket'
-      : 'all supermarkets'
-    if (
-      !window.confirm(
-        `${supermarket_paid ? 'Mark' : 'Revert'} ${formatSalesPeriod(monthRangeForSettlement.week_start, monthRangeForSettlement.week_end)} sales for ${scope} as ${supermarket_paid ? 'settled (supermarket paid DistroGH)' : 'awaiting supermarket payment'}?`
-      )
-    ) {
-      return
-    }
     setSettlementBusy(true)
     try {
       const result = await salesService.updateSettlement({
@@ -245,6 +246,7 @@ function SalesContent() {
         `${result.updated} sale line${result.updated === 1 ? '' : 's'} ${supermarket_paid ? 'marked settled' : 'marked awaiting payment'}`,
         'success'
       )
+      setPendingSettlement(null)
       await load()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : `Failed to ${action}`, 'error')
@@ -296,13 +298,12 @@ function SalesContent() {
         </div>
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-slate-400" />
-            <input
-              type="text"
+            <SearchInput
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={setSearch}
               placeholder="Search product, supermarket..."
-              className="form-input text-sm flex-1 max-w-xs"
+              aria-label="Search sales"
+              className="max-w-xs"
             />
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -479,8 +480,18 @@ function SalesContent() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table">
+          <DataTableShell
+            pagination={
+              <PaginationBar
+                page={salesPage}
+                pageSize={salesPageSize}
+                totalItems={filtered.length}
+                onPageChange={setSalesPage}
+                onPageSizeChange={setSalesPageSize}
+              />
+            }
+          >
+            <table className="data-table min-w-[960px]">
               <thead>
                 <tr>
                   <th>
@@ -542,16 +553,18 @@ function SalesContent() {
               <tbody>
                 {paginatedSales.map(sale => (
                   <tr key={sale.id}>
-                    <td className="font-medium text-slate-800">
-                      {(sale.product as any)?.name ?? '—'}
+                    <td className="min-w-[180px] max-w-[240px] font-semibold text-slate-800 truncate">
+                      {formatDisplayName((sale.product as { name?: string })?.name)}
                     </td>
                     {role === 'admin' && (
-                      <td className="text-slate-500 text-sm">
-                        {(sale.product as any)?.vendor?.name ?? '—'}
+                      <td className="min-w-[140px] max-w-[180px] text-slate-500 text-sm truncate">
+                        {formatDisplayName((sale.product as { vendor?: { name?: string } })?.vendor?.name)}
                       </td>
                     )}
-                    <td className="text-slate-500 text-sm">
-                      {(sale.supermarket as any)?.name ?? '—'}
+                    <td className="min-w-[160px] max-w-[200px] text-slate-500 text-sm truncate">
+                      {sale.supermarket
+                        ? formatSupermarketLabel(sale.supermarket as { name: string; branch?: string | null })
+                        : '—'}
                     </td>
                     <td className="text-xs text-slate-400">
                       {formatSalesPeriod(sale.week_start, sale.week_end)}
@@ -571,23 +584,23 @@ function SalesContent() {
                         )}
                       </td>
                     )}
-                    <td className="text-right text-slate-600">{formatNumber(sale.qty_sold)}</td>
-                    <td className="text-right font-mono text-sm text-slate-600">
+                    <td className="text-right text-slate-600 tabular-nums">{formatNumber(sale.qty_sold)}</td>
+                    <td className="text-right tabular-nums text-sm text-slate-600">
                       {formatGHS(
                         isVendor ? getSaleVendorUnitPrice(sale) : getSaleShopUnitPrice(sale)
                       )}
                     </td>
                     {!isVendor && (
                       <>
-                        <td className="text-right font-semibold text-slate-800 font-mono">
+                        <td className="text-right font-semibold text-slate-800 tabular-nums">
                           {formatGHS(getSaleRecordedAmounts(sale).totalSales)}
                         </td>
-                        <td className="text-right text-violet-600 font-mono text-sm">
+                        <td className="text-right text-violet-600 tabular-nums text-sm">
                           {formatGHS(getSaleRecordedAmounts(sale).markupAmount)}
                         </td>
                       </>
                     )}
-                    <td className="text-right text-brand-600 font-semibold font-mono">
+                    <td className="text-right text-brand-600 font-semibold tabular-nums">
                       {formatGHS(isVendor ? getVendorLineTotal(sale) : getSaleRecordedAmounts(sale).vendorDue)}
                     </td>
                   </tr>
@@ -607,16 +620,30 @@ function SalesContent() {
                 )}
               </tfoot>
             </table>
-            <PaginationBar
-              page={salesPage}
-              pageSize={salesPageSize}
-              totalItems={filtered.length}
-              onPageChange={setSalesPage}
-              onPageSizeChange={setSalesPageSize}
-            />
-          </div>
+          </DataTableShell>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingSettlement !== null}
+        title={pendingSettlement ? 'Mark month settled?' : 'Mark awaiting payment?'}
+        description={
+          monthRangeForSettlement
+            ? `${pendingSettlement ? 'Mark' : 'Revert'} ${formatSalesPeriod(monthRangeForSettlement.week_start, monthRangeForSettlement.week_end)} sales for ${
+                filterSupermarket
+                  ? formatDisplayName(supermarkets.find((s) => s.id === filterSupermarket)?.name)
+                  : 'all supermarkets'
+              } as ${pendingSettlement ? 'settled (supermarket paid DistroGH)' : 'awaiting supermarket payment'}.`
+            : 'Select a report month first.'
+        }
+        confirmLabel={pendingSettlement ? 'Mark settled' : 'Mark awaiting'}
+        destructive={!pendingSettlement}
+        busy={settlementBusy}
+        onConfirm={confirmBulkSettlement}
+        onClose={() => {
+          if (!settlementBusy) setPendingSettlement(null)
+        }}
+      />
     </div>
   )
 }

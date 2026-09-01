@@ -1,17 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  subDays,
-  startOfQuarter,
-  endOfQuarter,
-  startOfDay,
-} from 'date-fns'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { format, subDays } from 'date-fns'
 import {
   BarChart,
   Bar,
@@ -28,94 +18,55 @@ import {
   Area,
   Line,
 } from 'recharts'
-import { salesService } from '@/services/sales.service'
-import { returnsService } from '@/services/returns.service'
-import { deliveryService } from '@/services/delivery.service'
-import { useSession } from '@/hooks/useSession'
-import { formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, cn } from '@/lib/utils'
-import { aggregateSalesToReport, applyReturnDeductions } from '@/lib/report-utils'
 import {
   AlertCircle,
-  BarChart3,
-  Printer,
   FileText,
   Package,
   Users,
   TrendingUp,
   Loader2,
   Truck,
+  Printer,
+  FileDown,
 } from 'lucide-react'
-import type { WeeklyRevenue, ProductPerformance, VendorSalesBreakdown, DashboardKPIs } from '@/types'
+import { salesService } from '@/services/sales.service'
+import { returnsService } from '@/services/returns.service'
+import { deliveryService } from '@/services/delivery.service'
+import { useSession } from '@/hooks/useSession'
+import { formatGHS, formatGHSChartAxis, formatDate, formatSalesPeriod, formatNumber } from '@/lib/utils'
+import { formatDisplayName } from '@/lib/format-display-name'
+import { aggregateSalesToReport, applyReturnDeductions } from '@/lib/report-utils'
+import { resolveReportDateRange, type ReportDatePresetKey } from '@/lib/reports-date-range'
 import { printReport } from '@/lib/print'
+import { ReportsToolbar } from '@/components/reports/ReportsToolbar'
+import { ReportTypeTabs, type ReportTypeKey } from '@/components/reports/ReportTypeTabs'
+import { ReportDocumentHeader } from '@/components/reports/ReportDocumentHeader'
+import { ReportSectionCard } from '@/components/reports/ReportSectionCard'
+import { ReportDataTable, ReportTablePager, type TablePageSize } from '@/components/reports/ReportDataTable'
+import { ReportChartCard } from '@/components/reports/ReportChartCard'
+import { ReportEmptyState } from '@/components/reports/ReportEmptyState'
+import type { WeeklyRevenue, ProductPerformance, VendorSalesBreakdown, DashboardKPIs } from '@/types'
 
 const CHART_COLORS = ['#16a34a', '#2563eb', '#7c3aed', '#ea580c', '#0891b2', '#65a30d', '#d97706', '#dc2626']
 
-type DatePresetKey = 'this_week' | 'this_month' | 'last_7' | 'last_30' | 'quarter' | 'custom'
-type ReportTypeKey = 'sales' | 'products' | 'vendors' | 'delivery' | 'full'
-
-const DATE_PRESETS: { key: DatePresetKey; label: string; getRange: () => { start: string; end: string } }[] = [
-  {
-    key: 'this_week',
-    label: 'This week',
-    getRange: () => {
-      const start = startOfWeek(new Date(), { weekStartsOn: 1 })
-      const end = endOfWeek(new Date(), { weekStartsOn: 1 })
-      return { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
-    },
-  },
-  {
-    key: 'this_month',
-    label: 'This month',
-    getRange: () => {
-      const start = startOfMonth(new Date())
-      const end = endOfMonth(new Date())
-      return { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
-    },
-  },
-  {
-    key: 'last_7',
-    label: 'Last 7 days',
-    getRange: () => {
-      const end = startOfDay(new Date())
-      const start = subDays(end, 6)
-      return { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
-    },
-  },
-  {
-    key: 'last_30',
-    label: 'Last 30 days',
-    getRange: () => {
-      const end = startOfDay(new Date())
-      const start = subDays(end, 29)
-      return { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
-    },
-  },
-  {
-    key: 'quarter',
-    label: 'Quarter to date',
-    getRange: () => {
-      const start = startOfQuarter(new Date())
-      const end = endOfQuarter(new Date())
-      return { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
-    },
-  },
-  { key: 'custom', label: 'Custom range', getRange: () => ({ start: '', end: '' }) },
-]
-
 const REPORT_TYPES: { key: ReportTypeKey; label: string; icon: typeof FileText }[] = [
-  { key: 'sales', label: 'Sales report', icon: TrendingUp },
-  { key: 'products', label: 'Products report', icon: Package },
-  { key: 'vendors', label: 'Vendors report', icon: Users },
-  { key: 'delivery', label: 'Delivery / Transport', icon: Truck },
   { key: 'full', label: 'Full summary', icon: FileText },
+  { key: 'sales', label: 'Sales', icon: TrendingUp },
+  { key: 'products', label: 'Products', icon: Package },
+  { key: 'vendors', label: 'Vendors', icon: Users },
+  { key: 'delivery', label: 'Delivery', icon: Truck },
 ]
 
 export default function ReportsPage() {
   useSession({ redirectVendorFromAdmin: true })
-  const [datePreset, setDatePreset] = useState<DatePresetKey>('this_month')
+
+  const [datePreset, setDatePreset] = useState<ReportDatePresetKey>('all_time')
   const [customStart, setCustomStart] = useState(format(subDays(new Date(), 29), 'yyyy-MM-dd'))
   const [customEnd, setCustomEnd] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [reportType, setReportType] = useState<ReportTypeKey>('full')
+  const [productPageSize, setProductPageSize] = useState<TablePageSize>(25)
+  const [generatedAt, setGeneratedAt] = useState<Date | null>(null)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [weekly, setWeekly] = useState<WeeklyRevenue[]>([])
@@ -128,16 +79,20 @@ export default function ReportsPage() {
     bySupermarket: { supermarket_id: string; supermarket_name: string; total_transport_cost: number; run_count: number }[]
   } | null>(null)
 
-  const getStartEnd = useCallback((): { start: string; end: string } => {
-    if (datePreset === 'custom') return { start: customStart, end: customEnd }
-    const preset = DATE_PRESETS.find(p => p.key === datePreset)
-    return preset ? preset.getRange() : { start: customStart, end: customEnd }
-  }, [datePreset, customStart, customEnd])
+  const resolvedRange = useMemo(
+    () => resolveReportDateRange(datePreset, customStart, customEnd),
+    [datePreset, customStart, customEnd]
+  )
+
+  const rangeHint =
+    datePreset !== 'custom' && resolvedRange.start && resolvedRange.end
+      ? `${resolvedRange.start} — ${resolvedRange.end}`
+      : undefined
 
   const loadReport = useCallback(async () => {
-    const { start, end } = getStartEnd()
+    const { start, end } = resolveReportDateRange(datePreset, customStart, customEnd)
     if (!start || !end) {
-      setError('Please select a date range.')
+      setError('Please select a valid date range.')
       return
     }
     setLoading(true)
@@ -156,16 +111,17 @@ export default function ReportsPage() {
       setKpis(withDeductions.kpis)
       setTransportReport(transport)
       setRangeLabel(`${formatDate(start)} – ${formatDate(end)}`)
+      setGeneratedAt(new Date())
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load report')
     } finally {
       setLoading(false)
     }
-  }, [getStartEnd])
+  }, [datePreset, customStart, customEnd])
 
   useEffect(() => {
     loadReport()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- initial load only
 
   const handlePrint = () => printReport('report-print-area')
 
@@ -173,406 +129,439 @@ export default function ReportsPage() {
   const totalMarkup = kpis?.totalCommission ?? 0
   const totalVendorDue = kpis?.totalVendorDue ?? 0
 
-  const weeklyChartData = weekly.map(w => ({
+  const weeklyChartData = weekly.map((w) => ({
     week: formatSalesPeriod(w.week_start, w.week_end),
     'Total Sales': Number(w.total_sales),
     Markup: Number(w.total_commission),
     'Vendor Due': Number(w.total_vendor_due),
   }))
 
-  const vendorChartData = vendors.map(v => ({
-    name: v.vendor_name.length > 14 ? v.vendor_name.slice(0, 14) + '…' : v.vendor_name,
+  const vendorChartData = vendors.map((v) => ({
+    name: formatDisplayName(v.vendor_name).length > 16
+      ? `${formatDisplayName(v.vendor_name).slice(0, 16)}…`
+      : formatDisplayName(v.vendor_name),
     Sales: v.total_sales,
     'Vendor Due': v.total_vendor_due,
   }))
 
-  const productPieData = products.slice(0, 8).map(p => ({
-    name: p.product_name.length > 18 ? p.product_name.slice(0, 18) + '…' : p.product_name,
+  const productPieData = products.slice(0, 8).map((p) => ({
+    name: formatDisplayName(p.product_name).length > 18
+      ? `${formatDisplayName(p.product_name).slice(0, 18)}…`
+      : formatDisplayName(p.product_name),
     value: p.total_sales,
   }))
+
+  const visibleProducts = useMemo(() => {
+    if (productPageSize === 'all') return products
+    return products.slice(0, productPageSize)
+  }, [products, productPageSize])
 
   const showSales = reportType === 'sales' || reportType === 'full'
   const showProducts = reportType === 'products' || reportType === 'full'
   const showVendors = reportType === 'vendors' || reportType === 'full'
   const showDelivery = reportType === 'delivery' || reportType === 'full'
 
-  const deliveryChartData = (transportReport?.bySupermarket ?? []).map(r => ({
-    name: r.supermarket_name.length > 14 ? r.supermarket_name.slice(0, 14) + '…' : r.supermarket_name,
+  const deliveryChartData = (transportReport?.bySupermarket ?? []).map((r) => ({
+    name: formatDisplayName(r.supermarket_name).length > 14
+      ? `${formatDisplayName(r.supermarket_name).slice(0, 14)}…`
+      : formatDisplayName(r.supermarket_name),
     'Transport cost': r.total_transport_cost,
   }))
 
+  const chartTooltipStyle = {
+    fontSize: 12,
+    borderRadius: 8,
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 4px 12px rgba(15,23,42,0.08)',
+  }
+
   return (
-      <div className="page-container space-y-6 animate-fade-in reports-page">
-        {/* Toolbar - no print */}
-        <div className="no-print space-y-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <h1 className="font-display text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">
-                Reports &amp; Analytics
-              </h1>
-              <p className="text-slate-500 text-sm mt-1">
-                Generate and print reports by date range
-              </p>
-            </div>
-          </div>
-
-          {/* Date range & report type */}
-          <div className="data-card flex flex-col sm:flex-row flex-wrap gap-4 items-start sm:items-end">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Period</label>
-                <div className="flex flex-wrap gap-2">
-                  {DATE_PRESETS.map(p => (
-                    <button
-                      key={p.key}
-                      onClick={() => setDatePreset(p.key)}
-                      className={cn(
-                        'px-3 py-2 rounded-xl text-sm font-medium transition-all',
-                        datePreset === p.key
-                          ? 'bg-emerald-600 text-white shadow-md'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {datePreset === 'custom' && (
-                <div className="flex flex-wrap gap-3 items-end">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">From</label>
-                    <input
-                      type="date"
-                      value={customStart}
-                      onChange={e => setCustomStart(e.target.value)}
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">To</label>
-                    <input
-                      type="date"
-                      value={customEnd}
-                      onChange={e => setCustomEnd(e.target.value)}
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={loadReport}
-                disabled={loading}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold rounded-xl disabled:opacity-60"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
-                {loading ? 'Loading…' : 'Generate report'}
-              </button>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-slate-500">Report type:</span>
-              {REPORT_TYPES.map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setReportType(key)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all',
-                    reportType === key
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-transparent'
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={handlePrint}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl ml-auto print:hidden"
-            >
-              <Printer className="w-4 h-4" />
-              Print report
-            </button>
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
-              <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-          )}
+    <div className="page-container w-full max-w-7xl mx-auto space-y-6 animate-fade-in reports-page">
+      {/* Page header + export actions */}
+      <div className="no-print flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">
+            Reports &amp; Analytics
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Generate distribution reports by period and export for printing
+          </p>
         </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+          >
+            <Printer className="h-4 w-4" />
+            Print
+          </button>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/20 hover:bg-brand-700 transition-colors"
+          >
+            <FileDown className="h-4 w-4" />
+            Export PDF
+          </button>
+        </div>
+      </div>
 
-        {/* Report content - print area */}
-        <div id="report-print-area" className="space-y-6">
-          {/* Report header for print */}
-          <div className="data-card border-b-2 border-slate-200 pb-4">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h2 className="font-display text-xl font-bold text-slate-900">DistroGH — Distribution Report</h2>
-                <p className="text-slate-600 text-sm mt-1">
-                  {rangeLabel || 'Select period and generate'}
-                </p>
-                <p className="text-slate-400 text-xs mt-0.5">
-                  Generated on {format(new Date(), 'dd MMM yyyy, HH:mm')}
-                </p>
-              </div>
-              <div className="flex gap-4">
-                {[
-                  { label: 'Total sales', value: formatGHS(totalSales), color: 'text-blue-600' },
-                  { label: 'Total Markup', value: formatGHS(totalMarkup), color: 'text-violet-600' },
-                  { label: 'Vendor payables', value: formatGHS(totalVendorDue), color: 'text-emerald-600' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="text-right">
-                    <p className={cn('text-lg font-bold', color)}>{value}</p>
-                    <p className="text-xs text-slate-500">{label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
+      <ReportsToolbar
+        datePreset={datePreset}
+        customStart={customStart}
+        customEnd={customEnd}
+        loading={loading}
+        rangeHint={rangeHint}
+        onPresetChange={setDatePreset}
+        onCustomStartChange={setCustomStart}
+        onCustomEndChange={setCustomEnd}
+        onGenerate={loadReport}
+      />
+
+      <ReportTypeTabs value={reportType} onChange={setReportType} options={REPORT_TYPES} />
+
+      {error ? (
+        <div className="no-print flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+          <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      ) : null}
+
+      <div id="report-print-area" className="space-y-6">
+        <ReportDocumentHeader
+          rangeLabel={rangeLabel}
+          generatedAt={generatedAt ?? undefined}
+          totalSales={totalSales}
+          totalMarkup={totalMarkup}
+          totalVendorDue={totalVendorDue}
+        />
+
+        {loading ? (
+          <div className="no-print data-card flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
           </div>
+        ) : (
+          <>
+            {showSales ? (
+              <ReportSectionCard title="Sales summary" icon={TrendingUp} iconClass="text-emerald-600">
+                {weekly.length === 0 ? (
+                  <ReportEmptyState
+                    icon={TrendingUp}
+                    title="No sales in this period"
+                    description="Try a wider date range or import sales data for the selected window."
+                    actionLabel="Import sales"
+                    actionHref="/dashboard/sales/import"
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <ReportDataTable
+                      rows={weekly}
+                      rowKey={(w) => w.week_start}
+                      columns={[
+                        {
+                          key: 'month',
+                          header: 'Month',
+                          render: (w) => (
+                            <span className="font-medium text-slate-800">
+                              {formatSalesPeriod(w.week_start, w.week_end)}
+                            </span>
+                          ),
+                        },
+                        {
+                          key: 'sales',
+                          header: 'Total sales',
+                          align: 'right',
+                          render: (w) => formatGHS(Number(w.total_sales)),
+                        },
+                        {
+                          key: 'markup',
+                          header: 'Markup',
+                          align: 'right',
+                          render: (w) => (
+                            <span className="text-violet-600">{formatGHS(Number(w.total_commission))}</span>
+                          ),
+                        },
+                        {
+                          key: 'due',
+                          header: 'Vendor due',
+                          align: 'right',
+                          render: (w) => (
+                            <span className="font-semibold text-emerald-600">
+                              {formatGHS(Number(w.total_vendor_due))}
+                            </span>
+                          ),
+                        },
+                      ]}
+                    />
+                    <ReportChartCard title="Sales trend" subtitle="Monthly totals in selected period">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={weeklyChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={formatGHSChartAxis} />
+                          <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [formatGHS(v), name]} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Area type="monotone" dataKey="Total Sales" stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2} />
+                          <Area type="monotone" dataKey="Vendor Due" stroke="#16a34a" fill="#16a34a" fillOpacity={0.15} strokeWidth={2} />
+                          <Line type="monotone" dataKey="Markup" stroke="#7c3aed" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </ReportChartCard>
+                  </div>
+                )}
+              </ReportSectionCard>
+            ) : null}
 
-          {loading ? (
-            <div className="no-print data-card flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-            </div>
-          ) : (
-            <>
-              {/* Sales report */}
-              {showSales && (
-                <div className="data-card">
-                  <h3 className="font-display font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-emerald-600" />
-                    Sales summary
-                  </h3>
-                  {weekly.length === 0 ? (
-                    <p className="text-slate-500 text-sm py-6">No sales data in this period.</p>
-                  ) : (
-                    <>
-                      <div className="overflow-x-auto mb-6">
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>Month</th>
-                              <th className="text-right">Total sales</th>
-                              <th className="text-right">Markup</th>
-                              <th className="text-right">Vendor due</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {weekly.map(w => (
-                              <tr key={w.week_start}>
-                                <td className="font-medium">{formatSalesPeriod(w.week_start, w.week_end)}</td>
-                                <td className="text-right font-mono">{formatGHS(Number(w.total_sales))}</td>
-                                <td className="text-right font-mono text-violet-600">{formatGHS(Number(w.total_commission))}</td>
-                                <td className="text-right font-mono text-emerald-600">{formatGHS(Number(w.total_vendor_due))}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="h-64 print-hide-chart">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={weeklyChartData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={formatGHSChartAxis} />
-                            <Tooltip formatter={(v: number, name: string) => [formatGHS(v), name]} />
-                            <Legend wrapperStyle={{ fontSize: 11 }} />
-                            <Area type="monotone" dataKey="Total Sales" stroke="#2563eb" fill="#2563eb" fillOpacity={0.2} strokeWidth={2} />
-                            <Area type="monotone" dataKey="Vendor Due" stroke="#16a34a" fill="#16a34a" fillOpacity={0.2} strokeWidth={2} />
-                            <Line type="monotone" dataKey="Markup" stroke="#7c3aed" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Products report */}
-              {showProducts && (
-                <div className="data-card">
-                  <h3 className="font-display font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <Package className="w-5 h-5 text-blue-600" />
-                    Products performance
-                  </h3>
-                  {products.length === 0 ? (
-                    <p className="text-slate-500 text-sm py-6">No product data in this period.</p>
-                  ) : (
-                    <div className="grid lg:grid-cols-2 gap-8">
-                      <div className="overflow-x-auto">
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>#</th>
-                              <th>Product</th>
-                              <th>Vendor</th>
-                              <th className="text-right">Qty</th>
-                              <th className="text-right">Sales</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {products.map((p, i) => (
-                              <tr key={p.product_id}>
-                                <td className="text-slate-400 font-mono text-xs">{i + 1}</td>
-                                <td className="font-medium">{p.product_name}</td>
-                                <td className="text-slate-600 text-sm">{p.vendor_name}</td>
-                                <td className="text-right font-mono">{p.total_qty}</td>
-                                <td className="text-right font-mono font-semibold">{formatGHS(p.total_sales)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {productPieData.length > 0 && (
-                        <div className="h-64 print-hide-chart">
+            {showProducts ? (
+              <ReportSectionCard title="Products performance" icon={Package} iconClass="text-blue-600">
+                {products.length === 0 ? (
+                  <ReportEmptyState
+                    icon={Package}
+                    title="No product sales in this period"
+                    description="Product rankings appear once sales are recorded for the selected dates."
+                    actionLabel="View sales"
+                    actionHref="/dashboard/sales"
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    <ReportTablePager
+                      total={products.length}
+                      pageSize={productPageSize}
+                      onPageSizeChange={setProductPageSize}
+                    />
+                    <div className="grid gap-6 xl:grid-cols-2">
+                      <ReportDataTable
+                        stickyHeader
+                        maxHeight="28rem"
+                        rows={visibleProducts}
+                        rowKey={(p) => p.product_id}
+                        columns={[
+                          {
+                            key: 'rank',
+                            header: '#',
+                            align: 'center',
+                            className: 'w-10',
+                            render: (_, i) => <span className="text-xs text-slate-400">{i + 1}</span>,
+                          },
+                          {
+                            key: 'product',
+                            header: 'Product',
+                            render: (p) => (
+                              <span className="font-medium text-slate-800">{formatDisplayName(p.product_name)}</span>
+                            ),
+                          },
+                          {
+                            key: 'vendor',
+                            header: 'Vendor',
+                            render: (p) => (
+                              <span className="text-sm text-slate-600">{formatDisplayName(p.vendor_name)}</span>
+                            ),
+                          },
+                          {
+                            key: 'qty',
+                            header: 'Qty',
+                            align: 'right',
+                            render: (p) => formatNumber(p.total_qty),
+                          },
+                          {
+                            key: 'sales',
+                            header: 'Sales',
+                            align: 'right',
+                            render: (p) => <span className="font-semibold">{formatGHS(p.total_sales)}</span>,
+                          },
+                        ]}
+                      />
+                      {productPieData.length > 0 ? (
+                        <ReportChartCard title="Share of sales" subtitle="Top 8 products by value">
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie
                                 data={productPieData}
                                 cx="50%"
                                 cy="50%"
-                                outerRadius={80}
-                                innerRadius={40}
+                                outerRadius={90}
+                                innerRadius={48}
                                 dataKey="value"
-                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                paddingAngle={2}
                               >
                                 {productPieData.map((_, i) => (
                                   <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                                 ))}
                               </Pie>
-                              <Tooltip formatter={(v: number) => [formatGHS(v), 'Sales']} />
+                              <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [formatGHS(v), 'Sales']} />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
                             </PieChart>
                           </ResponsiveContainer>
-                        </div>
-                      )}
+                        </ReportChartCard>
+                      ) : null}
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </ReportSectionCard>
+            ) : null}
 
-              {/* Vendors report */}
-              {showVendors && (
-                <div className="data-card">
-                  <h3 className="font-display font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <Users className="w-5 h-5 text-amber-600" />
-                    Vendors breakdown
-                  </h3>
-                  {vendors.length === 0 ? (
-                    <p className="text-slate-500 text-sm py-6">No vendor data in this period.</p>
-                  ) : (
-                    <>
-                      <div className="h-64 mb-6 print-hide-chart">
+            {showVendors ? (
+              <ReportSectionCard title="Vendors breakdown" icon={Users} iconClass="text-amber-600">
+                {vendors.length === 0 ? (
+                  <ReportEmptyState
+                    icon={Users}
+                    title="No vendor sales in this period"
+                    description="Vendor breakdowns require sales activity in the selected date window."
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <ReportChartCard title="Sales by vendor" subtitle="Total sales vs vendor due">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={vendorChartData} layout="vertical" margin={{ left: 8, right: 24 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                          <XAxis type="number" tickFormatter={formatGHSChartAxis} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                          <YAxis dataKey="name" type="category" width={108} tick={{ fontSize: 10, fill: '#64748b' }} />
+                          <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number, name: string) => [formatGHS(v), name]} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Bar dataKey="Sales" fill="#2563eb" radius={[0, 4, 4, 0]} />
+                          <Bar dataKey="Vendor Due" fill="#16a34a" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ReportChartCard>
+                    <ReportDataTable
+                      rows={vendors}
+                      rowKey={(v) => v.vendor_id}
+                      columns={[
+                        {
+                          key: 'rank',
+                          header: '#',
+                          align: 'center',
+                          className: 'w-10',
+                          render: (_, i) => <span className="text-xs text-slate-400">{i + 1}</span>,
+                        },
+                        {
+                          key: 'vendor',
+                          header: 'Vendor',
+                          render: (v) => (
+                            <span className="font-medium text-slate-800">{formatDisplayName(v.vendor_name)}</span>
+                          ),
+                        },
+                        {
+                          key: 'sales',
+                          header: 'Total sales',
+                          align: 'right',
+                          render: (v) => formatGHS(v.total_sales),
+                        },
+                        {
+                          key: 'markup',
+                          header: 'Markup',
+                          align: 'right',
+                          render: (v) => <span className="text-violet-600">{formatGHS(v.total_commission)}</span>,
+                        },
+                        {
+                          key: 'due',
+                          header: 'Vendor due',
+                          align: 'right',
+                          render: (v) => (
+                            <span className="font-semibold text-emerald-600">{formatGHS(v.total_vendor_due)}</span>
+                          ),
+                        },
+                        {
+                          key: 'share',
+                          header: 'Share %',
+                          align: 'right',
+                          render: (v) => (
+                            <span className="text-slate-500">
+                              {totalSales > 0 ? ((v.total_sales / totalSales) * 100).toFixed(1) : '0.0'}%
+                            </span>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
+              </ReportSectionCard>
+            ) : null}
+
+            {showDelivery ? (
+              <ReportSectionCard title="Delivery & transport cost" icon={Truck} iconClass="text-cyan-600">
+                {!transportReport || (transportReport.bySupermarket.length === 0 && transportReport.total === 0) ? (
+                  <ReportEmptyState
+                    icon={Truck}
+                    title="No delivery runs in this period"
+                    description="Transport costs appear once delivery runs are logged with confirmed transport charges."
+                    actionLabel="Schedule delivery"
+                    actionHref="/dashboard/deliveries"
+                  />
+                ) : (
+                  <div className="space-y-5">
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+                      <p className="text-2xl font-bold text-emerald-800">{formatGHS(transportReport.total)}</p>
+                      <p className="text-xs text-emerald-700/80">Total transport cost for period</p>
+                    </div>
+                    {deliveryChartData.length > 0 ? (
+                      <ReportChartCard title="Cost by supermarket">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={vendorChartData} layout="vertical" margin={{ left: 20, right: 30 }}>
+                          <BarChart data={deliveryChartData} layout="vertical" margin={{ left: 8, right: 24 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                            <XAxis type="number" tickFormatter={formatGHSChartAxis} tick={{ fontSize: 11 }} />
-                            <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 10 }} />
-                            <Tooltip formatter={(v: number, name: string) => [formatGHS(v), name]} />
-                            <Legend />
-                            <Bar dataKey="Sales" fill="#2563eb" radius={[0, 4, 4, 0]} />
-                            <Bar dataKey="Vendor Due" fill="#16a34a" radius={[0, 4, 4, 0]} />
+                            <XAxis type="number" tickFormatter={formatGHSChartAxis} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                            <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10, fill: '#64748b' }} />
+                            <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => [formatGHS(v), 'Transport cost']} />
+                            <Bar dataKey="Transport cost" fill="#0891b2" radius={[0, 4, 4, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>#</th>
-                              <th>Vendor</th>
-                              <th className="text-right">Total sales</th>
-                              <th className="text-right">Markup</th>
-                              <th className="text-right">Vendor due</th>
-                              <th className="text-right">Share %</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {vendors.map((v, i) => (
-                              <tr key={v.vendor_id}>
-                                <td className="text-slate-400 font-mono text-xs">{i + 1}</td>
-                                <td className="font-medium">{v.vendor_name}</td>
-                                <td className="text-right font-mono">{formatGHS(v.total_sales)}</td>
-                                <td className="text-right font-mono text-violet-600">{formatGHS(v.total_commission)}</td>
-                                <td className="text-right font-mono text-emerald-600 font-semibold">{formatGHS(v.total_vendor_due)}</td>
-                                <td className="text-right text-slate-500">
-                                  {totalSales > 0 ? ((v.total_sales / totalSales) * 100).toFixed(1) : 0}%
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Delivery / Transport cost report */}
-              {showDelivery && (
-                <div className="data-card">
-                  <h3 className="font-display font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                    <Truck className="w-5 h-5 text-slate-600" />
-                    Delivery &amp; transport cost
-                  </h3>
-                  {!transportReport || (transportReport.bySupermarket.length === 0 && transportReport.total === 0) ? (
-                    <p className="text-slate-500 text-sm py-6">No delivery runs or transport cost in this period.</p>
-                  ) : (
-                    <>
-                      <div className="flex flex-wrap items-center gap-6 mb-6">
-                        <div>
-                          <p className="text-2xl font-bold text-emerald-700">{formatGHS(transportReport.total)}</p>
-                          <p className="text-xs text-slate-500">Total transport cost (period)</p>
-                        </div>
-                      </div>
-                      {deliveryChartData.length > 0 && (
-                        <div className="h-64 mb-6 print-hide-chart">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={deliveryChartData} layout="vertical" margin={{ left: 20, right: 30 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                              <XAxis type="number" tickFormatter={formatGHSChartAxis} tick={{ fontSize: 11 }} />
-                              <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10 }} />
-                              <Tooltip formatter={(v: number) => [formatGHS(v), 'Transport cost']} />
-                              <Bar dataKey="Transport cost" fill="#0891b2" radius={[0, 4, 4, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                      <div className="overflow-x-auto">
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>#</th>
-                              <th>Supermarket</th>
-                              <th className="text-right">Delivery runs</th>
-                              <th className="text-right">Transport cost</th>
-                              <th className="text-right">Share %</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {transportReport.bySupermarket.map((r, i) => (
-                              <tr key={r.supermarket_id}>
-                                <td className="text-slate-400 font-mono text-xs">{i + 1}</td>
-                                <td className="font-medium">{r.supermarket_name}</td>
-                                <td className="text-right font-mono">{r.run_count}</td>
-                                <td className="text-right font-mono font-semibold text-emerald-700">{formatGHS(r.total_transport_cost)}</td>
-                                <td className="text-right text-slate-500">
-                                  {transportReport.total > 0 ? ((r.total_transport_cost / transportReport.total) * 100).toFixed(1) : 0}%
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+                      </ReportChartCard>
+                    ) : null}
+                    <ReportDataTable
+                      rows={transportReport.bySupermarket}
+                      rowKey={(r) => r.supermarket_id}
+                      columns={[
+                        {
+                          key: 'rank',
+                          header: '#',
+                          align: 'center',
+                          className: 'w-10',
+                          render: (_, i) => <span className="text-xs text-slate-400">{i + 1}</span>,
+                        },
+                        {
+                          key: 'store',
+                          header: 'Supermarket',
+                          render: (r) => (
+                            <span className="font-medium text-slate-800">{formatDisplayName(r.supermarket_name)}</span>
+                          ),
+                        },
+                        {
+                          key: 'runs',
+                          header: 'Delivery runs',
+                          align: 'right',
+                          render: (r) => formatNumber(r.run_count),
+                        },
+                        {
+                          key: 'cost',
+                          header: 'Transport cost',
+                          align: 'right',
+                          render: (r) => (
+                            <span className="font-semibold text-emerald-700">{formatGHS(r.total_transport_cost)}</span>
+                          ),
+                        },
+                        {
+                          key: 'share',
+                          header: 'Share %',
+                          align: 'right',
+                          render: (r) => (
+                            <span className="text-slate-500">
+                              {transportReport.total > 0
+                                ? ((r.total_transport_cost / transportReport.total) * 100).toFixed(1)
+                                : '0.0'}
+                              %
+                            </span>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
+              </ReportSectionCard>
+            ) : null}
+          </>
+        )}
       </div>
+    </div>
   )
 }

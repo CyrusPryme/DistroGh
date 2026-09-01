@@ -8,6 +8,7 @@ import { canAdminActivateVendor, getVendorVerificationStage } from '@/lib/vendor
 import type { Vendor } from '@/types'
 import { formatDate, cn } from '@/lib/utils'
 import { PaginationBar, getPageSlice, DEFAULT_PAGE_SIZE } from '@/components/shared/PaginationBar'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { usePageSize } from '@/hooks/usePageSize'
 import { vendorApplicationService } from '@/services/vendor-application.service'
 import { approveVendorApplication, removeVendorApplication } from '@/app/dashboard/admin/applications/actions'
@@ -29,6 +30,7 @@ export default function VendorApplicationsPage() {
   const [appPage, setAppPage] = useState(1)
   const [appPageSize, setAppPageSize] = usePageSize('vendor-applications', DEFAULT_PAGE_SIZE)
   const [copiedField, setCopiedField] = useState<'email' | 'password' | null>(null)
+  const [pendingAppAction, setPendingAppAction] = useState<{ kind: 'reject' | 'remove'; application: VendorApplication } | null>(null)
 
   const visibleApplications = useMemo(
     () => applications.filter((a) => a.status !== 'rejected'),
@@ -89,10 +91,10 @@ export default function VendorApplicationsPage() {
   }
 
   const handleRejectApplication = async (application: VendorApplication) => {
-    if (!confirm(`Are you sure you want to reject ${application.store_name}? The application will be removed and they can apply again with the same email.`)) {
-      return
-    }
+    setPendingAppAction({ kind: 'reject', application })
+  }
 
+  const runRejectApplication = async (application: VendorApplication) => {
     setProcessing(application.id)
     setActionError(null)
 
@@ -113,11 +115,10 @@ export default function VendorApplicationsPage() {
   }
 
   const handleRemoveApplication = async (application: VendorApplication) => {
-    const verb = application.status === 'approved' ? 'remove this approved application' : 'remove this application'
-    if (!confirm(`Are you sure you want to ${verb} from the list? This cannot be undone.`)) {
-      return
-    }
+    setPendingAppAction({ kind: 'remove', application })
+  }
 
+  const runRemoveApplication = async (application: VendorApplication) => {
     setProcessing(application.id)
     setActionError(null)
 
@@ -410,6 +411,32 @@ export default function VendorApplicationsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingAppAction)}
+        title={
+          pendingAppAction?.kind === 'reject'
+            ? `Reject ${pendingAppAction.application.store_name}?`
+            : `Remove ${pendingAppAction?.application.store_name ?? 'application'} from the list?`
+        }
+        description={
+          pendingAppAction?.kind === 'reject'
+            ? 'The application will be removed and they can apply again with the same email.'
+            : 'This cannot be undone.'
+        }
+        confirmLabel={pendingAppAction?.kind === 'reject' ? 'Reject application' : 'Remove from list'}
+        destructive
+        busy={Boolean(processing)}
+        onConfirm={async () => {
+          if (!pendingAppAction) return
+          if (pendingAppAction.kind === 'reject') await runRejectApplication(pendingAppAction.application)
+          else await runRemoveApplication(pendingAppAction.application)
+          setPendingAppAction(null)
+        }}
+        onClose={() => {
+          if (!processing) setPendingAppAction(null)
+        }}
+      />
     </div>
   )
 }

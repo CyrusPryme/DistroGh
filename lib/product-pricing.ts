@@ -190,8 +190,11 @@ export function formatShopPriceBreakdown(pricing: {
 }
 
 /**
- * Historical import: record what the spreadsheet says was sold, while vendor due
- * stays on the catalog vendor price (commission = sale total − vendor due).
+ * Split a supermarket (Palace) line total into vendor due vs DistroGH markup.
+ *
+ * Supermarkets only know DistroGH as their supplier. `sheetLineTotal` / TCostEx is
+ * DistroGH's price to the supermarket (`total_sales`), never the vendor payout.
+ * Vendor due stays on catalog `vendor_price`; Distro markup is the remainder.
  */
 export function computeImportSaleAmounts(
   quantity: number,
@@ -229,5 +232,25 @@ export function computeImportSaleAmounts(
     vendor_due: vendorDue,
     commission_amount: commission,
     price_warning,
+  }
+}
+
+/**
+ * Load-bearing: supermarket TCostEx must never be saved as vendor_due when the product
+ * has DistroGH markup. Palace does not know vendors; Distro's shop total includes markup.
+ */
+export function assertSupermarketTotalNotStoredAsVendorDue(args: {
+  totalSales: number
+  vendorDue: number
+  catalogMarkup: number
+}): void {
+  const markup = roundMoney(args.catalogMarkup)
+  if (markup <= 0) return
+  const total = roundMoney(args.totalSales)
+  const due = roundMoney(args.vendorDue)
+  if (total > 0 && Math.abs(total - due) <= 0.05) {
+    throw new Error(
+      "Supermarket TCostEx is DistroGH's shop total, not vendor due. Split using catalog vendor_price before saving."
+    )
   }
 }
