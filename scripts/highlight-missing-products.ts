@@ -67,7 +67,7 @@ async function main() {
   })
 
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(buffer as Buffer)
+  await wb.xlsx.load(buffer as any)
 
   let dataSheet = wb.worksheets.find((s) => s.name.trim().toLowerCase() === 'data')
   if (!dataSheet) {

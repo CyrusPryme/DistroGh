@@ -37,6 +37,7 @@
   ],
   "exclude": [
     "node_modules",
+    "scripts",
     "temp-supabase-types.ts",
     "types/supabase-generated.ts",
     "types/supabase-new.ts",
