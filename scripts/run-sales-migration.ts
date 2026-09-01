@@ -7,7 +7,7 @@
  * Phase 2 (after corrected products file / catalog updated):
  *   npx tsx -r dotenv/config scripts/run-sales-migration.ts phase2 dotenv_config_path=.env.local
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import ExcelJS from 'exceljs'
 import pg from 'pg'
@@ -25,6 +25,8 @@ import { migrationProgressForStage } from '@/lib/migration/lifecycle'
 const SALES_DIR = resolve(process.cwd(), 'sales migration')
 const FIXED_FILE = resolve(SALES_DIR, 'migration-sales-FIXED.xlsx')
 const PHASE1_FILE = resolve(SALES_DIR, 'migration-sales-PHASE1.xlsx')
+const PHASE2_FILE = resolve(SALES_DIR, 'migration-sales-PHASE2.xlsx')
+const REMAINING_FILE = resolve(SALES_DIR, 'migration-sales-REMAINING.xlsx')
 const CORRECTION_FILE = resolve(SALES_DIR, 'migration-sales-NEEDS-PRODUCT-CORRECTION.xlsx')
 const STATE_FILE = resolve(SALES_DIR, 'migration-state.json')
 
@@ -51,6 +53,13 @@ type MigrationState = {
     completedAt?: string
     status?: string
   }
+  remaining?: {
+    migrationId: string
+    projectName: string
+    rowCount: number
+    completedAt?: string
+    status?: string
+  }
   deferredBarcodes: string[]
   createdAt: string
   updatedAt: string
@@ -59,7 +68,61 @@ type MigrationState = {
 function normalizeBarcode(v: unknown): string {
   if (v == null || v === '') return ''
   if (typeof v === 'number' && Number.isFinite(v)) return String(Math.trunc(v))
-  return String(v).trim()
+  const s = String(v).trim()
+  if (/^\d+\.?\d*e[+-]?\d+$/i.test(s)) {
+    const n = Number(s)
+    if (Number.isFinite(n)) return String(Math.trunc(n))
+  }
+  return s
+}
+
+function saleFingerprint(r: Record<string, unknown>): string {
+  const code = normalizeBarcode(r.code ?? r.Code).toLowerCase()
+  const branch = String(r.BRANCH ?? r.branch ?? '').trim()
+  const storeName = String(r.store_name ?? '').trim()
+  const outlet = (branch || (storeName.toUpperCase() === 'PALACE MALL' ? '' : storeName)).toLowerCase()
+  const reportMonth =
+    ddMmYyyyToReportMonth(r.report_month) ??
+    (String(r.report_month ?? '').match(/^\d{4}-\d{2}-\d{2}/) ? String(r.report_month).slice(0, 10) : String(r.report_month ?? ''))
+  return [
+    code,
+    String(r.qty ?? r.Qty ?? ''),
+    outlet,
+    String(r.TCostEx ?? r.tcostex ?? ''),
+    reportMonth,
+  ].join('|')
+}
+
+function normalizeSaleRow(r: Record<string, unknown>): {
+  description: string
+  code: string
+  qty: number
+  store_name: string
+  TCostEx: number
+  report_month: string
+  paid: unknown
+} | null {
+  const code = normalizeBarcode(r.code ?? r.Code)
+  const qty = Number(r.qty ?? r.Qty)
+  const tcost = Number(r.TCostEx ?? r.tcostex)
+  const branch = String(r.BRANCH ?? r.branch ?? '').trim()
+  const storeName = String(r.store_name ?? '').trim()
+  const outlet = branch || (storeName.toUpperCase() === 'PALACE MALL' ? '' : storeName)
+  const reportMonth =
+    ddMmYyyyToReportMonth(r.report_month) ??
+    (String(r.report_month ?? '').match(/^\d{4}-\d{2}-\d{2}/) ? String(r.report_month).slice(0, 10) : null)
+  if (!code || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(tcost) || !outlet || !reportMonth) {
+    return null
+  }
+  return {
+    description: code,
+    code,
+    qty,
+    store_name: outlet,
+    TCostEx: tcost,
+    report_month: reportMonth,
+    paid: r.paid ?? r.PAID ?? '',
+  }
 }
 
 function loadState(): MigrationState {
@@ -283,30 +346,47 @@ async function runPhase1(pool: pg.Pool, actorId: string) {
 
 async function runPhase2(pool: pg.Pool, actorId: string) {
   const state = loadState()
-  const sourcePath = readFileSync(CORRECTION_FILE) ? CORRECTION_FILE : FIXED_FILE
+  if (state.phase2?.status === 'completed' || state.phase2?.status === 'balanced') {
+    console.log('Phase 2 already completed:', state.phase2.migrationId)
+    return state
+  }
 
   const { rows: products } = await pool.query<{ barcode: string }>(
     `SELECT barcode FROM public.products WHERE deleted_at IS NULL AND barcode IS NOT NULL`
   )
-  const known = new Set(products.map((p) => normalizeBarcode(p.barcode).toLowerCase()))
+  const known = new Set(products.map((p) => normalizeBarcode(p.barcode).toLowerCase()).filter(Boolean))
 
-  const stillMissing = MISSING_BARCODES_PHASE1.filter((b) => !known.has(b.toLowerCase()))
-  if (stillMissing.length) {
-    throw new Error(
-      `${stillMissing.length} deferred barcodes still missing from production — add products first:\n` +
-        stillMissing.join(', ')
-    )
-  }
+  const phase1Rows = (await parseWorkbook(readFileSync(PHASE1_FILE))).rows
+  const phase1Fingerprints = new Set(phase1Rows.map(saleFingerprint))
 
-  const includeOnly = new Set(MISSING_BARCODES_PHASE1.map((b) => b.toLowerCase()))
-  const { rows } = await parseWorkbook(readFileSync(sourcePath))
-  const phase2Rows = rows.filter((r) => {
-    const code = normalizeBarcode(r.code ?? r.Code).toLowerCase()
-    return code && includeOnly.has(code)
+  const correctionRows = (await parseWorkbook(readFileSync(CORRECTION_FILE))).rows
+  const skippedMissingCatalog = new Map<string, number>()
+  const skippedDeletedDeferred = MISSING_BARCODES_PHASE1.filter((b) => {
+    return !correctionRows.some((r) => normalizeBarcode(r.code ?? r.Code).toLowerCase() === b.toLowerCase())
   })
 
-  if (!phase2Rows.length) {
-    throw new Error('No phase-2 rows found in correction file — ensure updated file is in sales migration folder')
+  const phase2Normalized: NonNullable<ReturnType<typeof normalizeSaleRow>>[] = []
+  for (const r of correctionRows) {
+    if (phase1Fingerprints.has(saleFingerprint(r))) continue
+    const normalized = normalizeSaleRow(r)
+    if (!normalized) continue
+    if (!known.has(normalized.code.toLowerCase())) {
+      skippedMissingCatalog.set(normalized.code, (skippedMissingCatalog.get(normalized.code) ?? 0) + 1)
+      continue
+    }
+    phase2Normalized.push(normalized)
+  }
+
+  console.log('Phase 2 selection:', {
+    correctionRows: correctionRows.length,
+    alreadyInPhase1: correctionRows.length - phase2Normalized.length - [...skippedMissingCatalog.values()].reduce((a, b) => a + b, 0),
+    importable: phase2Normalized.length,
+    skippedMissingCatalog: Object.fromEntries(skippedMissingCatalog),
+    deferredBarcodesRemovedFromFile: skippedDeletedDeferred,
+  })
+
+  if (!phase2Normalized.length) {
+    throw new Error('No new catalog-matched sales rows in the correction file')
   }
 
   const phase2Path = resolve(SALES_DIR, 'migration-sales-PHASE2.xlsx')
@@ -314,30 +394,14 @@ async function runPhase2(pool: pg.Pool, actorId: string) {
   const ws = wb.addWorksheet('Data')
   const cols = ['description', 'code', 'qty', 'store_name', 'TCostEx', 'report_month', 'paid'] as const
   ws.addRow([...cols])
-  for (const r of phase2Rows) {
-    const branch = String(r.BRANCH ?? r.branch ?? '').trim()
-    const storeName = String(r.store_name ?? '').trim()
-    const outlet = branch || (storeName.toUpperCase() === 'PALACE MALL' ? '' : storeName)
-    const reportMonth =
-      ddMmYyyyToReportMonth(r.report_month) ??
-      (String(r.report_month ?? '').match(/^\d{4}-\d{2}-\d{2}/) ? String(r.report_month).slice(0, 10) : null)
-    const code = normalizeBarcode(r.code ?? r.Code)
-    const normalized = {
-      description: code,
-      code,
-      qty: r.qty ?? r.Qty,
-      store_name: outlet,
-      TCostEx: r.TCostEx,
-      report_month: reportMonth,
-      paid: r.paid ?? '',
-    }
-    ws.addRow(cols.map((c) => normalized[c as keyof typeof normalized] ?? ''))
+  for (const r of phase2Normalized) {
+    ws.addRow(cols.map((c) => r[c] ?? ''))
   }
   await wb.xlsx.writeFile(phase2Path)
 
   const project = await createMigrationProject(pool, {
     name: `Palace Sales Phase 2 (${new Date().toISOString().slice(0, 10)})`,
-    description: `Deferred sales rows after product catalog correction (${phase2Rows.length} rows).`,
+    description: `Remaining Palace sales after product correction (${phase2Normalized.length} rows). Skipped missing catalog codes: ${[...skippedMissingCatalog.keys()].join(', ') || 'none'}. Removed deferred barcodes: ${skippedDeletedDeferred.join(', ') || 'none'}.`,
     createdBy: actorId,
   })
 
@@ -354,24 +418,108 @@ async function runPhase2(pool: pg.Pool, actorId: string) {
   state.phase2 = {
     migrationId: project.id,
     projectName: project.name,
-    rowCount: phase2Rows.length,
+    rowCount: phase2Normalized.length,
     completedAt: final?.completed_at ?? undefined,
     status: final?.status,
   }
-  state.deferredBarcodes = []
+  state.deferredBarcodes = [...skippedMissingCatalog.keys()]
   saveState(state)
-  console.log('Phase 2 complete:', final?.status)
+  console.log('Phase 2 complete:', final?.status, final?.reconciliation)
+  return state
+}
+
+async function importedFingerprints(): Promise<Set<string>> {
+  const fps = new Set<string>()
+  for (const path of [PHASE1_FILE, PHASE2_FILE, REMAINING_FILE]) {
+    if (!existsSync(path)) continue
+    const { rows } = await parseWorkbook(readFileSync(path))
+    for (const r of rows) fps.add(saleFingerprint(r))
+  }
+  return fps
+}
+
+async function runRemaining(pool: pg.Pool, actorId: string) {
+  const state = loadState()
+  const { rows: products } = await pool.query<{ barcode: string }>(
+    `SELECT barcode FROM public.products WHERE deleted_at IS NULL AND barcode IS NOT NULL`
+  )
+  const known = new Set(products.map((p) => normalizeBarcode(p.barcode).toLowerCase()).filter(Boolean))
+  const already = await importedFingerprints()
+  const correctionRows = (await parseWorkbook(readFileSync(CORRECTION_FILE))).rows
+  const skippedMissingCatalog = new Map<string, number>()
+  const remaining: NonNullable<ReturnType<typeof normalizeSaleRow>>[] = []
+
+  for (const r of correctionRows) {
+    if (already.has(saleFingerprint(r))) continue
+    const normalized = normalizeSaleRow(r)
+    if (!normalized) continue
+    if (!known.has(normalized.code.toLowerCase())) {
+      skippedMissingCatalog.set(normalized.code, (skippedMissingCatalog.get(normalized.code) ?? 0) + 1)
+      continue
+    }
+    remaining.push(normalized)
+  }
+
+  console.log('Remaining selection:', {
+    importable: remaining.length,
+    skippedMissingCatalog: Object.fromEntries(skippedMissingCatalog),
+  })
+
+  if (!remaining.length) {
+    state.deferredBarcodes = [...skippedMissingCatalog.keys()]
+    saveState(state)
+    throw new Error(
+      skippedMissingCatalog.size
+        ? `No new rows to import — add these products first: ${[...skippedMissingCatalog.keys()].join(', ')}`
+        : 'No remaining sales rows to import'
+    )
+  }
+
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Data')
+  const cols = ['description', 'code', 'qty', 'store_name', 'TCostEx', 'report_month', 'paid'] as const
+  ws.addRow([...cols])
+  for (const r of remaining) ws.addRow(cols.map((c) => r[c] ?? ''))
+  await wb.xlsx.writeFile(REMAINING_FILE)
+
+  const project = await createMigrationProject(pool, {
+    name: `Palace Sales Remaining (${new Date().toISOString().slice(0, 10)})`,
+    description: `Leftover Palace sales after catalog update (${remaining.length} rows).`,
+    createdBy: actorId,
+  })
+  await attachMigrationFile(pool, {
+    migrationId: project.id,
+    filename: 'migration-sales-REMAINING.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: readFileSync(REMAINING_FILE),
+    entityType: 'sales',
+    actorId,
+  })
+
+  const final = await runPipeline(pool, project.id, actorId)
+  state.remaining = {
+    migrationId: project.id,
+    projectName: project.name,
+    rowCount: remaining.length,
+    completedAt: final?.completed_at ?? undefined,
+    status: final?.status,
+  }
+  state.deferredBarcodes = [...skippedMissingCatalog.keys()]
+  saveState(state)
+  console.log('Remaining complete:', final?.status, final?.reconciliation)
   return state
 }
 
 async function main() {
-  const phase = process.argv.find((a) => a === 'phase1' || a === 'phase2') ?? 'phase1'
+  const phase = process.argv.find((a) => a === 'phase1' || a === 'phase2' || a === 'remaining') ?? 'phase1'
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
   const actorId = await getActorId(pool)
   console.log('Actor:', actorId, '| Phase:', phase)
 
   try {
-    if (phase === 'phase2') {
+    if (phase === 'remaining') {
+      await runRemaining(pool, actorId)
+    } else if (phase === 'phase2') {
       await runPhase2(pool, actorId)
     } else {
       await runPhase1(pool, actorId)

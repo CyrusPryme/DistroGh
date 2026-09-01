@@ -163,6 +163,7 @@ export async function POST(req: Request) {
         totalSales,
         vendorDue,
         catalogMarkup: pricing.markup + pricing.addOnTotal,
+        catalogShopTotal: roundMoney(qty * pricing.shopPrice),
       })
 
       const period = normalizeSaleMonthPeriod(String(s.week_start))

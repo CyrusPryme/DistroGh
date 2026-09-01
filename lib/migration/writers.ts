@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg'
 import type { MigrationEntityType } from '@/lib/migration/types'
-import { toSqlDate, normalizeSaleMonthPeriod } from '@/lib/utils'
+import { toSqlDate, normalizeSaleMonthPeriod, roundMoney } from '@/lib/utils'
 import { normalizeMomoNetwork } from '@/lib/migration/normalize'
 import { resolveVendorPhones } from '@/lib/migration/vendor-fields'
 import { resolveCategoryChange } from '@/lib/migration/category'
@@ -645,6 +645,7 @@ async function writeRow(
         totalSales: split.total_sales,
         vendorDue: split.vendor_due,
         catalogMarkup: pricing.markup + pricing.addOnTotal,
+        catalogShopTotal: roundMoney(qty * pricing.shopPrice),
       })
       const unit = split.unit_price
       const total = split.total_sales
