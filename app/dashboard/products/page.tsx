@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { ProductModal } from '@/components/products/ProductModal'
 import { ProductDetailPanel } from '@/components/products/ProductDetailPanel'
+import { ProductFinancialView } from '@/components/products/ProductFinancialView'
 import { createProductAdmin } from './actions'
 import { productService } from '@/services/product.service'
 import { vendorService } from '@/services/vendor.service'
@@ -34,6 +35,7 @@ import { PageToast } from '@/components/shared/PageToast'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { ListToolbar, DataTableShell } from '@/components/shared/DataTableShell'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { KPICard } from '@/components/dashboard/KPICard'
 import { formatDisplayName } from '@/lib/format-display-name'
 import { useSession } from '@/hooks/useSession'
@@ -54,6 +56,8 @@ const RETURN_REASON_LABELS: Record<string, string> = {
 }
 
 type StockRow = { product_id: string; on_hand: number }
+type ProductListView = 'catalog' | 'financial'
+const PRODUCT_VIEW_KEY = 'dg-products-list-view'
 
 function productStatusBadge(product: Product): { label: string; tone: string } {
   const expiry = product.expiry_date?.trim()
@@ -107,6 +111,8 @@ function ProductsContent() {
   const [returnsPageSize, setReturnsPageSize] = usePageSize('products-returns', DEFAULT_PAGE_SIZE)
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [productView, setProductView] = useState<ProductListView>('catalog')
+  const [productViewReady, setProductViewReady] = useState(false)
 
   const isAdmin = role === 'admin'
 
@@ -146,6 +152,26 @@ function ProductsContent() {
     if (!canLoad) return
     load()
   }, [canLoad, role, vendorId, sessionLoading])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PRODUCT_VIEW_KEY)
+      if (saved === 'catalog' || saved === 'financial') setProductView(saved)
+    } catch {
+      /* ignore */
+    } finally {
+      setProductViewReady(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!productViewReady) return
+    try {
+      localStorage.setItem(PRODUCT_VIEW_KEY, productView)
+    } catch {
+      /* ignore */
+    }
+  }, [productView, productViewReady])
 
   const handleSubmit = async (data: ProductFormValues, extras?: { imageFiles?: File[] }) => {
     setSubmitting(true)
@@ -243,6 +269,37 @@ function ProductsContent() {
     setModalOpen(true)
   }
 
+  const productActions = (product: Product) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Product actions"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setDetailProduct(product)}>
+          <Eye className="h-4 w-4" />
+          View
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openEdit(product)}>
+          <Pencil className="h-4 w-4" />
+          Edit
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-red-600 focus:text-red-600"
+          onClick={() => setPendingDelete({ id: product.id, name: product.name })}
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
   const activeFilterCount = [filterVendor, filterCategory, advancedSkuSearch].filter(Boolean).length
 
   if (!canLoad || loading) {
@@ -262,7 +319,11 @@ function ProductsContent() {
 
       <PageHeader
         title="Products"
-        description="Catalog, pricing, and warehouse stock"
+        description={
+          productView === 'financial'
+            ? 'Selling price, markup, shelf price, and warehouse stock'
+            : 'Catalog, pricing, and warehouse stock'
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
@@ -273,12 +334,23 @@ function ProductsContent() {
 
       <ListToolbar
         search={
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search name, barcode, or vendor…"
-            aria-label="Search products"
-          />
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search name, barcode, or vendor…"
+              aria-label="Search products"
+            />
+            <SegmentedControl
+              aria-label="Product table view"
+              value={productView}
+              onChange={setProductView}
+              options={[
+                { value: 'catalog', label: 'Catalog' },
+                { value: 'financial', label: 'Financial' },
+              ]}
+            />
+          </div>
         }
         filters={
           <button
@@ -402,6 +474,14 @@ function ProductsContent() {
                   : 'Add your first product.'}
             </p>
           </div>
+        ) : productView === 'financial' ? (
+          <ProductFinancialView
+            products={paginatedProducts}
+            stockByProduct={stockByProduct}
+            isAdmin={isAdmin}
+            onRowClick={setDetailProduct}
+            renderActions={productActions}
+          />
         ) : (
           <>
             {/* Desktop table */}
@@ -462,36 +542,7 @@ function ProductsContent() {
                         <td>
                           <span className={cn('status-badge border text-xs', status.tone)}>{status.label}</span>
                         </td>
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                type="button"
-                                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                aria-label="Product actions"
-                              >
-                                <MoreHorizontal className="w-4 h-4" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => setDetailProduct(product)}>
-                                <Eye className="w-4 h-4" />
-                                View
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => openEdit(product)}>
-                                <Pencil className="w-4 h-4" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-red-600 focus:text-red-600"
-                                onClick={() => setPendingDelete({ id: product.id, name: product.name })}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </td>
+                        <td onClick={(e) => e.stopPropagation()}>{productActions(product)}</td>
                       </tr>
                     )
                   })}

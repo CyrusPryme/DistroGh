@@ -1169,7 +1169,7 @@ export default function MigrationWizardPage() {
               <div className="flex-1">
                 <p className="text-sm font-medium text-slate-800">Step 1 of 2 — Approve this migration</p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Once approved, you'll get a Start import button here to begin writing to production.
+                  Once approved, you&apos;ll get a Start import button here to begin writing to production.
                 </p>
               </div>
               <button type="button" className="btn-primary shrink-0" disabled={busy || staleValidation} onClick={() => runAction('approve')}>

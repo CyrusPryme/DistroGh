@@ -128,6 +128,28 @@ export function resolveProductPriceTiers(
   }
 }
 
+/** Markup % = (selling − cost) / cost × 100. Returns null when cost is missing or zero. */
+export function computeMarkupPercent(
+  sellingPrice: number | string | null | undefined,
+  costPrice: number | string | null | undefined
+): number | null {
+  const selling = parseMoney(sellingPrice)
+  const cost = parseMoney(costPrice)
+  if (!Number.isFinite(selling) || !Number.isFinite(cost) || cost <= 0) return null
+  return roundMoney(((selling - cost) / cost) * 100)
+}
+
+/** Human-readable markup label, e.g. +15% or 0%. */
+export function formatMarkupPercentLabel(percent: number): string {
+  const n = Number(percent)
+  if (!Number.isFinite(n)) return '0%'
+  const rounded = Math.abs(n - Math.round(n)) < 0.05 ? Math.round(n) : Math.round(n * 10) / 10
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : ''
+  const abs = Math.abs(rounded)
+  const body = abs % 1 === 0 ? String(abs) : abs.toFixed(1).replace(/\.0$/, '')
+  return `${sign}${body}%`
+}
+
 /** Adjust vendor/markup so shop price (vendor + markup + add-ons) matches a target. */
 export function derivePricingForShopTarget(
   targetShop: number,

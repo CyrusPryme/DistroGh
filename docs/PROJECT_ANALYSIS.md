@@ -87,12 +87,6 @@ Analysis date: February 2025
 - **Issue:** `vendor.service.ts` uses `supabase.from('vendor_balances')`, but `Database` in `types/index.ts` only declares tables like `vendors`, `products`, `sales`, `payouts`, `vendor_applications`. If `vendor_balances` is a view or a table, it is not reflected in the type.
 - **Recommendation:** If `vendor_balances` exists in Supabase, add it to the `Database` type (e.g. under `Views` or `Tables`) and type the service accordingly so `getBalances()` is fully typed.
 
-### 2.8 Backup file in repo
-
-- **File:** `components/shared/AppLayout-backup.tsx`
-- **Issue:** Backup/copy of `AppLayout` checked into the repo.
-- **Recommendation:** Remove from the repo and rely on git history if a restore is needed.
-
 ---
 
 ## 3. Suggested Upgrades

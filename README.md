@@ -397,9 +397,24 @@ lib/
   utils.ts
 services/             # Client-side API wrappers
 db/migrations/        # SQL migration files (001–019)
-scripts/              # db-migrate, db-seed, seed-super-admin
+scripts/              # db-migrate, db-seed, seed-super-admin (see scripts/README.md)
+docs/                 # Feature inventory, migration engine notes, RLS guide
 types/                # Shared TypeScript types
+public/               # Static assets (logo, favicon, landing images)
 ```
+
+**Local-only (gitignored):** `sales migration/` — Excel workbooks and JSON state for one-off Palace imports. See `sales migration/README.md`.
+
+---
+
+## Documentation
+
+Additional reference material lives in [`docs/`](docs/README.md):
+
+- System feature inventory
+- Historical migration engine design
+- Project analysis / audit notes
+- RLS implementation guide (legacy Supabase notes)
 
 ---
 

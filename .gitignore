@@ -18,19 +18,24 @@ uploads/
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE / editor
 .idea/
 .vscode/
+.cursor/
 *.swp
 
 # test / build
 coverage/
 dist/
 .turbo/
+*.tsbuildinfo
 
 # misc
-*.tsbuildinfo
 next-env.d.ts
 
 # AI agent context (local only, not shared via git)
 CLAUDE.md
+
+# Local migration workbooks and run state (see sales migration/README.md)
+sales migration/*.xlsx
+sales migration/*.json
