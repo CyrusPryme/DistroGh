@@ -36,6 +36,10 @@ next-env.d.ts
 # AI agent context (local only, not shared via git)
 CLAUDE.md
 
-# Local migration workbooks and run state (see sales migration/README.md)
+# Local migration workbooks and run state (see sales migration/README.md, deliveries migrations/README.md)
 sales migration/*.xlsx
 sales migration/*.json
+deliveries migrations/*.xlsx
+deliveries migrations/*.json
+returned migration/*.xlsx
+returned migration/*.json

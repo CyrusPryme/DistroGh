@@ -8,6 +8,7 @@ import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination
 import { findExistingProvenance, recordProvenance } from '@/lib/migration/provenance'
 import { writeMigrationAudit } from '@/lib/migration/audit'
 import { resolveHistoricalTransportCost } from '@/lib/migration/transport-cost'
+import { confirmHistoricalDeliveryRun } from '@/lib/migration/historical-delivery-confirm'
 import { resolveHistoricalSaleAmounts } from '@/lib/migration/sales-fields'
 import { computeImportSaleAmounts, resolveProductPricing, assertSupermarketTotalNotStoredAsVendorDue } from '@/lib/product-pricing'
 
@@ -582,6 +583,16 @@ async function writeRow(
          VALUES ($1,$2,$3)`,
         [run.rows[0].id, productId, n(d.quantity ?? d.qty)]
       )
+
+      // Historical deliveries are past-tense stock movements — auto-confirm so they appear
+      // on the Deliveries page and update store inventory without a manual confirm step.
+      if (supermarketId && destination.destinationType === 'BRANCH') {
+        await confirmHistoricalDeliveryRun(client, {
+          deliveryRunId: run.rows[0].id,
+          supermarketId,
+          confirmedBy: ctx.actorId ?? null,
+        })
+      }
 
       if (destination.destinationType !== 'BRANCH') {
         await writeMigrationAudit(client, {

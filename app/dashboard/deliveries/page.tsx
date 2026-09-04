@@ -21,6 +21,7 @@ import { supermarketService } from '@/services/supermarket.service'
 import { productService } from '@/services/product.service'
 import { vendorService } from '@/services/vendor.service'
 import { formatGHS, formatDate, formatNumber, cn, roundMoney } from '@/lib/utils'
+import { formatTransportCostForDisplay } from '@/lib/migration/transport-cost'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
 import {
   allocateTransportCostByQuantity,
@@ -688,7 +689,12 @@ function DeliveriesContent() {
                         </td>
                         <td className="text-slate-600">{formatDate(run.delivery_date)}</td>
                         <td className="text-right tabular-nums font-semibold text-brand-700">
-                          {formatGHS(Number(run.total_transport_cost))}
+                          {(run as DeliveryRun & { source?: string }).source === 'HISTORICAL_MIGRATION'
+                            ? formatTransportCostForDisplay(
+                                run.total_transport_cost == null ? null : Number(run.total_transport_cost),
+                                'HISTORICAL_MIGRATION'
+                              )
+                            : formatGHS(Number(run.total_transport_cost))}
                         </td>
                         <td className="text-slate-600">
                           {items.length} product(s), {formatNumber(totalQty)} units

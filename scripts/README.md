@@ -27,6 +27,21 @@ Requires local workbooks under `sales migration/` — see that folder’s README
 | `check-migration-status.ts` | Migration project status snapshot |
 | `verify-migration-production.mjs` | Post-import verification |
 
+## Migration fix workbooks (standard method)
+
+**Doc:** [docs/MIGRATION-FIX-WORKBOOK.md](../docs/MIGRATION-FIX-WORKBOOK.md)  
+**Shared lib:** `lib/migration/fix-workbook.ts`
+
+Normalize source Excel → `*-FIXED.xlsx` with optional row highlights + `review_flag` + Review legend sheet for admin corrections.
+
+| Entity | Analyze | Fix |
+|--------|---------|-----|
+| Deliveries | `analyze-deliveries-migration-file.ts` | `fix-deliveries-migration-file.ts` |
+| Returns | `analyze-returns-migration-file.ts` | `fix-returns-migration-file.ts` |
+| Sales | `analyze-sales-upload.ts` | `fix-sales-migration-file.ts` (extend with highlight pattern when re-run) |
+
+Recovery / one-off: `recover-deliveries-parse.ts`, `confirm-historical-deliveries.ts`, `import-supplemental-deliveries-from-returns.ts`
+
 ## Samples / dev
 
 | Script | npm command | Description |
