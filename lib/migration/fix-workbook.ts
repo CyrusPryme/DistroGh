@@ -8,7 +8,7 @@
  *
  * See docs/MIGRATION-FIX-WORKBOOK.md for the full workflow.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, renameSync, unlinkSync, existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import ExcelJS from 'exceljs'
 import type { Pool } from 'pg'
@@ -61,6 +61,13 @@ export interface MigrationReviewLegendRow {
   adminAction: string
 }
 
+/** Worked example for the Review legend sheet — before (as flagged) vs after (upload-ready). */
+export interface MigrationReviewLegendExample {
+  title: string
+  before: string
+  after: string
+}
+
 export interface WriteFixedMigrationWorkbookParams {
   outputPath: string
   /** Migration template columns — review_flag is appended automatically when any row is flagged */
@@ -69,6 +76,8 @@ export interface WriteFixedMigrationWorkbookParams {
   /** Column names rendered as Excel date cells (ISO YYYY-MM-DD strings in row data) */
   dateColumns?: readonly string[]
   legend: MigrationReviewLegendRow[]
+  /** Optional before/after examples shown below the color key on Review legend */
+  legendExamples?: MigrationReviewLegendExample[]
   getHighlight?: (row: Record<string, unknown>, index: number) => MigrationReviewHighlight | null
   columnWidths?: Partial<Record<string, number>>
   /** Include review_flag column even when no rows flagged (default: only when flagged) */
@@ -132,6 +141,7 @@ export async function writeFixedMigrationWorkbook(
     getHighlight,
     columnWidths = {},
     alwaysIncludeReviewFlag = false,
+    legendExamples = [],
   } = params
 
   const highlights = rows.map((row, i) => getHighlight?.(row, i) ?? null)
@@ -162,6 +172,23 @@ export async function writeFixedMigrationWorkbook(
   legendSheet.getColumn(1).width = 18
   legendSheet.getColumn(2).width = 55
   legendSheet.getColumn(3).width = 50
+
+  if (legendExamples.length) {
+    legendSheet.addRow([])
+    const exampleHeader = legendSheet.addRow(['Example', 'Before (flagged row — do not upload as-is)', 'After (corrected — upload to Historical Migrations)'])
+    exampleHeader.font = { bold: true }
+    exampleHeader.eachCell((cell) => {
+      cell.fill = MIGRATION_REVIEW_FILLS.header
+    })
+    for (const ex of legendExamples) {
+      const row = legendSheet.addRow([ex.title, ex.before, ex.after])
+      row.getCell(2).alignment = { wrapText: true, vertical: 'top' }
+      row.getCell(3).alignment = { wrapText: true, vertical: 'top' }
+    }
+    legendSheet.getColumn(1).width = Math.max(legendSheet.getColumn(1).width ?? 18, 22)
+    legendSheet.getColumn(2).width = 62
+    legendSheet.getColumn(3).width = 62
+  }
 
   ws.addRow([...outputColumns])
   const headerRow = ws.getRow(1)
@@ -211,7 +238,14 @@ export async function writeFixedMigrationWorkbook(
     ws.getColumn(outputColumns.indexOf(REVIEW_FLAG_COLUMN) + 1).width = columnWidths[REVIEW_FLAG_COLUMN] ?? 72
   }
 
-  await wb.xlsx.writeFile(outputPath)
+  const tempPath = `${outputPath}.tmp-${process.pid}.xlsx`
+  await wb.xlsx.writeFile(tempPath)
+  try {
+    if (existsSync(outputPath)) unlinkSync(outputPath)
+    renameSync(tempPath, outputPath)
+  } catch {
+    renameSync(tempPath, `${outputPath}.new.xlsx`)
+  }
 
   return { highlightedByKind, outputColumns }
 }

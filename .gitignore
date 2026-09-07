@@ -43,3 +43,5 @@ deliveries migrations/*.xlsx
 deliveries migrations/*.json
 returned migration/*.xlsx
 returned migration/*.json
+discrepancies fix/*.xlsx
+discrepancies fix/*.json

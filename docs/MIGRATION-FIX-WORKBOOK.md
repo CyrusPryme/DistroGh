@@ -32,6 +32,7 @@ Standard method for preparing historical migration Excel files before upload. Us
 
 ### Review legend sheet
 - Color key + meaning + required admin action
+- **Before / after examples** (when provided) — worked examples of flagged rows vs upload-ready rows
 
 ### Highlight colors (standard)
 

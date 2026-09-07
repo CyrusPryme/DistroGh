@@ -2,6 +2,8 @@
 
 Operational and one-off utilities. Most DB scripts load `.env.local` via `dotenv/config`.
 
+**Regeneration catalog:** [REGENERATE.md](./REGENERATE.md) · run on Windows: `.\scripts\REGENERATE.ps1 -List`
+
 ## Database (routine)
 
 | Script | npm command | Description |
@@ -41,6 +43,15 @@ Normalize source Excel → `*-FIXED.xlsx` with optional row highlights + `review
 | Sales | `analyze-sales-upload.ts` | `fix-sales-migration-file.ts` (extend with highlight pattern when re-run) |
 
 Recovery / one-off: `recover-deliveries-parse.ts`, `confirm-historical-deliveries.ts`, `import-supplemental-deliveries-from-returns.ts`
+
+## Stock chain discrepancies (intakes / deliveries / sales / returns)
+
+**Output:** `discrepancies fix/*.xlsx` (local, gitignored) — see that folder’s README.
+
+| Script | Description |
+|--------|-------------|
+| `analyze-stock-chain-discrepancies.ts` | Console report of quantity/chronology gaps (Palace Spintex) |
+| `generate-discrepancy-fix-workbooks.ts` | Build admin review workbooks with suggested fixes + highlights |
 
 ## Samples / dev
 
