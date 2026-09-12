@@ -13,7 +13,16 @@ Admin review spreadsheets generated from production cross-checks of **intakes �
 
 ## Start here
 
-**`DISCREPANCY-SUMMARY.xlsx`** — total vs **auto-fixed** vs **admin review** counts per category.
+1. **`ADMIN-ATTENTION.md`** — plain-language summary of what still needs review (updated after each correction batch).
+2. **`DISCREPANCY-SUMMARY.xlsx`** — counts per category (auto vs admin).
+3. **`CHRONOLOGY-FIX.xlsx`** — only open items right now (date-order warnings; quantities are balanced).
+
+Regenerate workbooks + admin summary after production fixes:
+
+```bash
+npx tsx -r dotenv/config scripts/generate-discrepancy-fix-workbooks.ts dotenv_config_path=.env.local
+npx tsx -r dotenv/config scripts/summarize-discrepancies-for-admin.ts dotenv_config_path=.env.local
+```
 
 ## Files
 

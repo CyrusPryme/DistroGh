@@ -49,6 +49,34 @@ export const ADMIN_STOCK_CORRECTIONS: ProductStockCorrectionSpec[] = [
       delivery_date: '2025-10-08',
     },
   },
+  {
+    id: 'ma-recipy-t-gin-cinnamon-infusi',
+    barcode: '662946498956',
+    vendor_name: 'MA RECIPY MIXED SPICE',
+    product_name: 'MA RECIPY T-GIN CINNAMON INFUSI',
+    received_total: 100,
+    delivered_spintex_total: 100,
+    returned_spintex_total: 0,
+    remove_intakes: [{ quantity_received: 100, received_date: '2025-08-18' }],
+    delivery: {
+      quantity_delivered: 100,
+      delivery_date: '2025-10-30',
+    },
+  },
+  {
+    id: 'ma-recipy-mixed-spice-powder-12',
+    barcode: '796167887225',
+    vendor_name: 'MA RECIPY MIXED SPICE',
+    product_name: 'MA RECIPY MIXED SPICE POWDER 12',
+    received_total: 100,
+    delivered_spintex_total: 100,
+    returned_spintex_total: 0,
+    remove_intakes: [],
+    delivery: {
+      quantity_delivered: 100,
+      delivery_date: '2025-08-18',
+    },
+  },
 ]
 
 export type ResolvedStockProduct = {

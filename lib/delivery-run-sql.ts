@@ -35,7 +35,7 @@ export const DELIVERY_RUN_LIST_SELECT = `
           'product_id', dri.product_id,
           'quantity_delivered', dri.quantity_delivered,
           'created_at', dri.created_at,
-          'product', json_build_object('id', p.id, 'name', p.name, 'vendor_id', p.vendor_id)
+          'product', json_build_object('id', p.id, 'name', p.name, 'vendor_id', p.vendor_id, 'barcode', p.barcode)
         )
       )
       from public.delivery_run_items dri
@@ -60,7 +60,7 @@ export const DELIVERY_RUN_SELECT = `
           'product_id', dri.product_id,
           'quantity_delivered', dri.quantity_delivered,
           'created_at', dri.created_at,
-          'product', json_build_object('id', p.id, 'name', p.name, 'vendor_id', p.vendor_id)
+          'product', json_build_object('id', p.id, 'name', p.name, 'vendor_id', p.vendor_id, 'barcode', p.barcode)
         )
       )
       from public.delivery_run_items dri

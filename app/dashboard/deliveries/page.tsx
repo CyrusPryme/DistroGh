@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Clock,
   RefreshCw,
+  Eye,
 } from 'lucide-react'
 import { deliveryService, type CreateDeliveryRunPayload } from '@/services/delivery.service'
 import { intakeService } from '@/services/intake.service'
@@ -34,9 +35,89 @@ import { usePageSize } from '@/hooks/usePageSize'
 import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/FormModal'
 import { PageToast } from '@/components/shared/PageToast'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import type { DeliveryRun, DeliveryRunVendorCharge, Supermarket, Product, Vendor } from '@/types'
 
 type RunItemRow = { product_id: string; quantity_delivered: number }
+
+type RunLineItem = {
+  product_id: string
+  quantity_delivered: number
+  product?: { id: string; name: string; vendor_id?: string; barcode?: string | null }
+}
+
+type DeliveryLineRow = {
+  run: DeliveryRun
+  product_id: string
+  product_name: string
+  barcode: string
+  quantity_delivered: number
+  delivery_date: string
+  destination: string
+}
+
+function DeliveryRunItemsTable({
+  items,
+  vendorNameById,
+  barcodeByProductId,
+}: {
+  items: RunLineItem[]
+  vendorNameById: Map<string, string>
+  barcodeByProductId?: Map<string, string>
+}) {
+  if (!items.length) {
+    return <p className="text-xs text-slate-500">No products on this run.</p>
+  }
+  const sorted = [...items].sort((a, b) =>
+    (a.product?.name ?? '').localeCompare(b.product?.name ?? '')
+  )
+  const totalQty = sorted.reduce((s, i) => s + Number(i.quantity_delivered), 0)
+  return (
+    <div className="rounded-lg border border-slate-200 overflow-hidden text-xs">
+      <table className="w-full">
+        <thead className="bg-slate-50 text-slate-600">
+          <tr>
+            <th className="text-left px-3 py-2 font-medium">Product</th>
+            <th className="text-left px-3 py-2 font-medium">Barcode</th>
+            <th className="text-left px-3 py-2 font-medium">Vendor</th>
+            <th className="text-right px-3 py-2 font-medium">Pieces</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((item) => {
+            const vendorId = item.product?.vendor_id
+            const barcode =
+              item.product?.barcode?.trim() ||
+              barcodeByProductId?.get(item.product_id) ||
+              '—'
+            return (
+              <tr key={item.product_id} className="border-t border-slate-100">
+                <td className="px-3 py-2 text-slate-800">{item.product?.name ?? 'Unknown product'}</td>
+                <td className="px-3 py-2 font-mono text-slate-600 text-[11px]">{barcode}</td>
+                <td className="px-3 py-2 text-slate-600">
+                  {vendorId ? vendorNameById.get(vendorId) ?? '—' : '—'}
+                </td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  {formatNumber(Number(item.quantity_delivered))}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+        <tfoot className="bg-slate-50 border-t border-slate-200">
+          <tr>
+            <td colSpan={3} className="px-3 py-2 font-medium text-slate-600">
+              {sorted.length} product(s)
+            </td>
+            <td className="px-3 py-2 text-right font-mono font-semibold text-slate-800 tabular-nums">
+              {formatNumber(totalQty)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
 
 function VendorChargeTable({ charges, totalCost }: { charges: DeliveryRunVendorCharge[]; totalCost: number }) {
   if (!charges.length) {
@@ -230,11 +311,18 @@ function DeliveriesContent() {
   const [confirmAllocationBase, setConfirmAllocationBase] = useState<DeliveryRunVendorCharge[]>([])
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [confirmAllocationLoading, setConfirmAllocationLoading] = useState(false)
-  const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
+  const [expandedChargesRunId, setExpandedChargesRunId] = useState<string | null>(null)
   const [expandedChargesByRun, setExpandedChargesByRun] = useState<Record<string, DeliveryRunVendorCharge[]>>({})
   const [loadingExpandedChargesId, setLoadingExpandedChargesId] = useState<string | null>(null)
+  const [detailModalRun, setDetailModalRun] = useState<DeliveryRun | null>(null)
+  const [detailModalCharges, setDetailModalCharges] = useState<DeliveryRunVendorCharge[]>([])
+  const [detailModalChargesLoading, setDetailModalChargesLoading] = useState(false)
+  const [viewTab, setViewTab] = useState<'runs' | 'lines'>('lines')
+  const [lineSearch, setLineSearch] = useState('')
   const [runPage, setRunPage] = useState(1)
   const [runPageSize, setRunPageSize] = usePageSize('deliveries', DEFAULT_PAGE_SIZE)
+  const [linePage, setLinePage] = useState(1)
+  const [linePageSize, setLinePageSize] = usePageSize('deliveries-lines', DEFAULT_PAGE_SIZE)
 
   const [form, setForm] = useState<{
     supermarket_id: string
@@ -296,9 +384,62 @@ function DeliveriesContent() {
 
   useEffect(() => {
     setRunPage(1)
+    setLinePage(1)
   }, [filterSupermarket, filterFrom, filterTo])
 
+  useEffect(() => {
+    setLinePage(1)
+  }, [lineSearch, viewTab])
+
   const vendorNameById = useMemo(() => new Map(vendors.map((v) => [v.id, v.name])), [vendors])
+  const barcodeByProductId = useMemo(
+    () => new Map(products.map((p) => [p.id, p.barcode?.trim() ?? ''])),
+    [products]
+  )
+
+  const deliveryLines = useMemo((): DeliveryLineRow[] => {
+    const rows: DeliveryLineRow[] = []
+    for (const run of runs) {
+      const sm = run.supermarket as Supermarket | undefined
+      const destination = sm ? formatSupermarketLabel(sm) : '—'
+      const items = (run.items ?? []) as RunLineItem[]
+      for (const item of items) {
+        const barcode =
+          item.product?.barcode?.trim() || barcodeByProductId.get(item.product_id) || ''
+        rows.push({
+          run,
+          product_id: item.product_id,
+          product_name: item.product?.name ?? 'Unknown product',
+          barcode,
+          quantity_delivered: Number(item.quantity_delivered) || 0,
+          delivery_date: run.delivery_date,
+          destination,
+        })
+      }
+    }
+    return rows.sort((a, b) => {
+      const d = b.delivery_date.localeCompare(a.delivery_date)
+      if (d !== 0) return d
+      return a.destination.localeCompare(b.destination)
+    })
+  }, [runs, barcodeByProductId])
+
+  const filteredDeliveryLines = useMemo(() => {
+    const q = lineSearch.trim().toLowerCase()
+    if (!q) return deliveryLines
+    return deliveryLines.filter((row) => {
+      return (
+        row.product_name.toLowerCase().includes(q) ||
+        row.barcode.includes(q) ||
+        row.destination.toLowerCase().includes(q)
+      )
+    })
+  }, [deliveryLines, lineSearch])
+
+  const paginatedLines = useMemo(
+    () => getPageSlice(filteredDeliveryLines, linePage, linePageSize),
+    [filteredDeliveryLines, linePage, linePageSize]
+  )
 
   const formAllocationPreview = useMemo(() => {
     const cost = Number(form.total_transport_cost) || 0
@@ -483,11 +624,11 @@ function DeliveriesContent() {
   }
 
   const toggleExpandedCharges = async (run: DeliveryRun) => {
-    if (expandedRunId === run.id) {
-      setExpandedRunId(null)
+    if (expandedChargesRunId === run.id) {
+      setExpandedChargesRunId(null)
       return
     }
-    setExpandedRunId(run.id)
+    setExpandedChargesRunId(run.id)
     if (expandedChargesByRun[run.id]?.length) return
 
     setLoadingExpandedChargesId(run.id)
@@ -500,9 +641,29 @@ function DeliveriesContent() {
       setExpandedChargesByRun((prev) => ({ ...prev, [run.id]: charges }))
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Failed to load vendor charges', 'error')
-      setExpandedRunId(null)
+      setExpandedChargesRunId(null)
     } finally {
       setLoadingExpandedChargesId(null)
+    }
+  }
+
+  const openRunDetailModal = async (run: DeliveryRun) => {
+    setDetailModalRun(run)
+    setDetailModalCharges([])
+    if (!run.confirmed_at || Number(run.total_transport_cost) <= 0) return
+    setDetailModalChargesLoading(true)
+    try {
+      const data = await deliveryService.getChargeAllocation(run.id)
+      setDetailModalCharges(
+        (data.applied ?? data.preview).map((row) => ({
+          ...row,
+          vendor_name: row.vendor_name ?? 'Unknown vendor',
+        }))
+      )
+    } catch {
+      /* charges optional in detail view */
+    } finally {
+      setDetailModalChargesLoading(false)
     }
   }
 
@@ -571,7 +732,11 @@ function DeliveriesContent() {
 
         <PageHeader
           title="Deliveries"
-          description="Record delivery runs and transport cost. On confirm, cost is split across vendors by units delivered and deducted from payout balances."
+          description={
+            viewTab === 'lines'
+              ? 'Every product line sent to a supermarket — date, destination, barcode, and pieces. Use filters and search to find a delivery.'
+              : 'Record delivery runs and transport cost. On confirm, cost is split across vendors by units delivered and deducted from payout balances.'
+          }
           actions={
             <button
               type="button"
@@ -585,6 +750,15 @@ function DeliveriesContent() {
               New delivery run
             </button>
           }
+        />
+
+        <SegmentedControl
+          value={viewTab}
+          onChange={setViewTab}
+          options={[
+            { value: 'lines', label: 'Delivery lines', count: deliveryLines.length },
+            { value: 'runs', label: 'Runs', count: runs.length },
+          ]}
         />
 
         <div className="flex flex-wrap items-center gap-3">
@@ -613,6 +787,15 @@ function DeliveriesContent() {
             className="form-input w-40"
             placeholder="To"
           />
+          {viewTab === 'lines' && (
+            <input
+              type="search"
+              value={lineSearch}
+              onChange={(e) => setLineSearch(e.target.value)}
+              placeholder="Search product, barcode, destination…"
+              className="form-input min-w-[220px] flex-1 max-w-md"
+            />
+          )}
         </div>
 
         {error && (
@@ -626,6 +809,67 @@ function DeliveriesContent() {
           <div className="data-card flex items-center justify-center py-16">
             <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
           </div>
+        ) : viewTab === 'lines' ? (
+          filteredDeliveryLines.length === 0 ? (
+            <div className="data-card text-center py-12">
+              <Package className="w-14 h-14 text-slate-300 mx-auto mb-4" />
+              <h3 className="font-display text-lg font-semibold text-slate-600">No delivery lines</h3>
+              <p className="text-slate-500 text-sm mt-2">
+                {lineSearch ? 'Try a different search or clear filters.' : 'No deliveries match the current filters.'}
+              </p>
+            </div>
+          ) : (
+            <DataTableShell
+              pagination={
+                <PaginationBar
+                  page={linePage}
+                  pageSize={linePageSize}
+                  totalItems={filteredDeliveryLines.length}
+                  onPageChange={setLinePage}
+                  onPageSizeChange={setLinePageSize}
+                />
+              }
+            >
+              <table className="data-table min-w-[960px]">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Delivered to</th>
+                    <th>Product</th>
+                    <th>Barcode</th>
+                    <th className="text-right">Pieces</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedLines.map((row) => (
+                    <tr key={`${row.run.id}-${row.product_id}`}>
+                      <td className="text-slate-600 whitespace-nowrap">{formatDate(row.delivery_date)}</td>
+                      <td className="font-medium text-slate-800">{row.destination}</td>
+                      <td className="text-slate-700 max-w-[240px] truncate" title={row.product_name}>
+                        {row.product_name}
+                      </td>
+                      <td className="font-mono text-xs text-slate-600 whitespace-nowrap">
+                        {row.barcode || '—'}
+                      </td>
+                      <td className="text-right font-mono tabular-nums font-semibold text-slate-800">
+                        {formatNumber(row.quantity_delivered)}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => openRunDetailModal(row.run)}
+                          className="text-xs font-medium text-brand-600 hover:text-brand-700"
+                        >
+                          Run details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </DataTableShell>
+          )
         ) : runs.length === 0 ? (
           <div className="data-card text-center py-12">
             <Truck className="w-14 h-14 text-slate-300 mx-auto mb-4" />
@@ -667,12 +911,12 @@ function DeliveriesContent() {
                 </thead>
                 <tbody>
                   {paginatedRuns.map((run) => {
-                    const items = (run.items ?? []) as { product_id: string; quantity_delivered: number; product?: { name: string } }[]
+                    const items = (run.items ?? []) as RunLineItem[]
                     const totalQty = items.reduce((s, i) => s + Number(i.quantity_delivered), 0)
                     const isConfirmed = !!run.confirmed_at
                     const isConfirming = confirmingRunId === run.id
                     const charges = expandedChargesByRun[run.id] ?? ((run.vendor_charges ?? []) as DeliveryRunVendorCharge[])
-                    const isExpanded = expandedRunId === run.id
+                    const isChargesExpanded = expandedChargesRunId === run.id
                     const chargeTotal = charges.reduce((s, c) => s + Number(c.allocated_amount), 0)
                     return (
                       <Fragment key={run.id}>
@@ -697,7 +941,14 @@ function DeliveriesContent() {
                             : formatGHS(Number(run.total_transport_cost))}
                         </td>
                         <td className="text-slate-600">
-                          {items.length} product(s), {formatNumber(totalQty)} units
+                          <button
+                            type="button"
+                            onClick={() => openRunDetailModal(run)}
+                            className="text-left text-brand-600 hover:text-brand-700 font-medium hover:underline"
+                            title="View products on this run"
+                          >
+                            {items.length} product(s), {formatNumber(totalQty)} units
+                          </button>
                         </td>
                         <td className="text-slate-600 text-sm">
                           {isConfirmed && Number(run.total_transport_cost) > 0 ? (
@@ -738,20 +989,30 @@ function DeliveriesContent() {
                           {run.notes ?? '—'}
                         </td>
                         <td>
-                          {!isConfirmed && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
                             <button
                               type="button"
-                              onClick={() => openConfirmModal(run)}
-                              disabled={isConfirming}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60"
+                              onClick={() => openRunDetailModal(run)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-50"
                             >
-                              {isConfirming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                              {isConfirming ? 'Confirming…' : 'Confirm delivery'}
+                              <Eye className="w-3.5 h-3.5" />
+                              View
                             </button>
-                          )}
+                            {!isConfirmed && (
+                              <button
+                                type="button"
+                                onClick={() => openConfirmModal(run)}
+                                disabled={isConfirming}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60"
+                              >
+                                {isConfirming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                {isConfirming ? 'Confirming…' : 'Confirm delivery'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
-                      {isExpanded && charges.length > 0 && (
+                      {isChargesExpanded && charges.length > 0 && (
                         <tr key={`${run.id}-charges`} className="bg-slate-50/80">
                           <td colSpan={8} className="px-4 py-3">
                             <VendorChargeTable charges={charges} totalCost={Number(run.total_transport_cost)} />
@@ -917,6 +1178,73 @@ function DeliveriesContent() {
                   </button>
             </FormModalFooter>
           </form>
+        </FormModal>
+
+        <FormModal
+          open={!!detailModalRun}
+          onClose={() => setDetailModalRun(null)}
+          title="Delivery run"
+          description="Products and quantities delivered on this run."
+          maxWidthClass="max-w-2xl"
+        >
+          {detailModalRun && (
+            <FormModalBody>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-600 mb-4">
+                <p>
+                  <span className="font-medium text-slate-800">Supermarket:</span>{' '}
+                  {detailModalRun.supermarket
+                    ? formatSupermarketLabel(detailModalRun.supermarket as Supermarket)
+                    : '—'}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-800">Delivery date:</span>{' '}
+                  {formatDate(detailModalRun.delivery_date)}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-800">Status:</span>{' '}
+                  {detailModalRun.confirmed_at ? 'Confirmed' : 'Pending confirmation'}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-800">Transport:</span>{' '}
+                  {(detailModalRun as DeliveryRun & { source?: string }).source === 'HISTORICAL_MIGRATION'
+                    ? formatTransportCostForDisplay(
+                        detailModalRun.total_transport_cost == null
+                          ? null
+                          : Number(detailModalRun.total_transport_cost),
+                        'HISTORICAL_MIGRATION'
+                      )
+                    : formatGHS(Number(detailModalRun.total_transport_cost ?? 0))}
+                </p>
+              </div>
+              {detailModalRun.notes ? (
+                <p className="text-sm text-slate-500 mb-4 border-l-2 border-slate-200 pl-3">{detailModalRun.notes}</p>
+              ) : null}
+              <h3 className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                <Package className="w-4 h-4 text-slate-500" />
+                Products on this run
+              </h3>
+              <DeliveryRunItemsTable
+                items={(detailModalRun.items ?? []) as RunLineItem[]}
+                vendorNameById={vendorNameById}
+                barcodeByProductId={barcodeByProductId}
+              />
+              {detailModalRun.confirmed_at && Number(detailModalRun.total_transport_cost) > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold text-slate-800 mb-2">Vendor transport charges</h3>
+                  {detailModalChargesLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+                    </div>
+                  ) : (
+                    <VendorChargeTable
+                      charges={detailModalCharges}
+                      totalCost={Number(detailModalRun.total_transport_cost)}
+                    />
+                  )}
+                </div>
+              )}
+            </FormModalBody>
+          )}
         </FormModal>
 
         <FormModal

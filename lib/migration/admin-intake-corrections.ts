@@ -82,6 +82,19 @@ export function normalizeAdminDate(s: string): string | null {
   }
   const m2 = t.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (m2) return t.slice(0, 10)
+  const dash = t.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+  if (dash) {
+    const a = Number(dash[1])
+    const b = Number(dash[2])
+    const yyyy = dash[3]
+    if (a > 12) {
+      return `${yyyy}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`
+    }
+    if (b > 12) {
+      return `${yyyy}-${String(a).padStart(2, '0')}-${String(b).padStart(2, '0')}`
+    }
+    return `${yyyy}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`
+  }
   return t
 }
 
@@ -168,6 +181,25 @@ export async function resolveProductByName(
     [productName, vendorName]
   )
   if (rows[0]) return rows[0]
+
+  const { rows: collapsed } = await pool.query<{
+    product_id: string
+    product_name: string
+    barcode: string | null
+    vendor_id: string
+    vendor_name: string
+  }>(
+    `SELECT p.id AS product_id, p.name AS product_name, p.barcode,
+            v.id AS vendor_id, v.name AS vendor_name
+     FROM products p
+     JOIN vendors v ON v.id = p.vendor_id AND v.deleted_at IS NULL
+     WHERE p.deleted_at IS NULL
+       AND lower(regexp_replace(trim(p.name), '\\s+', ' ', 'g')) = $1
+     ORDER BY CASE WHEN lower(trim(v.name)) = lower(trim($2)) THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [nameNorm, vendorName]
+  )
+  if (collapsed[0]) return collapsed[0]
 
   // ADEPA typo in admin sheet — admin gave canonical name + barcode 603602777111.
   if (nameNorm.includes('adepa')) {
