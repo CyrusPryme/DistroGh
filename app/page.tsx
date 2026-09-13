@@ -1,93 +1,12 @@
-'use client'
-
-import { useState } from 'react'
 import Image from 'next/image'
-import { Building2, Mail, Phone, FileText, Send, CheckCircle, Menu, X, ArrowRight, Users, TrendingUp, Shield } from 'lucide-react'
-import { vendorApplicationService } from '@/services/vendor-application.service'
+import { Building2, ArrowRight, Users, TrendingUp, Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
+import { LandingNav } from '@/components/landing/LandingNav'
+import { VendorApplicationForm } from '@/components/landing/VendorApplicationForm'
 
 export default function HomePage() {
-  const [formData, setFormData] = useState({
-    storeName: '',
-    contactEmail: '',
-    contactPhone: '',
-    description: ''
-  })
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isSubmitted, setIsSubmitted] = useState(false)
-  const [error, setError] = useState('')
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setError('')
-
-    try {
-      await vendorApplicationService.submitApplication({
-        store_name: formData.storeName,
-        contact_email: formData.contactEmail,
-        contact_phone: formData.contactPhone,
-        description: formData.description
-      })
-
-      setIsSubmitted(true)
-      setFormData({ storeName: '', contactEmail: '', contactPhone: '', description: '' })
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred. Please try again.')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-    setError('')
-  }
-
-  const scrollToApplication = () => {
-    const element = document.getElementById('vendor-application')
-    element?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  if (isSubmitted) {
-    return (
-      <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none -z-10">
-          <div className="absolute top-1/4 left-1/3 w-[500px] h-[500px] bg-emerald-400/20 rounded-full blur-[100px] animate-glow-pulse" />
-          <div className="absolute bottom-1/3 right-1/4 w-[400px] h-[400px] bg-teal-400/15 rounded-full blur-[80px] animate-float" />
-          <div className="absolute inset-0 bg-dot-grid opacity-40" />
-        </div>
-        <div className="relative bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl shadow-slate-300/30 border border-slate-200/60 p-10 max-w-md w-full text-center animate-fade-in">
-          <div className="inline-flex w-20 h-20 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl items-center justify-center mx-auto mb-8 shadow-lg shadow-emerald-500/25 ring-4 ring-emerald-100">
-            <CheckCircle className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold text-slate-900 mb-4">Application Submitted!</h1>
-          <p className="text-slate-600 mb-8 leading-relaxed">
-            Thank you for your interest in becoming a vendor. We&apos;ll review your application and get back to you soon.
-          </p>
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => setIsSubmitted(false)}
-              className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-500/25 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-            >
-              Submit Another Application
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsSubmitted(false)}
-              className="w-full border-2 border-slate-200 text-slate-700 font-medium py-3 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-colors text-center focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-2"
-            >
-              Back to landing page
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen relative overflow-x-hidden">
       {/* Animated gradient mesh — below hero only */}
@@ -100,72 +19,20 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Navigation Header */}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200/60 shadow-lg shadow-slate-200/20">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <DistroGHLogo size="md" priority />
-
-            {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-4">
-              <Link
-                href="/contact"
-                className="text-slate-600 hover:text-emerald-600 font-medium transition-colors"
-              >
-                Contact
-              </Link>
-              <Link 
-                href="/login"
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-              >
-                Partner Login
-              </Link>
-            </div>
-
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2.5 rounded-xl hover:bg-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-            >
-              {mobileMenuOpen ? (
-                <X className="w-5 h-5 text-slate-600" />
-              ) : (
-                <Menu className="w-5 h-5 text-slate-600" />
-              )}
-            </button>
-          </div>
-
-          {/* Mobile Menu */}
-          {mobileMenuOpen && (
-            <div className="md:hidden py-4 border-t border-slate-100 animate-fade-in space-y-2">
-              <Link
-                href="/contact"
-                className="block w-full text-center px-6 py-3 text-slate-700 font-medium rounded-xl hover:bg-slate-50"
-              >
-                Contact
-              </Link>
-              <Link 
-                href="/login"
-                className="block w-full text-center px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-colors"
-              >
-                Partner Login
-              </Link>
-            </div>
-          )}
-        </div>
-      </nav>
+      <LandingNav />
 
       {/* Hero Section */}
       <section className="relative isolate overflow-hidden min-h-[85vh] flex items-center">
         <div className="absolute inset-0 z-0">
           <Image
             src="/images/supermarket-3.jpg"
-            alt=""
+            alt="Bright supermarket aisle with fully stocked grocery shelves"
             fill
-            priority
+            preload
+            decoding="sync"
+            quality={70}
             className="object-cover object-center"
-            sizes="100vw"
+            sizes="(max-width: 768px) 100vw, 1200px"
           />
           <div className="absolute inset-0 bg-slate-900/55" />
           <div className="absolute inset-0 bg-gradient-to-b from-emerald-950/45 via-slate-900/35 to-slate-900/70" />
@@ -193,16 +60,16 @@ export default function HomePage() {
 
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-slide-up" style={{ animationDelay: '0.2s' }}>
-              <button
-                onClick={scrollToApplication}
+              <a
+                href="#vendor-application"
                 className="group flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold rounded-xl transition-all shadow-xl shadow-emerald-500/30 hover:shadow-emerald-500/40 hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
               >
                 <Building2 className="w-5 h-5" />
                 Become a Vendor
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </button>
-              
-              <Link 
+              </a>
+
+              <Link
                 href="/login"
                 className="group flex items-center gap-2 px-8 py-4 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl transition-all border-2 border-slate-200 hover:border-emerald-300 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:ring-offset-2"
               >
@@ -286,110 +153,7 @@ export default function HomePage() {
                   </p>
                 </div>
 
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Store Name */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Store Name <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <input
-                      type="text"
-                      required
-                      value={formData.storeName}
-                      onChange={(e) => handleInputChange('storeName', e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-                      placeholder="Enter your store name"
-                    />
-                  </div>
-                </div>
-
-                {/* Contact Email */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Contact Email <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <input
-                      type="email"
-                      required
-                      value={formData.contactEmail}
-                      onChange={(e) => handleInputChange('contactEmail', e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-                      placeholder="your@email.com"
-                    />
-                  </div>
-                </div>
-
-                {/* Telephone number */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Telephone Number <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <input
-                      type="tel"
-                      required
-                      value={formData.contactPhone}
-                      onChange={(e) => handleInputChange('contactPhone', e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-                      placeholder="+233 24 123 4567"
-                      autoComplete="tel"
-                    />
-                  </div>
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Tell us about your business
-                  </label>
-                  <div className="relative">
-                    <FileText className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => handleInputChange('description', e.target.value)}
-                      rows={4}
-                      className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors resize-none"
-                      placeholder="Describe your products, target market, and business goals..."
-                    />
-                  </div>
-                </div>
-
-                {/* Error Message */}
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <p className="text-red-600 text-sm">{error}</p>
-                  </div>
-                )}
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={cn(
-                    'w-full flex items-center justify-center gap-2 py-4 rounded-xl font-semibold transition-colors',
-                    isSubmitting
-                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2'
-                  )}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Processing Application...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-5 h-5" />
-                      Submit Vendor Application
-                    </>
-                  )}
-                </button>
-              </form>
+                <VendorApplicationForm />
               </div>
             </div>
           </div>
