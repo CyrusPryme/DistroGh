@@ -33,6 +33,12 @@ const nextConfig = {
       allowedOrigins: [...allowedOrigins],
     },
   },
+  images: {
+    formats: ['image/avif', 'image/webp'],
+    // Cap full-bleed srcset so the landing hero is not forced to 1920w/3840w.
+    deviceSizes: [640, 750, 828, 1080, 1200],
+    qualities: [70, 75],
+  },
 }
 
 module.exports = nextConfig
