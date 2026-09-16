@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession } from '@/lib/auth/require'
+import { requirePermission } from '@/lib/auth/require'
+import { VENDOR_LIST_SELECT, stripVendorSecrets } from '@/lib/vendors/api-select'
 
 export async function GET() {
-  await requireAdminSession()
+  await requirePermission('vendors', 'read')
   const pool = getDbPool()
   const { rows } = await pool.query(
     `
-    select * from public.vendors
+    select ${VENDOR_LIST_SELECT} from public.vendors
     where list_cleared_at is null
     order by (deleted_at is not null) asc, name asc
     `
@@ -16,7 +17,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  await requireAdminSession()
+  await requirePermission('vendors', 'create')
   const body = await req.json().catch(() => null)
   const name = (body?.name ?? '').toString().trim()
   const momo_number = (body?.momo_number ?? '').toString().trim()
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
     `
     insert into public.vendors (name, momo_number, momo_network, default_commission)
     values ($1, $2, $3, $4)
-    returning *
+    returning ${VENDOR_LIST_SELECT}
     `,
     [name, momo_number, momo_network, default_commission]
   )

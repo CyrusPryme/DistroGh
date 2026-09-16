@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession } from '@/lib/auth/require'
+import { requirePermission } from '@/lib/auth/require'
+import { allVendorsBalanceFallbackSql } from '@/lib/vendor-balance-sql'
 
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission('payouts', 'read')
     const pool = getDbPool()
 
     const [pendingPayouts, vendorBalances] = await Promise.all([
@@ -18,7 +19,7 @@ export async function GET() {
             greatest(amount_due - amount_paid, 0) as balance_remaining
           from public.payouts
           where deleted_at is null
-            and status = 'pending'
+            and status in ('pending', 'processing')
             and amount_due > amount_paid
           order by vendor_id, week_start, week_end, amount_paid desc, created_at desc
         )
@@ -39,48 +40,13 @@ export async function GET() {
       ).catch(async () =>
         pool.query(
           `
-          with sales_totals as (
-            select pr.vendor_id, sum(coalesce(s.vendor_due, 0)) as total_due
-            from public.sales s
-            join public.products pr on pr.id = s.product_id
-            where s.deleted_at is null and pr.deleted_at is null
-              and coalesce(s.supermarket_paid, true) = true
-            group by pr.vendor_id
-          ),
-          returns_totals as (
-            select pr.vendor_id,
-              sum(coalesce(r.quantity_returned, 0) * coalesce(pr.vendor_price, 0)) as returns_deduct
-            from public.product_returns r
-            join public.products pr on pr.id = r.product_id
-            where r.deleted_at is null and pr.deleted_at is null
-            group by pr.vendor_id
-          ),
-          deductions_totals as (
-            select vendor_id, sum(coalesce(amount, 0)) as total_deductions
-            from public.vendor_deductions
-            group by vendor_id
-          ),
-          paid_totals as (
-            select vendor_id, sum(coalesce(amount_paid, 0)) as total_paid
-            from public.payouts
-            where deleted_at is null and status <> 'failed'
-            group by vendor_id
-          ),
-          balances as (
-            select
-              (coalesce(st.total_due, 0) - coalesce(rt.returns_deduct, 0)
-                - coalesce(dt.total_deductions, 0) - coalesce(pt.total_paid, 0)) as balance
-            from public.vendors v
-            left join sales_totals st on st.vendor_id = v.id
-            left join returns_totals rt on rt.vendor_id = v.id
-            left join deductions_totals dt on dt.vendor_id = v.id
-            left join paid_totals pt on pt.vendor_id = v.id
-            where v.deleted_at is null
+          with vendor_rows as (
+            ${allVendorsBalanceFallbackSql()}
           )
           select
             count(*)::int as count,
             coalesce(sum(greatest(balance, 0)), 0) as total_balance
-          from balances
+          from vendor_rows
           where balance > 0
           `
         )

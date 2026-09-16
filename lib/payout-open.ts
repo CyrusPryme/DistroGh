@@ -2,7 +2,9 @@ import type { Pool, PoolClient } from 'pg'
 
 type Db = Pool | PoolClient
 
-/** One open payout per vendor — pending with balance remaining. */
+const OPEN_PAYOUT_STATUS_SQL = `status in ('pending', 'processing')`
+
+/** One open payout per vendor — pending/processing with balance remaining. */
 export async function findOpenPayoutForVendor(
   db: Db,
   vendorId: string
@@ -13,7 +15,7 @@ export async function findOpenPayoutForVendor(
     from public.payouts
     where vendor_id = $1::uuid
       and deleted_at is null
-      and status = 'pending'
+      and ${OPEN_PAYOUT_STATUS_SQL}
       and amount_due > coalesce(amount_paid, 0)
     order by created_at desc
     limit 1
@@ -31,7 +33,7 @@ export async function vendorIdsWithOpenPayouts(db: Db, vendorIds: string[]): Pro
     from public.payouts
     where vendor_id = any($1::uuid[])
       and deleted_at is null
-      and status = 'pending'
+      and ${OPEN_PAYOUT_STATUS_SQL}
       and amount_due > coalesce(amount_paid, 0)
     `,
     [vendorIds]

@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession } from '@/lib/auth/require'
+import { assertAdminPermission, requireSession } from '@/lib/auth/require'
 import { checkProductIntegrity } from '@/lib/product-integrity'
 
 export async function GET(req: Request) {
   try {
-    await requireSession()
+    const session = await requireSession()
+    if (session.role === 'admin') {
+      assertAdminPermission(session, 'products', 'read')
+    }
     const url = new URL(req.url)
     const name = url.searchParams.get('name') ?? ''
     const sku = url.searchParams.get('sku') ?? ''

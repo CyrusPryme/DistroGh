@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession, requireSession } from '@/lib/auth/require'
+import { assertAdminPermission, requirePermission, requireSession } from '@/lib/auth/require'
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await requireSession()
   const { id } = await ctx.params
+  if (session.role === 'admin') {
+    assertAdminPermission(session, 'returns', 'read')
+  }
 
   const pool = getDbPool()
   const { rows } = await pool.query(
@@ -39,7 +42,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('returns', 'update')
   const { id } = await ctx.params
   const body = await req.json().catch(() => null)
 
@@ -116,7 +119,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('returns', 'delete')
   const { id } = await ctx.params
   const pool = getDbPool()
   const { rows } = await pool.query(

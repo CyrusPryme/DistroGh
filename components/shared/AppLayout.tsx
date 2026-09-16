@@ -12,6 +12,7 @@ import {
   ShieldAlert, Database, SlidersHorizontal, DatabaseBackup, PanelLeftClose, PanelLeft
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { permKey } from '@/lib/auth/permissions'
 import { deliveryService } from '@/services/delivery.service'
 import { payoutService } from '@/services/payout.service'
 import { ServiceChargeBanner } from '@/components/vendors/ServiceChargeBanner'
@@ -19,8 +20,17 @@ import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { ServiceChargeBanner as ServiceChargeBannerData } from '@/lib/vendor-service-charge'
 
+type NavItem = {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  roles: string[]
+  /** When set, non-elevated admins need module:read in JWT permissions. */
+  permissionModule?: string
+}
+
 // Define navigation items with role-based access
-const navItems = [
+const navItems: NavItem[] = [
   { 
     href: '/dashboard', 
     label: 'Dashboard', 
@@ -45,6 +55,12 @@ const navItems = [
     icon: FileText,
     roles: ['vendor'] // Vendors see sales, returns, payouts by period
   },
+  {
+    href: '/dashboard/vendor/activity',
+    label: 'Product flow',
+    icon: ClipboardList,
+    roles: ['vendor'],
+  },
   { 
     href: '/dashboard/vendor/delivery-status', 
     label: 'Delivery status', 
@@ -57,6 +73,12 @@ const navItems = [
     icon: Users,
     roles: ['admin'] // Only admin
   },
+  {
+    href: '/dashboard/vendors/activity',
+    label: 'Vendor flow',
+    icon: ClipboardList,
+    roles: ['admin'],
+  },
   { 
     href: '/dashboard/admin/applications', 
     label: 'Applications', 
@@ -67,7 +89,8 @@ const navItems = [
     href: '/dashboard/products', 
     label: 'Products', 
     icon: Package,
-    roles: ['admin', 'vendor'] // Admin and vendors
+    roles: ['admin', 'vendor'],
+    permissionModule: 'products',
   },
   { 
     href: '/dashboard/sales', 
@@ -91,7 +114,8 @@ const navItems = [
     href: '/dashboard/returns', 
     label: 'Returns', 
     icon: RotateCcw,
-    roles: ['admin', 'vendor'] // Record and view returned/defective items
+    roles: ['admin', 'vendor'],
+    permissionModule: 'returns',
   },
   { 
     href: '/dashboard/receiving', 
@@ -103,7 +127,8 @@ const navItems = [
     href: '/dashboard/deliveries', 
     label: 'Deliveries', 
     icon: Truck,
-    roles: ['admin'] // Deliveries to supermarkets + transport cost
+    roles: ['admin'],
+    permissionModule: 'deliveries',
   },
   { 
     href: '/dashboard/supermarkets', 
@@ -121,7 +146,8 @@ const navItems = [
     href: '/dashboard/payouts', 
     label: 'Payouts', 
     icon: CreditCard,
-    roles: ['admin'] // Only admin
+    roles: ['admin'],
+    permissionModule: 'payouts',
   },
   { 
     href: '/dashboard/reports', 
@@ -144,6 +170,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [userAdminRole, setUserAdminRole] = useState<string | null>(null)
+  const [userPermissions, setUserPermissions] = useState<string[] | null>(null)
   const [userEmail, setUserEmail] = useState<string>('')
   const [displayName, setDisplayName] = useState<string | null>(null)
   const [vendorInfo, setVendorInfo] = useState<{ name: string } | null>(null)
@@ -181,6 +208,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (!res.ok || !json?.success) {
         setUserRole(null)
         setUserAdminRole(null)
+        setUserPermissions(null)
         setUserEmail('')
         setVendorInfo(null)
         setServiceChargeBanner(null)
@@ -191,10 +219,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const email = (json.data?.email ?? '') as string
       const vendorId = (json.data?.vendor_id ?? null) as string | null
       const adminRole = (json.data?.admin_role ?? null) as string | null
+      const permissions = (json.data?.permissions ?? null) as string[] | null
       const dn = (json.data?.display_name ?? null) as string | null
 
       setUserRole(role ?? null)
       setUserAdminRole(adminRole)
+      setUserPermissions(Array.isArray(permissions) ? permissions : null)
       setDisplayName(dn)
       setUserEmail(email)
 
@@ -250,9 +280,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Filter navigation items based on user role. When role not yet loaded, only show items
   // that include vendor (minimal set so we never show Supermarkets, Reports, etc. to vendors)
-  const visibleNavItems = navItems.filter(item => {
+  const visibleNavItems = navItems.filter((item) => {
     if (!userRole) return false
-    return item.roles.includes(userRole)
+    if (!item.roles.includes(userRole)) return false
+    if (userRole !== 'admin' || !item.permissionModule) return true
+    if (userAdminRole === 'developer' || userAdminRole === 'super_admin') return true
+    return userPermissions?.includes(permKey(item.permissionModule, 'read')) ?? false
   })
 
   const profileHref =

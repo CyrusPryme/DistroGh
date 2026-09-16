@@ -22,6 +22,7 @@ type DashboardSortableTableProps<T> = {
   rowKey: (row: T) => string
   empty?: React.ReactNode
   compact?: boolean
+  onRowClick?: (row: T) => void
 }
 
 export function DashboardSortableTable<T>({
@@ -30,6 +31,7 @@ export function DashboardSortableTable<T>({
   rowKey,
   empty,
   compact = true,
+  onRowClick,
 }: DashboardSortableTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -98,7 +100,11 @@ export function DashboardSortableTable<T>({
         </thead>
         <tbody>
           {sorted.map((row) => (
-            <tr key={rowKey(row)} className="hover:bg-slate-50/80">
+            <tr
+              key={rowKey(row)}
+              className={cn('hover:bg-slate-50/80', onRowClick && 'cursor-pointer')}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               {columns.map((col) => (
                 <td key={col.key} className={cn(col.align === 'right' && 'text-right', col.className)}>
                   {col.render(row)}

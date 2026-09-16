@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { requireSession, requirePermission, getVendorBalanceAmount } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { findOpenPayoutForVendor, vendorIdsWithOpenPayouts } from '@/lib/payout-open'
+import { roundMoney } from '@/lib/utils'
 
 async function attachVendor(pool: ReturnType<typeof getDbPool>, payoutId: string) {
   const { rows } = await pool.query(
@@ -29,6 +30,9 @@ async function attachVendor(pool: ReturnType<typeof getDbPool>, payoutId: string
 export async function GET(req: Request) {
   try {
     const session = await requireSession()
+    if (session.role === 'admin') {
+      await requirePermission('payouts', 'read')
+    }
   const url = new URL(req.url)
   const status = url.searchParams.get('status')?.trim() || null
   const vendorIdParam = url.searchParams.get('vendor_id')?.trim() || null
@@ -67,11 +71,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    await requireAdminSession()
+    await requirePermission('payouts', 'create')
   const body = await req.json().catch(() => null)
 
   const vendor_id = (body?.vendor_id ?? '').toString().trim()
-  const amount_due = Number(body?.amount_due ?? 0)
   const week_start = (body?.week_start ?? '').toString().trim()
   const week_end = (body?.week_end ?? '').toString().trim()
   const vendor_balances = Array.isArray(body?.vendor_balances) ? body.vendor_balances : null
@@ -87,19 +90,26 @@ export async function POST(req: Request) {
 
     type BalanceInsert = { vendor_id: string; balance: number }
 
-    const inserts: BalanceInsert[] = (vendor_balances as Array<{ vendor_id?: string; balance?: number }>)
-      .map((v) => ({
-        vendor_id: (v?.vendor_id ?? '').toString().trim(),
-        balance: Number(v?.balance ?? 0),
-      }))
-      .filter((v): v is BalanceInsert => Boolean(v.vendor_id && v.balance > 0))
+    const vendorIds = [
+      ...new Set(
+        (vendor_balances as Array<{ vendor_id?: string }>)
+          .map((v) => (v?.vendor_id ?? '').toString().trim())
+          .filter(Boolean)
+      ),
+    ]
+
+    const inserts: BalanceInsert[] = []
+    for (const vid of vendorIds) {
+      const balance = roundMoney(await getVendorBalanceAmount(vid, { includeDeductions: true }))
+      if (balance > 0) inserts.push({ vendor_id: vid, balance })
+    }
 
     if (inserts.length === 0) {
       return NextResponse.json({ success: true, data: { created: 0, skipped: 0 } }, { status: 201 })
     }
 
-    const vendorIds = inserts.map((v) => v.vendor_id)
-    const alreadyOpen = await vendorIdsWithOpenPayouts(pool, vendorIds)
+    const insertVendorIds = inserts.map((v) => v.vendor_id)
+    const alreadyOpen = await vendorIdsWithOpenPayouts(pool, insertVendorIds)
     const toInsert = inserts.filter((v) => !alreadyOpen.has(v.vendor_id))
     const skipped = inserts.length - toInsert.length
 
@@ -131,8 +141,12 @@ export async function POST(req: Request) {
   if (!week_start || !week_end) {
     return NextResponse.json({ success: false, error: 'week_start and week_end are required' }, { status: 400 })
   }
-  if (Number.isNaN(amount_due) || amount_due <= 0) {
-    return NextResponse.json({ success: false, error: 'amount_due must be greater than 0' }, { status: 400 })
+  const amount_due = roundMoney(await getVendorBalanceAmount(vendor_id, { includeDeductions: true }))
+  if (!Number.isFinite(amount_due) || amount_due <= 0) {
+    return NextResponse.json(
+      { success: false, error: 'This vendor has no payable balance to open a payout.' },
+      { status: 400 }
+    )
   }
 
   const existing = await findOpenPayoutForVendor(pool, vendor_id)

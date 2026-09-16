@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { assertAdminPermission, requirePermission, requireSession } from '@/lib/auth/require'
 
 export async function GET(req: Request) {
   const session = await requireSession()
+  if (session.role === 'admin') {
+    assertAdminPermission(session, 'returns', 'read')
+  }
   const url = new URL(req.url)
 
   const product_id = url.searchParams.get('product_id')?.trim() || null
@@ -53,7 +56,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  await requireAdminSession()
+  await requirePermission('returns', 'create')
   const body = await req.json().catch(() => null)
 
   const product_id = (body?.product_id ?? '').toString().trim()
@@ -71,12 +74,28 @@ export async function POST(req: Request) {
   if (Number.isNaN(quantity_returned) || quantity_returned <= 0) {
     return NextResponse.json({ success: false, error: 'quantity_returned must be greater than 0' }, { status: 400 })
   }
-  if (Number.isNaN(unit_price) || unit_price < 0) {
-    return NextResponse.json({ success: false, error: 'unit_price cannot be negative' }, { status: 400 })
-  }
   if (!reason) return NextResponse.json({ success: false, error: 'reason is required' }, { status: 400 })
 
   const pool = getDbPool()
+
+  let resolvedUnitPrice = unit_price
+  if (!Number.isFinite(resolvedUnitPrice) || resolvedUnitPrice < 0) {
+    return NextResponse.json({ success: false, error: 'unit_price cannot be negative' }, { status: 400 })
+  }
+  if (resolvedUnitPrice === 0) {
+    const catalog = await pool.query(
+      `select vendor_price from public.products where id = $1::uuid and deleted_at is null limit 1`,
+      [product_id]
+    )
+    resolvedUnitPrice = Number(catalog.rows[0]?.vendor_price ?? 0)
+    if (!Number.isFinite(resolvedUnitPrice) || resolvedUnitPrice < 0) {
+      return NextResponse.json(
+        { success: false, error: 'unit_price is required when the product has no catalog vendor_price' },
+        { status: 400 }
+      )
+    }
+  }
+
   const inserted = await pool.query(
     `
     insert into public.product_returns (
@@ -85,7 +104,7 @@ export async function POST(req: Request) {
     values ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::date)
     returning *
     `,
-    [product_id, supermarket_id, quantity_returned, unit_price, reason, reason_notes, return_date]
+    [product_id, supermarket_id, quantity_returned, resolvedUnitPrice, reason, reason_notes, return_date]
   )
   const row = inserted.rows[0]
   if (!row) return NextResponse.json({ success: false, error: 'Failed to create return' }, { status: 500 })

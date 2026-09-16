@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { assertAdminPermission, requirePermission, requireSession } from '@/lib/auth/require'
 import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
 import { checkProductIntegrity, productIntegritySaveError } from '@/lib/product-integrity'
 import { writeAuditLog, actorFromSession } from '@/lib/rbac/audit'
@@ -13,6 +13,9 @@ function normalizeSkuValue(s: unknown): string {
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await requireSession()
   const { id } = await ctx.params
+  if (session.role === 'admin') {
+    assertAdminPermission(session, 'products', 'read')
+  }
 
   // A vendor session with no linked vendor_id must never fall through to an unscoped query.
   if (session.role === 'vendor' && !session.vendor_id) {
@@ -45,7 +48,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const session = await requireAdminSession()
+  const session = await requirePermission('products', 'update')
   const { id } = await ctx.params
   const body = await req.json().catch(() => null)
 
@@ -234,7 +237,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('products', 'delete')
   const { id } = await ctx.params
   const pool = getDbPool()
   const { rows } = await pool.query(

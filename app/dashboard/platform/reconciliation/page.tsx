@@ -106,11 +106,20 @@ export default function ReconciliationPage() {
       </div>
 
       {/* Formula */}
-      <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-sm text-violet-800">
-        <strong>Reconciliation Formula:</strong><br />
-        <span className="font-mono text-xs">
-          Sales Revenue = Vendor Due + Developer Revenue + DistroGH Revenue<br />
-          Expected Vendor Payable = Vendor Due − Returns − Deductions − Transport Charges − Completed Payouts
+      <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-sm text-violet-800 space-y-2">
+        <p>
+          <strong>Period panel</strong> — activity between your dates (sales lines, returns logged, deductions,
+          MoMo completed in period, transport allocated). Vendor due in period counts only{' '}
+          <strong>supermarket-settled</strong> sales.
+        </p>
+        <p>
+          <strong>Variance check (lifetime)</strong> — compares total vendor balance owed today (active vendors)
+          against the ledger roll-up: settled sales vendor due − returns (capped by settled sales per product/branch)
+          − all deductions − payouts recorded (non-failed, including partial pending). Transport is included when
+          posted as vendor deductions, not subtracted twice.
+        </p>
+        <span className="font-mono text-xs block">
+          Sales Revenue ≈ Vendor Due (settled) + Developer Revenue + DistroGH Revenue (period)
         </span>
       </div>
 
@@ -178,15 +187,15 @@ export default function ReconciliationPage() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                     {[
                       { l: 'Total Sales Revenue',   v: fmt(run.total_sales_revenue),    c: 'text-slate-800' },
-                      { l: 'Vendor Due',             v: fmt(run.total_vendor_due),        c: 'text-blue-700' },
+                      { l: 'Vendor Due (settled, period)', v: fmt(run.total_vendor_due),  c: 'text-blue-700' },
                       { l: 'Developer Revenue',      v: fmt(run.total_developer_revenue), c: 'text-violet-700' },
                       { l: 'DistroGH Revenue',       v: fmt(run.total_distrogh_revenue),  c: 'text-emerald-700' },
                       { l: 'Returns Value',          v: fmt(run.total_returns_value),     c: 'text-orange-600' },
                       { l: 'Deductions',             v: fmt(run.total_deductions),        c: 'text-red-600' },
                       { l: 'Completed Payouts',      v: fmt(run.total_payouts_completed), c: 'text-slate-600' },
                       { l: 'Transport Charges',      v: fmt(run.total_transport_charges), c: 'text-slate-600' },
-                      { l: 'Expected Vendor Balance',v: fmt(run.expected_vendor_payable), c: 'text-slate-700' },
-                      { l: 'Actual Vendor Balance',  v: fmt(run.actual_vendor_balance_sum),'c': 'text-slate-700' },
+                      { l: 'Expected balance (ledger)', v: fmt(run.expected_vendor_payable), c: 'text-slate-700' },
+                      { l: 'Actual balance (sum)', v: fmt(run.actual_vendor_balance_sum), c: 'text-slate-700' },
                     ].map(r => (
                       <div key={r.l} className="bg-slate-50 rounded-lg p-3">
                         <p className={cn('font-bold', r.c)}>{r.v}</p>

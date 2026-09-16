@@ -1,28 +1,35 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession, requireVendorSelfOrAdmin } from '@/lib/auth/require'
+import { requirePermission, requireVendorSelfOrAdmin } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { enforceVendorServiceCharge } from '@/lib/vendor-service-charge-enforce'
+import { VENDOR_LIST_SELECT, stripVendorSecrets } from '@/lib/vendors/api-select'
 
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params
-    await requireVendorSelfOrAdmin(id)
+    const session = await requireVendorSelfOrAdmin(id)
     const pool = getDbPool()
     await enforceVendorServiceCharge(pool, id)
+    const select =
+      session.role === 'admin'
+        ? `${VENDOR_LIST_SELECT}, initial_password`
+        : VENDOR_LIST_SELECT
     const { rows } = await pool.query(
-      `select * from public.vendors where id = $1::uuid and deleted_at is null limit 1`,
+      `select ${select} from public.vendors where id = $1::uuid and deleted_at is null limit 1`,
       [id]
     )
     if (!rows[0]) return NextResponse.json({ success: true, data: null })
-    return NextResponse.json({ success: true, data: rows[0] })
+    const data =
+      session.role === 'admin' ? rows[0] : stripVendorSecrets(rows[0] as Record<string, unknown>)
+    return NextResponse.json({ success: true, data })
   } catch (e) {
     return apiError(e, 'Failed to load vendor')
   }
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('vendors', 'update')
   const { id } = await ctx.params
   const body = await req.json().catch(() => null)
   const pool = getDbPool()
@@ -57,7 +64,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     update public.vendors
     set ${fields.join(', ')}, updated_at = now()
     where id = $${i}::uuid and deleted_at is null
-    returning *
+    returning ${VENDOR_LIST_SELECT}, initial_password
     `,
     values
   )
@@ -66,7 +73,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('vendors', 'delete')
   const { id } = await ctx.params
   const pool = getDbPool()
   const { rows } = await pool.query(

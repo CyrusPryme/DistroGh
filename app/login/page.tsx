@@ -17,6 +17,9 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>
 
+const showDemoLogin =
+  process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === 'true'
+
 const demoAccounts = [
   {
     role: 'Admin',
@@ -256,45 +259,49 @@ function LoginPageContent() {
               </button>
             </form>
 
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200" />
-              </div>
-              <div className="relative flex justify-center">
-                <span className="px-4 bg-white text-slate-400 text-xs font-medium uppercase tracking-wider">
-                  Demo access
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2.5">
-              {demoAccounts.map((account) => (
-                <button
-                  key={account.email}
-                  type="button"
-                  onClick={() => signInWithDemoAccount(account.email, account.password)}
-                  disabled={isLoggingIn}
-                  className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed group"
-                >
-                  <div className="text-left">
-                    <span className="font-semibold text-slate-800 group-hover:text-emerald-700 transition-colors">
-                      {account.role}
-                    </span>
-                    <span className="text-slate-500 text-sm ml-2">· {account.description}</span>
+            {showDemoLogin ? (
+              <>
+                <div className="relative my-8">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-200" />
                   </div>
-                  {isLoggingIn ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-                  ) : (
-                    <span className="text-xs font-medium text-emerald-600 group-hover:text-emerald-700">
-                      Use →
+                  <div className="relative flex justify-center">
+                    <span className="px-4 bg-white text-slate-400 text-xs font-medium uppercase tracking-wider">
+                      Demo access
                     </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <p className="text-center text-slate-400 text-xs mt-5">
-              Demo accounts for testing only
-            </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  {demoAccounts.map((account) => (
+                    <button
+                      key={account.email}
+                      type="button"
+                      onClick={() => signInWithDemoAccount(account.email, account.password)}
+                      disabled={isLoggingIn}
+                      className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed group"
+                    >
+                      <div className="text-left">
+                        <span className="font-semibold text-slate-800 group-hover:text-emerald-700 transition-colors">
+                          {account.role}
+                        </span>
+                        <span className="text-slate-500 text-sm ml-2">· {account.description}</span>
+                      </div>
+                      {isLoggingIn ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                      ) : (
+                        <span className="text-xs font-medium text-emerald-600 group-hover:text-emerald-700">
+                          Use →
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-center text-slate-400 text-xs mt-5">
+                  Demo accounts for testing only
+                </p>
+              </>
+            ) : null}
           </div>
 
           <p className="text-center text-slate-400 text-xs mt-6">

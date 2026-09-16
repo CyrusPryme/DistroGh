@@ -70,9 +70,28 @@ export async function getServerUserProfile() {
   }
 }
 
-export { hasPermission }
+export { hasPermission, assertPermission }
 
-/** Vendor balance: sales due − returns − optional deductions − completed payouts. */
+/** Admin sessions must hold the permission; vendors and other roles are not checked here. */
+export function assertAdminPermission(
+  session: SessionPayload,
+  module: string,
+  action: PermissionAction
+): void {
+  if (session.role !== 'admin') return
+  assertPermission(session, module, action)
+}
+
+/** Server actions: admin with a specific RBAC permission. */
+export async function requireAdminWithPermission(module: string, action: PermissionAction) {
+  const session = await requirePermission(module, action)
+  return {
+    user: { id: session.user_id, email: session.email },
+    profile: { role: session.role, vendor_id: session.vendor_id },
+  }
+}
+
+/** Vendor balance: settled sales − returns − optional deductions − payouts recorded (non-failed). */
 export async function getVendorBalanceAmount(
   vendorId: string,
   options: VendorBalanceOptions = {}

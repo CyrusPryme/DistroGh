@@ -1,7 +1,7 @@
 'use server'
 
 import { getDbPool } from '@/lib/db'
-import { requireAdmin } from '@/lib/auth/require'
+import { requireAdminWithPermission } from '@/lib/auth/require'
 import type { ProductFormValues } from '@/lib/validations'
 import type { Product } from '@/types'
 import { computeShopUnitPrice, resolveWholesalePrice } from '@/lib/product-pricing'
@@ -18,9 +18,9 @@ export async function createProductAdmin(
   productImagePaths?: string[]
 ): Promise<{ product: Product } | { error: string }> {
   try {
-    await requireAdmin()
+    await requireAdminWithPermission('products', 'create')
   } catch {
-    return { error: 'Only admins can add products' }
+    return { error: 'You do not have permission to add products.' }
   }
 
   if (payload.vendor_price < 0 || payload.distrogh_markup < 0) {

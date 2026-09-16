@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Plus, Phone, Edit2, Eye, Trash2, AlertCircle, Users, Clock, ShieldCheck, Archive, CreditCard, KeyRound,
+  ClipboardList,
 } from 'lucide-react'
 import { canAdminActivateVendor, getVendorVerificationStage } from '@/lib/vendor-verification'
 import { VendorModal } from '@/components/vendors/VendorModal'
@@ -273,6 +274,15 @@ export default function VendorsPage() {
         <PageHeader
           title="Vendors"
           description="Manage supplier accounts, portal access, and outstanding payables"
+          actions={
+            <Link
+              href="/dashboard/vendors/activity"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+            >
+              <ClipboardList className="h-4 w-4 text-brand-600" />
+              Vendor flow
+            </Link>
+          }
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4">

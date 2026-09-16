@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession } from '@/lib/auth/require'
+import { assertAdminPermission, requireSession } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { DELIVERY_RUN_SELECT } from '@/lib/delivery-run-sql'
 
@@ -10,6 +10,9 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
   try {
     const session = await requireSession()
     const { id } = await ctx.params
+    if (session.role === 'admin') {
+      assertAdminPermission(session, 'deliveries', 'read')
+    }
 
     // A vendor session with no linked vendor_id must never fall through to an unscoped query.
     if (session.role === 'vendor' && !session.vendor_id) {

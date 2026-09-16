@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { requirePermission, requireSession } from '@/lib/auth/require'
 
 export async function GET(req: Request) {
   const session = await requireSession()
   if (session.role === 'vendor') {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+  }
+  if (session.role === 'admin') {
+    await requirePermission('deductions', 'read')
   }
   const url = new URL(req.url)
   const vendorIdParam = url.searchParams.get('vendor_id')?.trim() || null
@@ -32,7 +35,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  await requireAdminSession()
+  await requirePermission('deductions', 'create')
   const body = await req.json().catch(() => null)
 
   const vendor_id = (body?.vendor_id ?? '').toString().trim()

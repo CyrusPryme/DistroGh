@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession, requireSession } from '@/lib/auth/require'
+import { requirePermission, requireSession } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import {
   appendMomoTxnId,
@@ -37,6 +37,9 @@ async function fetchPayoutWithVendor(pool: ReturnType<typeof getDbPool>, payoutI
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const session = await requireSession()
+    if (session.role === 'admin') {
+      await requirePermission('payouts', 'read')
+    }
     const { id } = await ctx.params
     const pool = getDbPool()
     const { rows } = await pool.query(
@@ -65,7 +68,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    await requirePermission('payouts', 'update')
     const { id } = await ctx.params
     const body = await req.json().catch(() => null)
     const pool = getDbPool()
@@ -247,9 +250,27 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
 export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    await requirePermission('payouts', 'delete')
     const { id } = await ctx.params
     const pool = getDbPool()
+    const current = await pool.query(
+      `select amount_paid from public.payouts where id = $1::uuid and deleted_at is null limit 1`,
+      [id]
+    )
+    const row = current.rows[0]
+    if (!row) {
+      return NextResponse.json({ success: false, error: 'Payout not found.' }, { status: 404 })
+    }
+    if (payoutAmountPaid(row) > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Cannot delete a payout that has recorded payments. Mark it failed or restore balance another way.',
+        },
+        { status: 400 }
+      )
+    }
     const { rows } = await pool.query(
       `update public.payouts set deleted_at = now(), updated_at = now() where id = $1::uuid and deleted_at is null returning id`,
       [id]

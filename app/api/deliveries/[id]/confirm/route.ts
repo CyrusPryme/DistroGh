@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession } from '@/lib/auth/require'
+import { requirePermission } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { applyDeliveryVendorCharges } from '@/lib/delivery-charges'
 import { DELIVERY_RUN_SELECT } from '@/lib/delivery-run-sql'
@@ -30,7 +30,7 @@ function parseCustomAllocation(body: unknown): DeliveryAllocationLine[] | undefi
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const session = await requireAdminSession()
+    const session = await requirePermission('deliveries', 'approve')
     const { id } = await ctx.params
     const body = await req.json().catch(() => ({}))
     const customAllocation = parseCustomAllocation(body)

@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession, requireSession } from '@/lib/auth/require'
+import { requirePermission, requireSession } from '@/lib/auth/require'
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await requireSession()
   if (session.role === 'vendor') {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+  }
+  if (session.role === 'admin') {
+    await requirePermission('deductions', 'read')
   }
   const { id } = await ctx.params
 
@@ -24,7 +27,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('deductions', 'update')
   const { id } = await ctx.params
   const body = await req.json().catch(() => null)
 
@@ -88,7 +91,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdminSession()
+  await requirePermission('deductions', 'delete')
   const { id } = await ctx.params
   const pool = getDbPool()
   await pool.query(`delete from public.vendor_deductions where id = $1::uuid`, [id])

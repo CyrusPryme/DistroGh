@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession } from '@/lib/auth/require'
+import { requirePermission } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { computeRunChargeAllocation, loadRunItemsWithVendors, mapChargeRows } from '@/lib/delivery-charges'
 
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdminSession()
+    await requirePermission('deliveries', 'read')
     const { id } = await ctx.params
     const pool = getDbPool()
 

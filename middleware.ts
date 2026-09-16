@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 import { getAuthSecret } from '@/lib/auth/config'
+import { adminCanAccessDashboardPath } from '@/lib/auth/dashboard-path-permissions'
 
 const isDev = process.env.NODE_ENV === 'development'
 
@@ -78,6 +79,9 @@ export async function middleware(request: NextRequest) {
 
     if (session.role === 'admin') {
       if (!isAdminPathAllowed(session, pathname)) {
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+      if (!adminCanAccessDashboardPath(session, pathname)) {
         return NextResponse.redirect(new URL('/dashboard', request.url))
       }
       return NextResponse.next()

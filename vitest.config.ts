@@ -7,8 +7,26 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'lib',
+          include: ['src/test/lib/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'ui',
+          include: ['src/test/**/*.test.{ts,tsx}'],
+          exclude: ['src/test/lib/**'],
+          environment: 'jsdom',
+          setupFiles: ['./src/test/setup-dom.ts'],
+        },
+      },
+    ],
   },
   resolve: {
     alias: {

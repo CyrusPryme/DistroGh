@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Filter,
   Download,
+  Info,
 } from 'lucide-react'
 import { returnsService, type CreateReturnPayload } from '@/services/returns.service'
 import { createReturnAdmin } from './actions'
@@ -190,8 +191,8 @@ function ReturnsContent() {
         title="Returned / Defective Items"
         description={
           role === 'vendor'
-            ? 'Returns reported by supermarkets (defective, expired, or unacceptable items).'
-            : 'Record returns from supermarkets. Deductions are applied to sales and product dashboards.'
+            ? 'Returns reported by supermarkets (defective, expired, or unacceptable items). They only reduce your payable balance for the same product at that branch after DistroGH has recorded supermarket settlement on those sales.'
+            : 'Record returns from supermarkets. Vendor payout balance is reduced only for the same product and branch, and only up to sales the supermarket has already settled with DistroGH (PAID / settled on import).'
         }
         actions={
           <>
@@ -354,11 +355,22 @@ function ReturnsContent() {
         open={modalOpen}
         onClose={() => !submitting && setModalOpen(false)}
         title="Record return"
-        description="Deductions will apply to sales and product reports."
+        description="Log stock returned or written off at a branch. Balance impact follows supermarket settlement rules below."
         disableBackdropClose={submitting}
       >
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <FormModalBody>
+              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-sky-50 border border-sky-200 text-sm text-slate-700">
+                <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" aria-hidden />
+                <p>
+                  <span className="font-medium text-slate-800">Vendor balance:</span> this return reduces payout
+                  balance only for the same product at this supermarket, and only by up to{' '}
+                  <span className="font-medium">settled</span> vendor due at that pair (sales marked PAID /
+                  supermarket settled on import). Unsold stock removed from shelf with no settled sales does not
+                  change balance. You can record the return before settlement; the credit applies once those sales
+                  are settled.
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Product *</label>
                 <select
@@ -410,6 +422,10 @@ function ReturnsContent() {
                     onChange={(e) => setForm((prev) => ({ ...prev, unit_price: Number(e.target.value) || 0 }))}
                     className="form-input"
                   />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Vendor amount per unit (defaults from catalog if left at 0). Used to calculate balance credit,
+                    capped by settled sales at this product and branch.
+                  </p>
                 </div>
               </div>
               <div>

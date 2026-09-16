@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession } from '@/lib/auth/require'
+import { requirePermission } from '@/lib/auth/require'
 import { roundMoney, normalizeSaleMonthPeriod } from '@/lib/utils'
 import { resolveProductPricing, assertSupermarketTotalNotStoredAsVendorDue } from '@/lib/product-pricing'
 import {
@@ -27,7 +27,7 @@ type SaleInsert = {
 }
 
 export async function POST(req: Request) {
-  await requireAdminSession()
+  await requirePermission('sales', 'create')
   const body = await req.json().catch(() => null)
   const sales = (Array.isArray(body) ? body : []) as SaleInsert[]
 
@@ -249,10 +249,31 @@ export async function POST(req: Request) {
         [supermarket_id, product_id]
       )
 
+      const onHandRes = await client.query(
+        `
+        select quantity
+        from public.supermarket_inventory
+        where supermarket_id = $1::uuid and product_id = $2::uuid
+        for update
+        `,
+        [supermarket_id, product_id]
+      )
+      const onHand = Math.floor(Number(onHandRes.rows[0]?.quantity ?? 0))
+      if (sold > onHand) {
+        await client.query('rollback')
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Insufficient shelf stock for product ${product_id} at supermarket ${supermarket_id}: on hand ${onHand}, import wants ${sold}.`,
+          },
+          { status: 400 }
+        )
+      }
+
       await client.query(
         `
         update public.supermarket_inventory
-        set quantity = greatest(0, quantity - $3::int),
+        set quantity = quantity - $3::int,
             updated_at = now()
         where supermarket_id = $1::uuid and product_id = $2::uuid
         `,

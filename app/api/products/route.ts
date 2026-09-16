@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireSession, requireAdminSession } from '@/lib/auth/require'
+import { assertAdminPermission, requirePermission, requireSession } from '@/lib/auth/require'
 import { computeShopUnitPrice } from '@/lib/product-pricing'
 
 export async function GET(req: Request) {
   const session = await requireSession()
+  if (session.role === 'admin') {
+    assertAdminPermission(session, 'products', 'read')
+  }
   const url = new URL(req.url)
   const vendorIdParam = url.searchParams.get('vendor_id')
 
@@ -45,7 +48,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  await requireAdminSession()
+  await requirePermission('products', 'create')
   const body = await req.json().catch(() => null)
 
   const name = (body?.name ?? '').toString().trim()

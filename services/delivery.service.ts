@@ -95,11 +95,19 @@ export const deliveryService = {
     })
   },
 
-  async getAllRuns(filters?: { supermarket_id?: string; from?: string; to?: string }): Promise<DeliveryRun[]> {
+  async getAllRuns(filters?: {
+    supermarket_id?: string
+    vendor_id?: string
+    from?: string
+    to?: string
+    confirmed?: boolean
+  }): Promise<DeliveryRun[]> {
     const params = new URLSearchParams()
     if (filters?.supermarket_id) params.set('supermarket_id', filters.supermarket_id)
+    if (filters?.vendor_id) params.set('vendor_id', filters.vendor_id)
     if (filters?.from) params.set('from', filters.from)
     if (filters?.to) params.set('to', filters.to)
+    if (filters?.confirmed) params.set('confirmed', '1')
     const qs = params.toString()
     return apiFetch<DeliveryRun[]>(`/api/deliveries${qs ? `?${qs}` : ''}`, {
       fallbackError: 'Failed to load deliveries',

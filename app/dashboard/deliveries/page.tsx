@@ -60,15 +60,25 @@ function DeliveryRunItemsTable({
   items,
   vendorNameById,
   barcodeByProductId,
+  vendorIdFilter,
 }: {
   items: RunLineItem[]
   vendorNameById: Map<string, string>
   barcodeByProductId?: Map<string, string>
+  /** When set, only show line items for this vendor (multi-vendor runs). */
+  vendorIdFilter?: string
 }) {
-  if (!items.length) {
-    return <p className="text-xs text-slate-500">No products on this run.</p>
+  const visible = vendorIdFilter
+    ? items.filter((i) => i.product?.vendor_id === vendorIdFilter)
+    : items
+  if (!visible.length) {
+    return (
+      <p className="text-xs text-slate-500">
+        {vendorIdFilter ? 'No products for the selected vendor on this run.' : 'No products on this run.'}
+      </p>
+    )
   }
-  const sorted = [...items].sort((a, b) =>
+  const sorted = [...visible].sort((a, b) =>
     (a.product?.name ?? '').localeCompare(b.product?.name ?? '')
   )
   const totalQty = sorted.reduce((s, i) => s + Number(i.quantity_delivered), 0)
@@ -299,6 +309,7 @@ function DeliveriesContent() {
   const [modalOpen, setModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [filterSupermarket, setFilterSupermarket] = useState(searchParams?.get('supermarket_id') ?? '')
+  const [filterVendor, setFilterVendor] = useState(searchParams?.get('vendor_id') ?? '')
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -342,11 +353,12 @@ function DeliveriesContent() {
   const loadRuns = useCallback(async () => {
     const r = await deliveryService.getAllRuns({
       supermarket_id: filterSupermarket || undefined,
+      vendor_id: filterVendor || undefined,
       from: filterFrom || undefined,
       to: filterTo || undefined,
     })
     setRuns(r)
-  }, [filterSupermarket, filterFrom, filterTo])
+  }, [filterSupermarket, filterVendor, filterFrom, filterTo])
 
   const loadReferenceData = useCallback(async () => {
     const [stockRows, s, p, v] = await Promise.all([
@@ -385,7 +397,7 @@ function DeliveriesContent() {
   useEffect(() => {
     setRunPage(1)
     setLinePage(1)
-  }, [filterSupermarket, filterFrom, filterTo])
+  }, [filterSupermarket, filterVendor, filterFrom, filterTo])
 
   useEffect(() => {
     setLinePage(1)
@@ -396,6 +408,15 @@ function DeliveriesContent() {
     () => new Map(products.map((p) => [p.id, p.barcode?.trim() ?? ''])),
     [products]
   )
+  const vendorIdByProductId = useMemo(
+    () => new Map(products.map((p) => [p.id, p.vendor_id])),
+    [products]
+  )
+
+  const resolveItemVendorId = useCallback(
+    (item: RunLineItem) => item.product?.vendor_id ?? vendorIdByProductId.get(item.product_id),
+    [vendorIdByProductId]
+  )
 
   const deliveryLines = useMemo((): DeliveryLineRow[] => {
     const rows: DeliveryLineRow[] = []
@@ -404,6 +425,8 @@ function DeliveriesContent() {
       const destination = sm ? formatSupermarketLabel(sm) : '—'
       const items = (run.items ?? []) as RunLineItem[]
       for (const item of items) {
+        const itemVendorId = item.product?.vendor_id ?? vendorIdByProductId.get(item.product_id)
+        if (filterVendor && itemVendorId !== filterVendor) continue
         const barcode =
           item.product?.barcode?.trim() || barcodeByProductId.get(item.product_id) || ''
         rows.push({
@@ -422,7 +445,7 @@ function DeliveriesContent() {
       if (d !== 0) return d
       return a.destination.localeCompare(b.destination)
     })
-  }, [runs, barcodeByProductId])
+  }, [runs, barcodeByProductId, filterVendor, vendorIdByProductId])
 
   const filteredDeliveryLines = useMemo(() => {
     const q = lineSearch.trim().toLowerCase()
@@ -764,6 +787,20 @@ function DeliveriesContent() {
         <div className="flex flex-wrap items-center gap-3">
           <Filter className="w-4 h-4 text-slate-400" />
           <select
+            value={filterVendor}
+            onChange={(e) => setFilterVendor(e.target.value)}
+            className="form-input w-48"
+            aria-label="Filter by vendor"
+          >
+            <option value="">All vendors</option>
+            {vendors
+              .filter((v) => !v.deleted_at)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+          </select>
+          <select
             value={filterSupermarket}
             onChange={(e) => setFilterSupermarket(e.target.value)}
             className="form-input w-48"
@@ -795,6 +832,20 @@ function DeliveriesContent() {
               placeholder="Search product, barcode, destination…"
               className="form-input min-w-[220px] flex-1 max-w-md"
             />
+          )}
+          {(filterSupermarket || filterVendor || filterFrom || filterTo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterSupermarket('')
+                setFilterVendor('')
+                setFilterFrom('')
+                setFilterTo('')
+              }}
+              className="text-xs text-brand-600 hover:underline font-medium"
+            >
+              Clear filters
+            </button>
           )}
         </div>
 
@@ -911,7 +962,10 @@ function DeliveriesContent() {
                 </thead>
                 <tbody>
                   {paginatedRuns.map((run) => {
-                    const items = (run.items ?? []) as RunLineItem[]
+                    const allItems = (run.items ?? []) as RunLineItem[]
+                    const items = filterVendor
+                      ? allItems.filter((i) => resolveItemVendorId(i) === filterVendor)
+                      : allItems
                     const totalQty = items.reduce((s, i) => s + Number(i.quantity_delivered), 0)
                     const isConfirmed = !!run.confirmed_at
                     const isConfirming = confirmingRunId === run.id
@@ -1223,10 +1277,20 @@ function DeliveriesContent() {
                 <Package className="w-4 h-4 text-slate-500" />
                 Products on this run
               </h3>
+              {filterVendor ? (
+                <p className="text-xs text-slate-500 mb-2">
+                  Showing products for{' '}
+                  <span className="font-medium text-slate-700">
+                    {vendorNameById.get(filterVendor) ?? 'selected vendor'}
+                  </span>{' '}
+                  on this run.
+                </p>
+              ) : null}
               <DeliveryRunItemsTable
                 items={(detailModalRun.items ?? []) as RunLineItem[]}
                 vendorNameById={vendorNameById}
                 barcodeByProductId={barcodeByProductId}
+                vendorIdFilter={filterVendor || undefined}
               />
               {detailModalRun.confirmed_at && Number(detailModalRun.total_transport_cost) > 0 && (
                 <div className="mt-6">

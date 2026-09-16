@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
-import { requireAdminSession } from '@/lib/auth/require'
+import { requirePermission } from '@/lib/auth/require'
 
 export async function GET() {
   try {
-    await requireAdminSession()
+    await requirePermission('deliveries', 'read')
     const pool = getDbPool()
     const { rows } = await pool.query(
       `

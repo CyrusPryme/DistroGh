@@ -1,7 +1,7 @@
 'use server'
 
 import { getDbPool } from '@/lib/db'
-import { requireAdmin } from '@/lib/auth/require'
+import { requireAdminWithPermission } from '@/lib/auth/require'
 import type { CreateReturnPayload } from '@/services/returns.service'
 import type { ProductReturn } from '@/types'
 
@@ -9,9 +9,9 @@ export async function createReturnAdmin(
   payload: CreateReturnPayload
 ): Promise<{ return: ProductReturn } | { error: string }> {
   try {
-    await requireAdmin()
+    await requireAdminWithPermission('returns', 'create')
   } catch {
-    return { error: 'Only admins can record returns. Returns are reported by supermarkets.' }
+    return { error: 'You do not have permission to record returns.' }
   }
 
   if (!payload.product_id || !payload.supermarket_id) {
@@ -21,6 +21,18 @@ export async function createReturnAdmin(
   if (payload.unit_price < 0) return { error: 'Unit price cannot be negative' }
 
   const pool = getDbPool()
+  let unitPrice = payload.unit_price
+  if (unitPrice === 0) {
+    const catalog = await pool.query(
+      `select vendor_price from public.products where id = $1::uuid and deleted_at is null limit 1`,
+      [payload.product_id]
+    )
+    unitPrice = Number(catalog.rows[0]?.vendor_price ?? 0)
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      return { error: 'Unit price is required when the product has no catalog vendor_price' }
+    }
+  }
+
   const client = await pool.connect()
   try {
     await client.query('begin')
@@ -36,7 +48,7 @@ export async function createReturnAdmin(
         payload.product_id,
         payload.supermarket_id,
         payload.quantity_returned,
-        payload.unit_price,
+        unitPrice,
         payload.reason,
         payload.reason_notes?.trim() || null,
         payload.return_date || new Date().toISOString().slice(0, 10),
