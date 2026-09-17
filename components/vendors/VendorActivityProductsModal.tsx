@@ -55,7 +55,15 @@ export function VendorActivityProductsModal({
         header: 'Product',
         sortable: true,
         sortValue: (r) => r.product_name,
-        render: (r) => <span className="font-medium text-slate-800">{r.product_name}</span>,
+        render: (r) => (
+          <Link
+            href={`/dashboard/vendors/stock-timeline?product_id=${encodeURIComponent(r.product_id)}&vendor_id=${encodeURIComponent(vendorId)}`}
+            className="font-medium text-brand-700 hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {r.product_name}
+          </Link>
+        ),
       },
       {
         key: 'received',
@@ -98,7 +106,7 @@ export function VendorActivityProductsModal({
         render: (r) => formatNumber(r.warehouse_on_hand),
       },
     ],
-    []
+    [vendorId]
   )
 
   return (
@@ -110,8 +118,8 @@ export function VendorActivityProductsModal({
       maxWidthClass="max-w-4xl"
       error={error}
     >
-      {showVendorProfileLink ? (
-        <p className="mb-3 text-xs">
+      <p className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {showVendorProfileLink ? (
           <Link
             href={`/dashboard/vendors/${vendorId}`}
             className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline"
@@ -119,8 +127,15 @@ export function VendorActivityProductsModal({
             Open vendor profile
             <ExternalLink className="h-3 w-3" />
           </Link>
-        </p>
-      ) : null}
+        ) : null}
+        <Link
+          href={`/dashboard/vendors/stock-timeline?vendor_id=${encodeURIComponent(vendorId)}`}
+          className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline"
+        >
+          Stock timeline (this vendor)
+          <ExternalLink className="h-3 w-3" />
+        </Link>
+      </p>
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-slate-500">

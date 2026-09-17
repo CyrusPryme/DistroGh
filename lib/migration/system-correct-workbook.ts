@@ -215,6 +215,37 @@ export function parseSystemCorrectRowActions(
     return out
   }
 
+  const deleteQtyPhrase = actionRaw.match(/delete\s+quantity\s+of\s+(\d+)/i)
+  if (deleteQtyPhrase && fromDate) {
+    push({
+      kind: 'delete',
+      sourceRows: [row.rowNum],
+      product,
+      onDate: fromDate,
+      matchQty: Number(deleteQtyPhrase[1]),
+    })
+    return out
+  }
+
+  const changeQtyPhrase = actionRaw.match(
+    /change\s+quantity(?:\s+of)?\s+(\d+)\s+to\s+quantity\s*(?:of\s*)?(\d+)/i
+  )
+  if (changeQtyPhrase && fromDate) {
+    const fromQ = Number(changeQtyPhrase[1])
+    const toQ = Number(changeQtyPhrase[2])
+    if (fromQ > 0 && toQ > 0 && fromQ !== toQ) {
+      push({
+        kind: 'update_qty',
+        sourceRows: [row.rowNum],
+        product,
+        fromQty: fromQ,
+        toQty: toQ,
+        onDate: fromDate,
+      })
+    }
+    return out
+  }
+
   const deliveredInAction = actionRaw.match(/delivered\s+(\d+)/i)
   if (deliveredInAction) {
     push({
@@ -292,6 +323,23 @@ export function parseSystemCorrectRowActions(
       toDate: phraseDate,
       matchQty: colQty,
       limitMatches: /one\s+date|2\s+in\s+system/i.test(actionRaw) ? 1 : undefined,
+    })
+    return out
+  }
+
+  if (
+    /(?:2|two)\s+dates|one\s+of\s+the\s+dates/i.test(actionRaw) &&
+    phraseDate &&
+    fromDate
+  ) {
+    push({
+      kind: 'update_date',
+      sourceRows: [row.rowNum],
+      product,
+      fromDate,
+      toDate: phraseDate,
+      matchQty: colQty,
+      limitMatches: 1,
     })
     return out
   }
@@ -400,5 +448,15 @@ export async function findIntakesForDelete(
   }
   sql += ` ORDER BY created_at`
   const { rows } = await client.query<IntakeMatch>(sql, params)
-  return rows
+  if (rows.length || action.matchQty == null) return rows
+
+  // Admin sheets sometimes mis-state the intake date; if exactly one live intake has this qty, use it.
+  const { rows: byQty } = await client.query<IntakeMatch>(
+    `SELECT id, received_date::text, quantity_received
+     FROM intakes
+     WHERE deleted_at IS NULL AND product_id = $1::uuid AND quantity_received = $2
+     ORDER BY received_date, created_at`,
+    [action.product.product_id, action.matchQty]
+  )
+  return byQty.length === 1 ? byQty : rows
 }

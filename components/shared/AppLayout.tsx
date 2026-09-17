@@ -8,7 +8,7 @@ import {
   CreditCard, BarChart3, LogOut, Menu, ChevronRight, ChevronDown,
   Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings,
   Shield, UserCog, KeyRound, ScrollText,
-  Crown, BadgeDollarSign, Scale, ClipboardList, HeartPulse, ArchiveRestore,
+  Crown, BadgeDollarSign, Scale, ClipboardList, CalendarRange, HeartPulse, ArchiveRestore,
   ShieldAlert, Database, SlidersHorizontal, DatabaseBackup, PanelLeftClose, PanelLeft
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -77,6 +77,12 @@ const navItems: NavItem[] = [
     href: '/dashboard/vendors/activity',
     label: 'Vendor flow',
     icon: ClipboardList,
+    roles: ['admin'],
+  },
+  {
+    href: '/dashboard/vendors/stock-timeline',
+    label: 'Stock timeline',
+    icon: CalendarRange,
     roles: ['admin'],
   },
   { 

@@ -28,7 +28,7 @@ function sumRows(rows: VendorActivityRow[], key: keyof VendorActivityRow): numbe
 }
 
 export function VendorActivityPanel({ mode, vendors = [], vendorsLoading }: VendorActivityPanelProps) {
-  const [preset, setPreset] = useState<DashboardDatePreset>('last_8_weeks')
+  const [preset, setPreset] = useState<DashboardDatePreset>('all_time')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())

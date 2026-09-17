@@ -66,6 +66,70 @@ describe('parseSystemCorrectRowActions', () => {
     expect(actions[0]).toMatchObject({ kind: 'delivery_target', deliveredTotal: 64 })
   })
 
+  it('parses CHANGE QUANTITY 31 TO QUANTITY 32', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 2,
+        current_date: '2025-05-02',
+        quantity: '31',
+        action: 'CHANGE QUANTITY 31 TO QUANTITY 32',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({
+      kind: 'update_qty',
+      fromQty: 31,
+      toQty: 32,
+      onDate: '2025-05-02',
+    })
+  })
+
+  it('parses CHANGE QUANTITY 10 TO QUANTITY9 (no space before 9)', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 4,
+        current_date: '2025-12-13',
+        quantity: '10',
+        action: 'CHANGE QUANTITY 10 TO QUANTITY9',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({ kind: 'update_qty', fromQty: 10, toQty: 9 })
+  })
+
+  it('parses DELETE QUANTITY OF 9', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 8,
+        current_date: '2025-03-02',
+        quantity: '9',
+        action: 'DELETE QUANTITY OF 9',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({ kind: 'delete', onDate: '2025-03-02', matchQty: 9 })
+  })
+
+  it('parses duplicate-date intake move to 13 DEC 2025', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 7,
+        current_date: '2025-05-02',
+        quantity: '32',
+        action:
+          'THERE ARE 2 DATES STATED AS 5/2/2025 WITH QUANTITY OF 32 IN SYSTEM CHANGE ONE OF THE DATES TO BECOME 13 DEC 2025',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({
+      kind: 'update_date',
+      fromDate: '2025-05-02',
+      toDate: '2025-12-13',
+      matchQty: 32,
+      limitMatches: 1,
+    })
+  })
+
   it('parses CHANGE TO with date phrase', () => {
     const actions = parseSystemCorrectRowActions(
       row({
@@ -94,12 +158,12 @@ describe('parseSystemCorrectRowActions', () => {
   })
 })
 
-describe('loadSystemCorrectRows batch 4 layout', () => {
-  it('reads DELEVERED column from local workbook when present', async () => {
-    const rows = await loadSystemCorrectRows('discrepancies fix/SYSTEM CORRECT FARMER TORKS 4.xlsx')
-    expect(rows.length).toBeGreaterThan(10)
-    const deliveryOnly = rows.find((r) => r.rowNum === 3)
-    expect(deliveryOnly?.delivered_target).toBe('64')
-    expect(rows.find((r) => r.rowNum === 2)?.action).toMatch(/ADD 1 TO MAKE 32/i)
+describe('loadSystemCorrectRows NASMIN intake correction layout', () => {
+  it('reads ACTION TO BE TAKEN from local workbook when present', async () => {
+    const path = 'discrepancies fix/CORRECTION OF DATES AND QUANTITIES ON INTAKES.xlsx'
+    const rows = await loadSystemCorrectRows(path)
+    expect(rows.length).toBe(8)
+    expect(rows.find((r) => r.rowNum === 2)?.action).toMatch(/CHANGE QUANTITY 31 TO QUANTITY 32/i)
+    expect(rows.find((r) => r.rowNum === 7)?.action).toMatch(/13 DEC 2025/i)
   })
 })
