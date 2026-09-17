@@ -16,7 +16,7 @@ import {
   findIntakesForDelete,
   loadSystemCorrectRows,
   SYSTEM_CORRECT_FILE,
-  SYSTEM_CORRECT_REF,
+  systemCorrectRefForPath,
   type SystemCorrectAction,
 } from '@/lib/migration/system-correct-workbook'
 import type { IntakeMatch } from '@/lib/migration/admin-intake-corrections'
@@ -64,7 +64,8 @@ async function applyDeliveryTarget(
   client: pg.PoolClient,
   action: Extract<SystemCorrectAction, { kind: 'delivery_target' }>,
   spintexId: string,
-  apply: boolean
+  apply: boolean,
+  correctionRef: string
 ): Promise<string> {
   const { rows: chain } = await client.query<{
     received: number
@@ -122,7 +123,7 @@ async function applyDeliveryTarget(
   )
   for (const run of runs) {
     await client.query(
-      `UPDATE delivery_runs SET deleted_at = now(), notes = COALESCE(notes,'') || ' [${SYSTEM_CORRECT_REF}]'
+      `UPDATE delivery_runs SET deleted_at = now(), notes = COALESCE(notes,'') || ' [${correctionRef}]'
        WHERE id = $1::uuid AND deleted_at IS NULL`,
       [run.delivery_run_id]
     )
@@ -132,7 +133,7 @@ async function applyDeliveryTarget(
     `INSERT INTO delivery_runs (supermarket_id, delivery_date, total_transport_cost, notes, source, destination_type)
      VALUES ($1::uuid, CURRENT_DATE, NULL, $2, 'HISTORICAL_MIGRATION', 'BRANCH')
      RETURNING id`,
-    [spintexId, `${SYSTEM_CORRECT_REF}:delivery-target`]
+    [spintexId, `${correctionRef}:delivery-target`]
   )
   await client.query(
     `INSERT INTO delivery_run_items (delivery_run_id, product_id, quantity_delivered)
@@ -167,6 +168,7 @@ async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL required')
 
   const rows = await loadSystemCorrectRows(filePath)
+  const correctionRef = systemCorrectRefForPath(filePath)
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
   const spintexId = await resolvePalaceSpintexId(pool)
   if (!spintexId) throw new Error('Palace Spintex not found')
@@ -175,6 +177,7 @@ async function main() {
 
   console.log(`=== System correct workbook (${APPLY ? 'APPLY' : 'DRY RUN'}) ===`)
   console.log('File:', filePath)
+  console.log('Reference tag:', correctionRef)
   console.log('Rows:', rows.length)
   console.log(
     'Actions:',
@@ -213,7 +216,7 @@ async function main() {
               `UPDATE intakes SET deleted_at = now(),
                reference = COALESCE(NULLIF(reference, ''), $2)
                WHERE id = $1::uuid AND deleted_at IS NULL`,
-              [m.id, SYSTEM_CORRECT_REF]
+              [m.id, correctionRef]
             )
           }
         }
@@ -240,7 +243,7 @@ async function main() {
               action.product.product_id,
               action.qty,
               action.receivedDate,
-              SYSTEM_CORRECT_REF,
+              correctionRef,
             ]
           )
         }
@@ -259,7 +262,9 @@ async function main() {
           skipped.push(`${label} — no intake on ${action.fromDate}`)
           continue
         }
-        for (const m of matches) {
+        const toUpdate =
+          action.limitMatches != null ? matches.slice(0, action.limitMatches) : matches
+        for (const m of toUpdate) {
           if (m.received_date.startsWith(action.toDate) && (action.toQty == null || m.quantity_received === action.toQty)) {
             skipped.push(`${label} — already ${action.toDate}×${action.toQty ?? m.quantity_received} (${m.id})`)
             continue
@@ -314,7 +319,7 @@ async function main() {
       }
 
       if (action.kind === 'delivery_target') {
-        applied.push(await applyDeliveryTarget(client, action, spintexId, APPLY))
+        applied.push(await applyDeliveryTarget(client, action, spintexId, APPLY, correctionRef))
       }
     }
 

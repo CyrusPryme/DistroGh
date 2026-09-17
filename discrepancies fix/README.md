@@ -13,7 +13,7 @@ Admin review spreadsheets generated from production cross-checks of **intakes �
 
 ## Start here
 
-1. **`ADMIN-ATTENTION.md`** — plain-language summary of what still needs review (updated after each correction batch).
+1. **`ADMIN-ATTENTION.md`** — plain-language summary (regenerated locally; gitignored — run `summarize-discrepancies-for-admin.ts`).
 2. **`DISCREPANCY-SUMMARY.xlsx`** — counts per category (auto vs admin).
 3. **`CHRONOLOGY-FIX.xlsx`** — only open items right now (date-order warnings; quantities are balanced).
 
