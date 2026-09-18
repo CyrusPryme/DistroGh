@@ -110,6 +110,49 @@ describe('parseSystemCorrectRowActions', () => {
     expect(actions[0]).toMatchObject({ kind: 'delete', onDate: '2025-03-02', matchQty: 9 })
   })
 
+  it('parses CHANGE received 88 TO received 21', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 5,
+        current_date: '2025-06-30',
+        quantity: '88',
+        action: 'CHANGE received 88 TO received 21',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({ kind: 'update_qty', fromQty: 88, toQty: 21, onDate: '2025-06-30' })
+  })
+
+  it('parses change delivered quantity 88 to delivered quantity 21', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 9,
+        current_date: '2025-07-08',
+        action: 'change delivered quantity 88 to delivered quantity 21',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({
+      kind: 'update_delivery_qty',
+      fromQty: 88,
+      toQty: 21,
+      onDate: '2025-07-08',
+    })
+  })
+
+  it('parses DELETE receive 1 and delivered 1', () => {
+    const actions = parseSystemCorrectRowActions(
+      row({
+        rowNum: 11,
+        current_date: '2025-06-02',
+        quantity: '1',
+        action: 'DELETE receive 1 and delivered 1',
+      }),
+      product
+    )
+    expect(actions[0]).toMatchObject({ kind: 'delete_receive_and_delivery', qty: 1, onDate: '2025-06-02' })
+  })
+
   it('parses duplicate-date intake move to 13 DEC 2025', () => {
     const actions = parseSystemCorrectRowActions(
       row({
@@ -158,12 +201,12 @@ describe('parseSystemCorrectRowActions', () => {
   })
 })
 
-describe('loadSystemCorrectRows NASMIN intake correction layout', () => {
+describe('loadSystemCorrectRows admin receiving/delivery layout', () => {
   it('reads ACTION TO BE TAKEN from local workbook when present', async () => {
-    const path = 'discrepancies fix/CORRECTION OF DATES AND QUANTITIES ON INTAKES.xlsx'
+    const path = 'discrepancies fix/receving and delivered corrcetion for nasmin.xlsx'
     const rows = await loadSystemCorrectRows(path)
-    expect(rows.length).toBe(8)
-    expect(rows.find((r) => r.rowNum === 2)?.action).toMatch(/CHANGE QUANTITY 31 TO QUANTITY 32/i)
-    expect(rows.find((r) => r.rowNum === 7)?.action).toMatch(/13 DEC 2025/i)
+    expect(rows.length).toBe(11)
+    expect(rows.find((r) => r.rowNum === 5)?.action).toMatch(/CHANGE received 88 TO received 21/i)
+    expect(rows.find((r) => r.rowNum === 9)?.action).toMatch(/delivered quantity 88/i)
   })
 })

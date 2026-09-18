@@ -2,6 +2,8 @@
 
 Admin review spreadsheets generated from production cross-checks of **intakes → deliveries → sales → returns → supermarket_inventory** (Palace Spintex).
 
+After one-off imports (Lulu deliveries, NASMIN intake corrections, etc.), applied source/state files are removed from this folder. Regenerate workbooks when you need a fresh cross-check.
+
 ## Business rules
 
 | Data | Rule |

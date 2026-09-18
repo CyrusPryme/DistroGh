@@ -90,6 +90,21 @@ export type SystemCorrectAction =
       deliveredTotal: number
       notes: string
     }
+  | {
+      kind: 'delete_receive_and_delivery'
+      sourceRows: number[]
+      product: ResolvedProduct
+      onDate: string
+      qty: number
+    }
+  | {
+      kind: 'update_delivery_qty'
+      sourceRows: number[]
+      product: ResolvedProduct
+      onDate: string
+      fromQty: number
+      toQty: number
+    }
 
 function cellVal(v: ExcelJS.CellValue): string {
   if (v == null) return ''
@@ -215,6 +230,53 @@ export function parseSystemCorrectRowActions(
     return out
   }
 
+  const deleteRecvDel = actionRaw.match(/delete\s+receive\s+(\d+)\s+and\s+delivered\s+(\d+)/i)
+  if (deleteRecvDel && fromDate) {
+    const q = Number(deleteRecvDel[1])
+    push({
+      kind: 'delete_receive_and_delivery',
+      sourceRows: [row.rowNum],
+      product,
+      onDate: fromDate,
+      qty: q,
+    })
+    return out
+  }
+
+  if (/delete\s+both\s+date\s+and\s+quantity/i.test(actionRaw) && fromDate && colQty) {
+    push({
+      kind: 'delete',
+      sourceRows: [row.rowNum],
+      product,
+      onDate: fromDate,
+      matchQty: colQty,
+    })
+    return out
+  }
+
+  const deleteQtyPlain = actionRaw.match(/delete\s+quantity\s+(\d+)\b/i)
+  if (deleteQtyPlain && fromDate && !/delete\s+quantity\s+and\s+date/i.test(actionRaw)) {
+    push({
+      kind: 'delete',
+      sourceRows: [row.rowNum],
+      product,
+      onDate: fromDate,
+      matchQty: Number(deleteQtyPlain[1]),
+    })
+    return out
+  }
+
+  if (/delete\s+quantity\s+and\s+date/i.test(actionRaw) && fromDate && colQty) {
+    push({
+      kind: 'delete',
+      sourceRows: [row.rowNum],
+      product,
+      onDate: fromDate,
+      matchQty: colQty,
+    })
+    return out
+  }
+
   const deleteQtyPhrase = actionRaw.match(/delete\s+quantity\s+of\s+(\d+)/i)
   if (deleteQtyPhrase && fromDate) {
     push({
@@ -224,6 +286,42 @@ export function parseSystemCorrectRowActions(
       onDate: fromDate,
       matchQty: Number(deleteQtyPhrase[1]),
     })
+    return out
+  }
+
+  const changeReceived = actionRaw.match(/change\s+received\s+(\d+)\s+to\s+received\s+(\d+)/i)
+  if (changeReceived && fromDate) {
+    const fromQ = Number(changeReceived[1])
+    const toQ = Number(changeReceived[2])
+    if (fromQ > 0 && toQ > 0 && fromQ !== toQ) {
+      push({
+        kind: 'update_qty',
+        sourceRows: [row.rowNum],
+        product,
+        fromQty: fromQ,
+        toQty: toQ,
+        onDate: fromDate,
+      })
+    }
+    return out
+  }
+
+  const changeDeliveredQty = actionRaw.match(
+    /change\s+delivered\s+quantity\s+(\d+)\s+to\s+delivered\s+quantity\s+(\d+)/i
+  )
+  if (changeDeliveredQty && fromDate) {
+    const fromQ = Number(changeDeliveredQty[1])
+    const toQ = Number(changeDeliveredQty[2])
+    if (fromQ > 0 && toQ > 0 && fromQ !== toQ) {
+      push({
+        kind: 'update_delivery_qty',
+        sourceRows: [row.rowNum],
+        product,
+        onDate: fromDate,
+        fromQty: fromQ,
+        toQty: toQ,
+      })
+    }
     return out
   }
 
@@ -384,10 +482,12 @@ export function parseSystemCorrectRowActions(
 
 const ACTION_KIND_ORDER: Record<SystemCorrectAction['kind'], number> = {
   delete: 0,
+  delete_receive_and_delivery: 0,
   update_date: 1,
   update_qty: 2,
-  insert: 3,
-  delivery_target: 4,
+  update_delivery_qty: 3,
+  insert: 4,
+  delivery_target: 5,
 }
 
 export function sortSystemCorrectActions(actions: SystemCorrectAction[]): SystemCorrectAction[] {

@@ -40,7 +40,69 @@ function describe(action: SystemCorrectAction): string {
       return `${rows} NEW intake ${action.receivedDate}×${action.qty} | ${name}`
     case 'delivery_target':
       return `${rows} delivered→${action.deliveredTotal} | ${name} (${action.notes})`
+    case 'delete_receive_and_delivery':
+      return `${rows} DELETE recv+del ${action.onDate}×${action.qty} | ${name}`
+    case 'update_delivery_qty':
+      return `${rows} delivery ${action.fromQty}→${action.toQty} on ${action.onDate} | ${name}`
   }
+}
+
+async function syncSpintexShelf(
+  client: pg.PoolClient,
+  productId: string,
+  spintexId: string,
+  apply: boolean
+): Promise<number> {
+  const { rows } = await client.query<{
+    delivered: number
+    sold: number
+    returned: number
+    inventory: number
+  }>(
+    `
+    WITH d AS (
+      SELECT COALESCE(SUM(dri.quantity_delivered),0)::int q
+      FROM delivery_run_items dri
+      JOIN delivery_runs dr ON dr.id = dri.delivery_run_id AND dr.deleted_at IS NULL
+      WHERE dri.product_id = $1::uuid AND dr.supermarket_id = $2::uuid
+    ),
+    s AS (
+      SELECT COALESCE(SUM(qty_sold),0)::int q FROM sales
+      WHERE deleted_at IS NULL AND product_id = $1::uuid AND supermarket_id = $2::uuid
+    ),
+    r AS (
+      SELECT COALESCE(SUM(quantity_returned),0)::int q FROM product_returns
+      WHERE deleted_at IS NULL AND product_id = $1::uuid AND supermarket_id = $2::uuid
+    ),
+    inv AS (
+      SELECT COALESCE(quantity,0)::int q FROM supermarket_inventory
+      WHERE product_id = $1::uuid AND supermarket_id = $2::uuid
+    )
+    SELECT d.q AS delivered, s.q AS sold, r.q AS returned, COALESCE((SELECT q FROM inv),0) AS inventory
+    FROM d, s, r
+    `,
+    [productId, spintexId]
+  )
+  const c = rows[0]
+  const targetInv = Math.max(0, c.delivered - c.sold - c.returned)
+  if (apply) {
+    const { rows: inv } = await client.query<{ id: string }>(
+      `SELECT id FROM supermarket_inventory WHERE supermarket_id = $1::uuid AND product_id = $2::uuid FOR UPDATE`,
+      [spintexId, productId]
+    )
+    if (inv[0]) {
+      await client.query(`UPDATE supermarket_inventory SET quantity = $2, updated_at = now() WHERE id = $1::uuid`, [
+        inv[0].id,
+        targetInv,
+      ])
+    } else if (targetInv > 0) {
+      await client.query(
+        `INSERT INTO supermarket_inventory (supermarket_id, product_id, quantity) VALUES ($1::uuid, $2::uuid, $3)`,
+        [spintexId, productId, targetInv]
+      )
+    }
+  }
+  return targetInv
 }
 
 async function findIntakesByDateQty(
@@ -320,6 +382,106 @@ async function main() {
 
       if (action.kind === 'delivery_target') {
         applied.push(await applyDeliveryTarget(client, action, spintexId, APPLY, correctionRef))
+        continue
+      }
+
+      if (action.kind === 'delete_receive_and_delivery') {
+        const delAction: import('@/lib/migration/system-correct-workbook').DeleteIntakeAction = {
+          kind: 'delete',
+          sourceRows: action.sourceRows,
+          product: action.product,
+          onDate: action.onDate,
+          matchQty: action.qty,
+        }
+        const intakes = await findIntakesForDelete(client, delAction)
+        const { rows: delItems } = await client.query<{
+          item_id: string
+          run_id: string
+          quantity_delivered: number
+          delivery_date: string
+        }>(
+          `
+          SELECT dri.id AS item_id, dr.id AS run_id, dri.quantity_delivered, dr.delivery_date::text
+          FROM delivery_run_items dri
+          JOIN delivery_runs dr ON dr.id = dri.delivery_run_id AND dr.deleted_at IS NULL
+          WHERE dri.product_id = $1::uuid AND dr.supermarket_id = $2::uuid
+          ORDER BY CASE WHEN dr.delivery_date = $3::date AND dri.quantity_delivered = $4 THEN 0
+                        WHEN dri.quantity_delivered = $4 THEN 1 ELSE 2 END,
+                   dr.delivery_date
+          LIMIT 5
+          `,
+          [action.product.product_id, spintexId, action.onDate, action.qty]
+        )
+        const delPick = delItems.find((d) => d.quantity_delivered >= action.qty)
+        if (!intakes.length && !delPick) {
+          skipped.push(`${label} — no intake or delivery to remove`)
+          continue
+        }
+        if (APPLY) {
+          for (const m of intakes) {
+            await client.query(
+              `UPDATE intakes SET deleted_at = now(), reference = COALESCE(NULLIF(reference, ''), $2)
+               WHERE id = $1::uuid AND deleted_at IS NULL`,
+              [m.id, correctionRef]
+            )
+          }
+          if (delPick) {
+            if (delPick.quantity_delivered === action.qty) {
+              await client.query(
+                `UPDATE delivery_runs SET deleted_at = now(), notes = COALESCE(notes,'') || $2
+                 WHERE id = $1::uuid AND deleted_at IS NULL`,
+                [delPick.run_id, ` [${correctionRef}]`]
+              )
+            } else {
+              await client.query(
+                `UPDATE delivery_run_items SET quantity_delivered = quantity_delivered - $2 WHERE id = $1::uuid`,
+                [delPick.item_id, action.qty]
+              )
+            }
+          }
+          await syncSpintexShelf(client, action.product.product_id, spintexId, true)
+        }
+        applied.push(
+          `${label} → ${APPLY ? 'applied' : 'would apply'} intakes=${intakes.length} delivery=${delPick ? `${delPick.delivery_date}×${delPick.quantity_delivered}` : 'none'}`
+        )
+        continue
+      }
+
+      if (action.kind === 'update_delivery_qty') {
+        const { rows: items } = await client.query<{
+          item_id: string
+          run_id: string
+          quantity_delivered: number
+        }>(
+          `
+          SELECT dri.id AS item_id, dr.id AS run_id, dri.quantity_delivered
+          FROM delivery_run_items dri
+          JOIN delivery_runs dr ON dr.id = dri.delivery_run_id AND dr.deleted_at IS NULL
+          WHERE dri.product_id = $1::uuid AND dr.supermarket_id = $2::uuid
+            AND dr.delivery_date = $3::date AND dri.quantity_delivered = $4
+          LIMIT 1
+          `,
+          [action.product.product_id, spintexId, action.onDate, action.fromQty]
+        )
+        if (!items[0]) {
+          skipped.push(`${label} — no delivery ${action.onDate}×${action.fromQty}`)
+          continue
+        }
+        if (APPLY) {
+          await client.query(`UPDATE delivery_run_items SET quantity_delivered = $2 WHERE id = $1::uuid`, [
+            items[0].item_id,
+            action.toQty,
+          ])
+          await client.query(
+            `UPDATE delivery_runs SET notes = COALESCE(notes,'') || $2 WHERE id = $1::uuid`,
+            [items[0].run_id, ` [${correctionRef}]`]
+          )
+          const shelf = await syncSpintexShelf(client, action.product.product_id, spintexId, true)
+          applied.push(`${label} → updated, shelf→${shelf}`)
+        } else {
+          applied.push(`${label} → would update run ${items[0].run_id}`)
+        }
+        continue
       }
     }
 
