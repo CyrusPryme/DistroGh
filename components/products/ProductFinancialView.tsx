@@ -76,41 +76,27 @@ export function ProductFinancialView({
   return (
     <>
       <div className="hidden md:block">
-        <table className="data-table min-w-[1120px]">
+        <table className="data-table table-fixed w-full">
           <thead>
             <tr>
-              <th className="min-w-[220px]">Product</th>
-              {isAdmin && <th className="min-w-[140px]">Vendor</th>}
-              <th>Barcode</th>
-              <th className="min-w-[110px] text-right whitespace-nowrap">
-                {isAdmin ? 'Vendor price' : 'Your price'}
-              </th>
-              {isAdmin && <th className="min-w-[128px] text-right whitespace-nowrap">DistroGH markup</th>}
+              <th className="w-[26%]">Product</th>
+              {isAdmin && <th className="w-[14%]">Vendor</th>}
+              <th className="w-[12%]">Barcode</th>
+              <th className="w-[12%] text-right">{isAdmin ? 'Vendor price' : 'Your price'}</th>
+              {isAdmin && <th className="w-[14%] text-right">DistroGH markup</th>}
               {isAdmin && (
-                <th
-                  className="min-w-[140px] text-right whitespace-nowrap"
-                  title="What DistroGH charges the supermarket = vendor price + DistroGH markup"
-                >
-                  Distro price (supermarket)
+                <th className="w-[13%] text-right" title="What DistroGH charges the supermarket (vendor price + DistroGH markup)">
+                  Distro price
                 </th>
               )}
-              {isAdmin && (
-                <th
-                  className="min-w-[130px] text-right whitespace-nowrap"
-                  title="Shelf price — what the supermarket charges its customers"
-                >
-                  Supermarket retail
-                </th>
-              )}
-              <th className="min-w-[80px] text-right">Stock</th>
-              <th className="w-12" />
+              <th className="w-[9%] text-right">Stock</th>
+              <th className="w-10" />
             </tr>
           </thead>
           <tbody>
             {products.map((product) => {
               const vendor = product.vendor as { name?: string } | undefined
-              const { vendorPrice, distroMarkup, distroPrice, supermarketSellingPrice } =
-                resolveProductPriceTiers(product)
+              const { vendorPrice, distroMarkup, distroPrice } = resolveProductPriceTiers(product)
               const percent = computeMarkupPercent(distroPrice, vendorPrice)
               const onHand = stockByProduct.get(product.id)
 
@@ -120,11 +106,11 @@ export function ProductFinancialView({
                   className="cursor-pointer hover:bg-slate-50/80"
                   onClick={() => onRowClick(product)}
                 >
-                  <td className="min-w-[220px] max-w-[280px]">
+                  <td className="truncate">
                     <ProductIdentityCell product={product} />
                   </td>
                   {isAdmin && (
-                    <td className="min-w-[140px] max-w-[180px]">
+                    <td className="truncate">
                       <Link
                         href={`/dashboard/vendors/${product.vendor_id}`}
                         className="block text-sm text-brand-600 hover:underline"
@@ -134,7 +120,7 @@ export function ProductFinancialView({
                       </Link>
                     </td>
                   )}
-                  <td className="font-mono text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                  <td className="font-mono text-xs text-slate-500 tabular-nums truncate">
                     {product.barcode?.trim() ? product.barcode.trim() : mutedNA()}
                   </td>
                   <td className="text-right font-semibold tabular-nums text-slate-900 whitespace-nowrap">
@@ -148,11 +134,6 @@ export function ProductFinancialView({
                   {isAdmin && (
                     <td className="text-right tabular-nums text-slate-800 font-medium whitespace-nowrap">
                       {formatGHS(distroPrice)}
-                    </td>
-                  )}
-                  {isAdmin && (
-                    <td className="text-right tabular-nums text-slate-600 whitespace-nowrap">
-                      {supermarketSellingPrice != null ? formatGHS(supermarketSellingPrice) : mutedNA()}
                     </td>
                   )}
                   <td className="text-right">
@@ -169,8 +150,7 @@ export function ProductFinancialView({
       <div className="md:hidden divide-y divide-slate-100">
         {products.map((product) => {
           const vendor = product.vendor as { name?: string } | undefined
-          const { vendorPrice, distroMarkup, distroPrice, supermarketSellingPrice } =
-            resolveProductPriceTiers(product)
+          const { vendorPrice, distroMarkup, distroPrice } = resolveProductPriceTiers(product)
           const percent = computeMarkupPercent(distroPrice, vendorPrice)
           const onHand = stockByProduct.get(product.id)
 
@@ -205,11 +185,6 @@ export function ProductFinancialView({
                 {isAdmin && (
                   <MoneyPair label="Distro price (supermarket)">
                     <span className="font-medium text-slate-800">{formatGHS(distroPrice)}</span>
-                  </MoneyPair>
-                )}
-                {isAdmin && (
-                  <MoneyPair label="Supermarket retail">
-                    {supermarketSellingPrice != null ? formatGHS(supermarketSellingPrice) : mutedNA()}
                   </MoneyPair>
                 )}
                 <MoneyPair label="Stock">
