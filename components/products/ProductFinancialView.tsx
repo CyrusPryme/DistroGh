@@ -51,7 +51,7 @@ function MarkupCell({ amount, percent }: { amount: number; percent: number | nul
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[16rem] space-y-1 font-normal leading-relaxed">
-        <p>Markup % = (Selling Price − Vendor Price) / Vendor Price</p>
+        <p>Markup % = (Distro Price − Vendor Price) / Vendor Price</p>
       </TooltipContent>
     </Tooltip>
   )
@@ -76,17 +76,32 @@ export function ProductFinancialView({
   return (
     <>
       <div className="hidden md:block">
-        <table className="data-table min-w-[960px]">
+        <table className="data-table min-w-[1120px]">
           <thead>
             <tr>
               <th className="min-w-[220px]">Product</th>
               {isAdmin && <th className="min-w-[140px]">Vendor</th>}
               <th>Barcode</th>
-              <th className="min-w-[120px] text-right whitespace-nowrap">
-                {isAdmin ? 'Selling price' : 'Your price'}
+              <th className="min-w-[110px] text-right whitespace-nowrap">
+                {isAdmin ? 'Vendor price' : 'Your price'}
               </th>
-              {isAdmin && <th className="min-w-[128px] text-right">Markup</th>}
-              {isAdmin && <th className="min-w-[100px] text-right whitespace-nowrap">Shelf price</th>}
+              {isAdmin && <th className="min-w-[128px] text-right whitespace-nowrap">DistroGH markup</th>}
+              {isAdmin && (
+                <th
+                  className="min-w-[140px] text-right whitespace-nowrap"
+                  title="What DistroGH charges the supermarket = vendor price + DistroGH markup"
+                >
+                  Distro price (supermarket)
+                </th>
+              )}
+              {isAdmin && (
+                <th
+                  className="min-w-[130px] text-right whitespace-nowrap"
+                  title="Shelf price — what the supermarket charges its customers"
+                >
+                  Supermarket retail
+                </th>
+              )}
               <th className="min-w-[80px] text-right">Stock</th>
               <th className="w-12" />
             </tr>
@@ -123,11 +138,16 @@ export function ProductFinancialView({
                     {product.barcode?.trim() ? product.barcode.trim() : mutedNA()}
                   </td>
                   <td className="text-right font-semibold tabular-nums text-slate-900 whitespace-nowrap">
-                    {formatGHS(isAdmin ? distroPrice : vendorPrice)}
+                    {formatGHS(vendorPrice)}
                   </td>
                   {isAdmin && (
                     <td className="text-right">
                       <MarkupCell amount={distroMarkup} percent={percent} />
+                    </td>
+                  )}
+                  {isAdmin && (
+                    <td className="text-right tabular-nums text-slate-800 font-medium whitespace-nowrap">
+                      {formatGHS(distroPrice)}
                     </td>
                   )}
                   {isAdmin && (
@@ -174,16 +194,21 @@ export function ProductFinancialView({
                 {product.barcode?.trim() || 'N/A'}
               </p>
               <div className="space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                <MoneyPair label={isAdmin ? 'Selling price' : 'Your price'}>
-                  <span className="font-semibold">{formatGHS(isAdmin ? distroPrice : vendorPrice)}</span>
+                <MoneyPair label={isAdmin ? 'Vendor price' : 'Your price'}>
+                  <span className="font-semibold">{formatGHS(vendorPrice)}</span>
                 </MoneyPair>
                 {isAdmin && (
-                  <MoneyPair label="Markup">
+                  <MoneyPair label="DistroGH markup">
                     <MarkupCell amount={distroMarkup} percent={percent} />
                   </MoneyPair>
                 )}
                 {isAdmin && (
-                  <MoneyPair label="Shelf price">
+                  <MoneyPair label="Distro price (supermarket)">
+                    <span className="font-medium text-slate-800">{formatGHS(distroPrice)}</span>
+                  </MoneyPair>
+                )}
+                {isAdmin && (
+                  <MoneyPair label="Supermarket retail">
                     {supermarketSellingPrice != null ? formatGHS(supermarketSellingPrice) : mutedNA()}
                   </MoneyPair>
                 )}

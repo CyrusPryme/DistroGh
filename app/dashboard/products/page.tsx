@@ -321,7 +321,7 @@ function ProductsContent() {
         title="Products"
         description={
           productView === 'financial'
-            ? 'Selling price, markup, shelf price, and warehouse stock'
+            ? 'Vendor price, DistroGH markup, distro price, supermarket retail, and warehouse stock'
             : 'Catalog, pricing, and warehouse stock'
         }
       />
