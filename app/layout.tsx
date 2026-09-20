@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { SessionProvider } from '@/lib/client/session-context'
 
 export const metadata: Metadata = {
   title: 'DistroGH — Consignment Distribution Management',
@@ -39,7 +40,7 @@ export default function RootLayout({
         />
       </head>
       <body className="font-sans antialiased bg-slate-50 text-slate-900 subpixel-antialiased min-h-screen">
-        {children}
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   )

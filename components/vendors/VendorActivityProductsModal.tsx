@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ExternalLink, Loader2 } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import { FormModal } from '@/components/shared/FormModal'
 import { DashboardSortableTable, type DashboardColumn } from '@/components/dashboard/DashboardSortableTable'
-import { formatNumber } from '@/lib/utils'
+import { formatNumber, cn } from '@/lib/utils'
 import { vendorActivityService } from '@/services/vendor-activity.service'
 import type { VendorActivityProductRow } from '@/lib/vendor-activity'
 
@@ -102,8 +102,21 @@ export function VendorActivityProductsModal({
         header: 'WH on hand',
         align: 'right',
         sortable: true,
-        sortValue: (r) => r.warehouse_on_hand,
-        render: (r) => formatNumber(r.warehouse_on_hand),
+        sortValue: (r) => r.warehouse_gap,
+        render: (r) =>
+          r.warehouse_gap < 0 ? (
+            <span
+              className="inline-flex items-center justify-end gap-1 font-medium text-rose-700"
+              title="Delivered more than ever received (all-time). This SKU's data likely needs correcting."
+            >
+              {formatNumber(r.warehouse_gap)}
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            </span>
+          ) : (
+            <span className={cn(r.warehouse_on_hand > 0 && 'font-medium text-slate-900')}>
+              {formatNumber(r.warehouse_on_hand)}
+            </span>
+          ),
       },
     ],
     [vendorId]
@@ -136,6 +149,16 @@ export function VendorActivityProductsModal({
           <ExternalLink className="h-3 w-3" />
         </Link>
       </p>
+
+      {products.some((p) => p.warehouse_gap < 0) ? (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Rows marked with <AlertTriangle className="inline h-3 w-3 align-text-bottom" /> show negative WH on hand —
+            more was delivered than was ever received for that SKU. Check the intake and delivery records.
+          </span>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-slate-500">

@@ -18,7 +18,10 @@ export type StockTimelineSummary = {
   delivered: number
   sold: number
   returns: number
+  /** All-time warehouse stock (received − delivered), clamped at 0 for display as a physical quantity. */
   warehouse_on_hand: number
+  /** All-time signed gap (received − delivered). Negative means this product has been delivered more than received. */
+  warehouse_gap: number
   delivery_minus_sold_plus_returns: number
 }
 
@@ -138,14 +141,6 @@ export async function fetchStockTimeline(
         WHERE r.deleted_at IS NULL AND r.product_id = $1::uuid
           AND ($2::date IS NULL OR r.return_date >= $2::date)
           AND ($3::date IS NULL OR r.return_date <= $3::date)
-      ),
-      wh AS (
-        SELECT GREATEST(0,
-          (SELECT COALESCE(SUM(quantity_received),0) FROM intakes WHERE deleted_at IS NULL AND product_id = $1::uuid)
-          - (SELECT COALESCE(SUM(dri.quantity_delivered),0) FROM delivery_run_items dri
-             JOIN delivery_runs dr ON dr.id = dri.delivery_run_id AND dr.deleted_at IS NULL
-             WHERE dri.product_id = $1::uuid)
-        )::int AS q
       )
       SELECT rec.q AS received, del.q AS delivered, sl.q AS sold, rt.q AS returns
       FROM rec, del, sl, rt
@@ -157,16 +152,17 @@ export async function fetchStockTimeline(
   const t = totals.rows[0] ?? { received: 0, delivered: 0, sold: 0, returns: 0 }
   const whRow = await pool.query<{ q: number }>(
     `
-    SELECT GREATEST(0,
+    SELECT
       (SELECT COALESCE(SUM(quantity_received),0) FROM intakes WHERE deleted_at IS NULL AND product_id = $1::uuid)
       - (SELECT COALESCE(SUM(dri.quantity_delivered),0) FROM delivery_run_items dri
          JOIN delivery_runs dr ON dr.id = dri.delivery_run_id AND dr.deleted_at IS NULL
          WHERE dri.product_id = $1::uuid)
-    )::int AS q
+      AS q
     `,
     [productId]
   )
-  const warehouse_on_hand = whRow.rows[0]?.q ?? 0
+  const warehouse_gap = whRow.rows[0]?.q ?? 0
+  const warehouse_on_hand = Math.max(0, warehouse_gap)
 
   const events: StockTimelineEvent[] = []
 
@@ -236,6 +232,7 @@ export async function fetchStockTimeline(
       sold,
       returns: ret,
       warehouse_on_hand,
+      warehouse_gap,
       delivery_minus_sold_plus_returns: delivered - sold + ret,
     },
   }

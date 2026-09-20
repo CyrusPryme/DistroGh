@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { useSessionContext } from '@/lib/client/session-context'
 import {
   DatabaseBackup, History, CheckCircle2, AlertTriangle, FileSpreadsheet, ScrollText,
 } from 'lucide-react'
@@ -22,20 +23,17 @@ const LINKS = [
 export default function DataManagementLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [ok, setOk] = useState(false)
+  const { data, loading } = useSessionContext()
+  const ok = !loading && data?.role === 'admin'
 
   useEffect(() => {
-    fetch('/api/me', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((j) => {
-        if (!j?.success || j.data?.role !== 'admin') {
-          router.replace('/dashboard')
-        } else {
-          setOk(true)
-        }
-      })
-      .catch(() => router.replace('/login'))
-  }, [router])
+    if (loading) return
+    if (!data) {
+      router.replace('/login')
+    } else if (data.role !== 'admin') {
+      router.replace('/dashboard')
+    }
+  }, [loading, data, router])
 
   if (!ok) {
     return (

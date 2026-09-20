@@ -9,7 +9,7 @@ import {
   Building2, RotateCcw, Inbox, Truck, Store, Layers, FileText, HelpCircle, User, MessageCircle, PowerOff, Settings,
   Shield, UserCog, KeyRound, ScrollText,
   Crown, BadgeDollarSign, Scale, ClipboardList, CalendarRange, HeartPulse, ArchiveRestore,
-  ShieldAlert, Database, SlidersHorizontal, DatabaseBackup, PanelLeftClose, PanelLeft
+  ShieldAlert, Database, SlidersHorizontal, DatabaseBackup, PanelLeftClose, PanelLeft, ShieldCheck
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { permKey } from '@/lib/auth/permissions'
@@ -18,6 +18,7 @@ import { payoutService } from '@/services/payout.service'
 import { ServiceChargeBanner } from '@/components/vendors/ServiceChargeBanner'
 import { DistroGHLogo } from '@/components/shared/DistroGHLogo'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { useSessionContext } from '@/lib/client/session-context'
 import type { ServiceChargeBanner as ServiceChargeBannerData } from '@/lib/vendor-service-charge'
 
 type NavItem = {
@@ -174,16 +175,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [userRole, setUserRole] = useState<string | null>(null)
-  const [userAdminRole, setUserAdminRole] = useState<string | null>(null)
-  const [userPermissions, setUserPermissions] = useState<string[] | null>(null)
-  const [userEmail, setUserEmail] = useState<string>('')
-  const [displayName, setDisplayName] = useState<string | null>(null)
+  // Session data comes from the app-wide <SessionProvider> (see app/layout.tsx) instead of this
+  // component fetching /api/me itself — avoids one more redundant round trip on every page load.
+  const { data: sessionData } = useSessionContext()
+  const userRole: string | null = sessionData?.role ?? null
+  const userAdminRole = sessionData?.admin_role ?? null
+  const userPermissions = sessionData?.permissions ?? null
+  const userEmail = sessionData?.email ?? ''
+  const displayName = sessionData?.display_name ?? null
+  const serviceChargeBanner: ServiceChargeBannerData | null =
+    sessionData?.role === 'vendor' ? (sessionData.service_charge?.banner ?? null) : null
   const [vendorInfo, setVendorInfo] = useState<{ name: string } | null>(null)
   const [vendorProfileOpen, setVendorProfileOpen] = useState(false)
   const [pendingDeliveries, setPendingDeliveries] = useState(0)
   const [pendingPayoutAlerts, setPendingPayoutAlerts] = useState(0)
-  const [serviceChargeBanner, setServiceChargeBanner] = useState<ServiceChargeBannerData | null>(null)
 
   useEffect(() => {
     try {
@@ -206,52 +211,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     })
   }
 
-  // Fetch user role on mount
+  // Vendor display name isn't part of the session payload — fetch it once we know the vendor_id.
   useEffect(() => {
-    async function fetchUserRole() {
-      const res = await fetch('/api/me', { cache: 'no-store' })
-      const json = await res.json().catch(() => null)
-      if (!res.ok || !json?.success) {
-        setUserRole(null)
-        setUserAdminRole(null)
-        setUserPermissions(null)
-        setUserEmail('')
-        setVendorInfo(null)
-        setServiceChargeBanner(null)
-        return
-      }
-
-      const role = json.data?.role as string | undefined
-      const email = (json.data?.email ?? '') as string
-      const vendorId = (json.data?.vendor_id ?? null) as string | null
-      const adminRole = (json.data?.admin_role ?? null) as string | null
-      const permissions = (json.data?.permissions ?? null) as string[] | null
-      const dn = (json.data?.display_name ?? null) as string | null
-
-      setUserRole(role ?? null)
-      setUserAdminRole(adminRole)
-      setUserPermissions(Array.isArray(permissions) ? permissions : null)
-      setDisplayName(dn)
-      setUserEmail(email)
-
-      if (role === 'vendor') {
-        const scBanner = json.data?.service_charge?.banner as ServiceChargeBannerData | null | undefined
-        setServiceChargeBanner(scBanner ?? null)
-      } else {
-        setServiceChargeBanner(null)
-      }
-
-      if (role === 'vendor' && vendorId) {
-        const vRes = await fetch(`/api/vendors/${vendorId}`, { cache: 'no-store' })
-        const vJson = await vRes.json().catch(() => null)
-        if (vRes.ok && vJson?.success && vJson?.data?.name) {
-          setVendorInfo({ name: String(vJson.data.name) })
-        }
-      }
+    const vendorId = sessionData?.role === 'vendor' ? sessionData.vendor_id : null
+    if (!vendorId) {
+      setVendorInfo(null)
+      return
     }
-    
-    fetchUserRole()
-  }, [])
+    let cancelled = false
+    fetch(`/api/vendors/${vendorId}`, { cache: 'no-store' })
+      .then((res) => res.json().catch(() => null))
+      .then((json) => {
+        if (cancelled) return
+        if (json?.success && json?.data?.name) {
+          setVendorInfo({ name: String(json.data.name) })
+        } else {
+          setVendorInfo(null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setVendorInfo(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionData])
 
   useEffect(() => {
     if (userRole !== 'admin') return
@@ -432,6 +416,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 { href: '/dashboard/platform/developer-accounts', label: 'Developer Accounts', icon: Crown },
                 { href: '/dashboard/platform/revenue', label: 'Platform Revenue', icon: BadgeDollarSign },
                 { href: '/dashboard/platform/reconciliation', label: 'Reconciliation', icon: Scale },
+                { href: '/dashboard/platform/data-integrity', label: 'Data Integrity', icon: ShieldCheck },
                 { href: '/dashboard/platform/audit-center', label: 'Audit Center', icon: ClipboardList },
                 { href: '/dashboard/platform/system-health', label: 'System Health', icon: HeartPulse },
                 { href: '/dashboard/platform/data-recovery', label: 'Data Recovery', icon: ArchiveRestore },

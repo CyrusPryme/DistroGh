@@ -76,11 +76,33 @@ export async function claimNextJob(db: Pool, workerId: string): Promise<Migratio
   const client = await db.connect()
   try {
     await client.query('BEGIN')
+    // 'reconcile' is enqueued alongside its migration's 'import' job(s) in the same start_import
+    // request, and both are then processed by concurrent callers of processMigrationJobs (the
+    // fire-and-forget kickoff plus the client's own polling "process" action). Without this guard,
+    // a worker could claim and finish 'reconcile' — which just does a fast COUNT over staging rows
+    // — while a sibling 'import' job for the same migration is still mid-chunk in another worker,
+    // reading production_id as NULL for rows that are seconds away from being written. That
+    // produces a false "mismatch"/imported:0 reconciliation and leaves the project stuck: the next
+    // import chunk unconditionally resets status back to 'importing' (see processMigrationJobs),
+    // silently clobbering reconcile's verdict with no automatic re-check ever scheduled. Exclude
+    // 'reconcile' jobs entirely from claiming until every 'import' job for the same migration has
+    // reached a terminal state, so reconcile only ever reads a fully-committed import result.
     const { rows } = await client.query(
-      `SELECT * FROM public.migration_jobs
-       WHERE status IN ('queued','paused')
-          OR (status = 'running' AND (locked_at IS NULL OR locked_at < now() - interval '5 minutes'))
-       ORDER BY created_at ASC
+      `SELECT j.* FROM public.migration_jobs j
+       WHERE (
+         j.status IN ('queued','paused')
+         OR (j.status = 'running' AND (j.locked_at IS NULL OR j.locked_at < now() - interval '5 minutes'))
+       )
+       AND (
+         j.job_type <> 'reconcile'
+         OR NOT EXISTS (
+           SELECT 1 FROM public.migration_jobs si
+           WHERE si.migration_id = j.migration_id
+             AND si.job_type = 'import'
+             AND si.status IN ('queued','running','paused')
+         )
+       )
+       ORDER BY j.created_at ASC
        FOR UPDATE SKIP LOCKED
        LIMIT 1`
     )

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { AlertCircle, CalendarRange, Loader2 } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CalendarRange, Loader2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DashboardDateRangePicker } from '@/components/dashboard/DashboardDateRangePicker'
 import { DashboardSortableTable, type DashboardColumn } from '@/components/dashboard/DashboardSortableTable'
@@ -54,6 +54,7 @@ function VendorStockTimelineContent() {
     sold: number
     returns: number
     warehouse_on_hand: number
+    warehouse_gap: number
     delivery_minus_sold_plus_returns: number
   } | null>(null)
   const [productLabel, setProductLabel] = useState('')
@@ -254,7 +255,17 @@ function VendorStockTimelineContent() {
             <KPICard title="Delivered" value={summary.delivered} icon={CalendarRange} compact />
             <KPICard title="Sold" value={summary.sold} icon={CalendarRange} compact />
             <KPICard title="Returns" value={summary.returns} icon={CalendarRange} compact />
-            <KPICard title="WH on hand" value={summary.warehouse_on_hand} subtitle="All time" icon={CalendarRange} compact />
+            <KPICard
+              title="WH on hand"
+              value={summary.warehouse_gap < 0 ? summary.warehouse_gap : summary.warehouse_on_hand}
+              subtitle={
+                summary.warehouse_gap < 0 ? 'Over-delivered vs received (all time)' : 'All time'
+              }
+              icon={summary.warehouse_gap < 0 ? AlertTriangle : CalendarRange}
+              iconColor={summary.warehouse_gap < 0 ? 'text-rose-600' : undefined}
+              iconBg={summary.warehouse_gap < 0 ? 'bg-rose-50' : undefined}
+              compact
+            />
             <KPICard
               title="Del − sold + ret"
               value={gap}
@@ -263,6 +274,15 @@ function VendorStockTimelineContent() {
               compact
             />
           </div>
+          {summary.warehouse_gap < 0 ? (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This product has been delivered {formatNumber(Math.abs(summary.warehouse_gap))} more units than were
+                ever received (all-time). Check the intake and delivery rows below for a missing or mis-dated record.
+              </span>
+            </div>
+          ) : null}
           <DashboardSortableTable columns={columns} rows={events} rowKey={(r) => `${r.kind}-${r.record_id}`} />
         </>
       ) : null}

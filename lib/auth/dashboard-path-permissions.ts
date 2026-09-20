@@ -9,14 +9,14 @@ export const ADMIN_DASHBOARD_READ_PATHS: { prefix: string; module: string }[] = 
 ]
 
 export function adminDashboardReadModule(pathname: string): string | null {
-  for (const { prefix, module } of ADMIN_DASHBOARD_READ_PATHS) {
-    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return module
+  for (const { prefix, module: moduleName } of ADMIN_DASHBOARD_READ_PATHS) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return moduleName
   }
   return null
 }
 
 export function adminCanAccessDashboardPath(ctx: PermissionContext, pathname: string): boolean {
-  const module = adminDashboardReadModule(pathname)
-  if (!module) return true
-  return hasPermission(ctx, module, 'read')
+  const moduleName = adminDashboardReadModule(pathname)
+  if (!moduleName) return true
+  return hasPermission(ctx, moduleName, 'read')
 }

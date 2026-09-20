@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Loader2, Package, Search } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Loader2, Package, Search } from 'lucide-react'
 import { DashboardDateRangePicker } from '@/components/dashboard/DashboardDateRangePicker'
 import { DashboardSortableTable, type DashboardColumn } from '@/components/dashboard/DashboardSortableTable'
 import { KPICard } from '@/components/dashboard/KPICard'
@@ -186,7 +186,20 @@ export function VendorActivityPanel({ mode, vendors = [], vendorsLoading }: Vend
         sortable: true,
         sortValue: (r) => r.warehouse_on_hand,
         render: (r) => (
-          <span title="All-time warehouse stock (not limited by period)">{formatNumber(r.warehouse_on_hand)}</span>
+          <span
+            className={cn(
+              'inline-flex items-center justify-end gap-1',
+              r.has_over_delivered_product && 'font-medium text-rose-700'
+            )}
+            title={
+              r.has_over_delivered_product
+                ? 'One or more products for this vendor show more delivered than ever received (all-time). Open the product breakdown to find which SKU.'
+                : 'All-time warehouse stock (not limited by period)'
+            }
+          >
+            {formatNumber(r.warehouse_on_hand)}
+            {r.has_over_delivered_product ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : null}
+          </span>
         ),
       },
     ],
@@ -317,10 +330,23 @@ export function VendorActivityPanel({ mode, vendors = [], vendorsLoading }: Vend
               <KPICard
                 title="WH on hand"
                 value={singleRow.warehouse_on_hand}
-                subtitle="All time"
-                icon={Package}
+                subtitle={singleRow.has_over_delivered_product ? 'Needs review — see below' : 'All time'}
+                icon={singleRow.has_over_delivered_product ? AlertTriangle : Package}
+                iconColor={singleRow.has_over_delivered_product ? 'text-rose-600' : undefined}
+                iconBg={singleRow.has_over_delivered_product ? 'bg-rose-50' : undefined}
                 compact
               />
+            </div>
+          ) : null}
+
+          {singleRow?.has_over_delivered_product ? (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                One or more products show delivery records exceeding what was ever received. This usually means an
+                intake or delivery record needs correcting.{' '}
+                {mode === 'admin' ? 'Open the product breakdown below to find the affected SKU.' : ''}
+              </span>
             </div>
           ) : null}
 
@@ -358,6 +384,13 @@ export function VendorActivityPanel({ mode, vendors = [], vendorsLoading }: Vend
                 {formatNumber(totals.sold)}, Returns {formatNumber(totals.returns)}, WH on hand{' '}
                 {formatNumber(totals.warehouse_on_hand)}
               </span>
+              {rows.some((r) => r.has_over_delivered_product) ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-rose-700">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  One or more vendors above have a product delivered more than received — the summed WH on hand can
+                  hide this. Look for the warning icon in the WH on hand column.
+                </p>
+              ) : null}
             </div>
           ) : null}
         </>

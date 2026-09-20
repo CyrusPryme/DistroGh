@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   LayoutDashboard, Crown, BadgeDollarSign, Scale, ClipboardList,
-  HeartPulse, ArchiveRestore, ShieldAlert, Database, SlidersHorizontal,
+  HeartPulse, ArchiveRestore, ShieldAlert, Database, SlidersHorizontal, ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -35,6 +35,7 @@ const NAV_CARDS = [
   { href: '/dashboard/platform/developer-accounts', label: 'Developer Accounts',  desc: 'Manage developer identities and access',     icon: Crown, color: 'bg-violet-50 border-violet-200 text-violet-700' },
   { href: '/dashboard/platform/revenue',            label: 'Platform Revenue',     desc: 'Developer fees and financial breakdowns',     icon: BadgeDollarSign, color: 'bg-brand-50 border-brand-200 text-brand-700' },
   { href: '/dashboard/platform/reconciliation',     label: 'Reconciliation',       desc: 'Verify all money movements',                  icon: Scale, color: 'bg-blue-50 border-blue-200 text-blue-700' },
+  { href: '/dashboard/platform/data-integrity',     label: 'Data Integrity',       desc: 'Stock chain, catalog and migration health',   icon: ShieldCheck, color: 'bg-teal-50 border-teal-200 text-teal-700' },
   { href: '/dashboard/platform/audit-center',       label: 'Audit Center',         desc: 'Immutable platform-wide audit trail',         icon: ClipboardList, color: 'bg-amber-50 border-amber-200 text-amber-700' },
   { href: '/dashboard/platform/system-health',      label: 'System Health',        desc: 'Database, API and background job metrics',    icon: HeartPulse, color: 'bg-cyan-50 border-cyan-200 text-cyan-700' },
   { href: '/dashboard/platform/data-recovery',      label: 'Data Recovery',        desc: 'Restore soft-deleted records',                icon: ArchiveRestore, color: 'bg-orange-50 border-orange-200 text-orange-700' },

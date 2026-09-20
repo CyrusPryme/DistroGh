@@ -7,8 +7,16 @@ export type VendorActivityRow = {
   delivered: number
   sold: number
   returns: number
-  /** All-time warehouse stock (received − delivered), not limited by period. */
+  /** All-time warehouse stock (received − delivered), not limited by period. Never negative (see warehouse_gap). */
   warehouse_on_hand: number
+  /**
+   * All-time signed net (sum of received − delivered across this vendor's products). Can be negative.
+   * A negative or zero value here can still hide an over-delivered SKU offset by an under-delivered one —
+   * always check has_over_delivered_product / the per-product breakdown before trusting this at face value.
+   */
+  warehouse_gap: number
+  /** True if at least one product for this vendor has been delivered more than it was ever received (all-time). */
+  has_over_delivered_product: boolean
 }
 
 export type VendorActivityProductRow = {
@@ -18,7 +26,10 @@ export type VendorActivityProductRow = {
   delivered: number
   sold: number
   returns: number
+  /** All-time warehouse stock (received − delivered), clamped at 0 for display as a physical quantity. */
   warehouse_on_hand: number
+  /** All-time signed gap (received − delivered). Negative means this SKU has been delivered more than received. */
+  warehouse_gap: number
 }
 
 const UUID_RE =
@@ -120,7 +131,12 @@ export async function fetchVendorActivityRows(
         coalesce(
           sum(greatest(0, coalesce(ra.received, 0) - coalesce(da.delivered, 0))),
           0
-        )::int as warehouse_on_hand
+        )::int as warehouse_on_hand,
+        coalesce(
+          sum(coalesce(ra.received, 0) - coalesce(da.delivered, 0)),
+          0
+        )::int as warehouse_gap,
+        bool_or(coalesce(da.delivered, 0) > coalesce(ra.received, 0)) as has_over_delivered_product
       from public.products p
       left join recv_all ra on ra.product_id = p.id
       left join deliv_all da on da.product_id = p.id
@@ -135,7 +151,9 @@ export async function fetchVendorActivityRows(
       coalesce(dv.units, 0) as delivered,
       coalesce(sl.units, 0) as sold,
       coalesce(rt.units, 0) as returns,
-      coalesce(wh.warehouse_on_hand, 0) as warehouse_on_hand
+      coalesce(wh.warehouse_on_hand, 0) as warehouse_on_hand,
+      coalesce(wh.warehouse_gap, 0) as warehouse_gap,
+      coalesce(wh.has_over_delivered_product, false) as has_over_delivered_product
     from target t
     join public.vendors v on v.id = t.vendor_id
     left join received rc on rc.vendor_id = v.id
@@ -156,6 +174,8 @@ export async function fetchVendorActivityRows(
     sold: Number(r.sold ?? 0),
     returns: Number(r.returns ?? 0),
     warehouse_on_hand: Number(r.warehouse_on_hand ?? 0),
+    warehouse_gap: Number(r.warehouse_gap ?? 0),
+    has_over_delivered_product: Boolean(r.has_over_delivered_product),
   }))
 }
 
@@ -234,7 +254,8 @@ export async function fetchVendorActivityProducts(
       coalesce(dv.units, 0) as delivered,
       coalesce(sl.units, 0) as sold,
       coalesce(rt.units, 0) as returns,
-      greatest(0, coalesce(ra.received, 0) - coalesce(da.delivered, 0))::int as warehouse_on_hand
+      greatest(0, coalesce(ra.received, 0) - coalesce(da.delivered, 0))::int as warehouse_on_hand,
+      (coalesce(ra.received, 0) - coalesce(da.delivered, 0))::int as warehouse_gap
     from catalog c
     left join received rc on rc.product_id = c.id
     left join delivered dv on dv.product_id = c.id
@@ -248,6 +269,7 @@ export async function fetchVendorActivityProducts(
       or coalesce(sl.units, 0) > 0
       or coalesce(rt.units, 0) > 0
       or greatest(0, coalesce(ra.received, 0) - coalesce(da.delivered, 0)) > 0
+      or coalesce(da.delivered, 0) > coalesce(ra.received, 0)
     order by c.name asc
     `,
     [vendorId, rangeStart, rangeEnd, soldSupermarketPaidOnly]
@@ -261,5 +283,6 @@ export async function fetchVendorActivityProducts(
     sold: Number(r.sold ?? 0),
     returns: Number(r.returns ?? 0),
     warehouse_on_hand: Number(r.warehouse_on_hand ?? 0),
+    warehouse_gap: Number(r.warehouse_gap ?? 0),
   }))
 }
