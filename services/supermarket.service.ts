@@ -16,6 +16,46 @@ export interface SupermarketSummary extends Supermarket {
   delivery_run_count: number
 }
 
+export interface SettlementBranch {
+  id: string
+  branch: string | null
+  location: string | null
+}
+
+export interface SupermarketSettlementRow {
+  /** Chain/retailer name — settlement is tracked at this level, not per branch. */
+  name: string
+  branch_count: number
+  branches: SettlementBranch[]
+  total_billed: number
+  total_settled: number
+  total_outstanding: number
+  settled_count: number
+  unsettled_count: number
+  oldest_unsettled_date: string | null
+  oldest_unsettled_days: number
+  aging_0_30: number
+  aging_31_60: number
+  aging_60_plus: number
+}
+
+export interface SupermarketSettlementOverall {
+  total_billed: number
+  total_settled: number
+  total_outstanding: number
+  settled_count: number
+  unsettled_count: number
+  oldest_unsettled_days: number
+  aging_0_30: number
+  aging_31_60: number
+  aging_60_plus: number
+}
+
+export interface SupermarketSettlementsResponse {
+  overall: SupermarketSettlementOverall
+  byChain: SupermarketSettlementRow[]
+}
+
 export const supermarketService = {
   async getAll(): Promise<Supermarket[]> {
     return apiFetch<Supermarket[]>('/api/supermarkets', { fallbackError: 'Failed to load supermarkets' })
@@ -55,6 +95,12 @@ export const supermarketService = {
   async getSummaries(): Promise<SupermarketSummary[]> {
     return apiFetch<SupermarketSummary[]>('/api/supermarkets/summary', {
       fallbackError: 'Failed to load supermarket summaries',
+    })
+  },
+
+  async getSettlements(): Promise<SupermarketSettlementsResponse> {
+    return apiFetch<SupermarketSettlementsResponse>('/api/supermarkets/settlements', {
+      fallbackError: 'Failed to load supermarket settlements',
     })
   },
 

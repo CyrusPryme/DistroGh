@@ -44,6 +44,8 @@ function describe(action: SystemCorrectAction): string {
       return `${rows} DELETE recv+del ${action.onDate}×${action.qty} | ${name}`
     case 'update_delivery_qty':
       return `${rows} delivery ${action.fromQty}→${action.toQty} on ${action.onDate} | ${name}`
+    case 'add_to_delivered':
+      return `${rows} +${action.addQty} onhand→delivered | ${name}`
   }
 }
 
@@ -103,6 +105,109 @@ async function syncSpintexShelf(
     }
   }
   return targetInv
+}
+
+async function getStockChain(
+  client: pg.PoolClient,
+  productId: string,
+  spintexId: string
+): Promise<{ received: number; delivered: number; sold: number; returned: number; inventory: number }> {
+  const { rows } = await client.query<{
+    received: number
+    delivered: number
+    sold: number
+    returned: number
+    inventory: number
+  }>(
+    `
+    WITH r AS (
+      SELECT COALESCE(SUM(quantity_received),0)::int q FROM intakes
+      WHERE deleted_at IS NULL AND product_id = $1::uuid
+    ),
+    d AS (
+      SELECT COALESCE(SUM(dri.quantity_delivered),0)::int q
+      FROM delivery_run_items dri
+      JOIN delivery_runs dr ON dr.id = dri.delivery_run_id AND dr.deleted_at IS NULL
+      WHERE dri.product_id = $1::uuid AND dr.supermarket_id = $2::uuid
+    ),
+    s AS (
+      SELECT COALESCE(SUM(qty_sold),0)::int q FROM sales
+      WHERE deleted_at IS NULL AND product_id = $1::uuid AND supermarket_id = $2::uuid
+    ),
+    ret AS (
+      SELECT COALESCE(SUM(quantity_returned),0)::int q FROM product_returns
+      WHERE deleted_at IS NULL AND product_id = $1::uuid AND supermarket_id = $2::uuid
+    ),
+    inv AS (
+      SELECT COALESCE(quantity,0)::int q FROM supermarket_inventory
+      WHERE product_id = $1::uuid AND supermarket_id = $2::uuid
+    )
+    SELECT r.q AS received, d.q AS delivered, s.q AS sold, ret.q AS returned,
+           COALESCE((SELECT q FROM inv), 0) AS inventory
+    FROM r, d, s, ret
+    `,
+    [productId, spintexId]
+  )
+  return rows[0] ?? { received: 0, delivered: 0, sold: 0, returned: 0, inventory: 0 }
+}
+
+async function applyAddToDelivered(
+  client: pg.PoolClient,
+  action: Extract<SystemCorrectAction, { kind: 'add_to_delivered' }>,
+  spintexId: string,
+  apply: boolean,
+  correctionRef: string
+): Promise<string> {
+  const label = describe(action)
+  const c = await getStockChain(client, action.product.product_id, spintexId)
+  const newDelivered = c.delivered + action.addQty
+
+  // Safety guard: never push delivered above received (would create a phantom over-delivery).
+  if (newDelivered > c.received) {
+    return `${label} — SKIPPED: would over-deliver (received=${c.received}, delivered ${c.delivered}→${newDelivered})`
+  }
+  if (action.addQty <= 0) {
+    return `${label} — SKIPPED: nothing to add`
+  }
+
+  const targetInv = Math.max(0, newDelivered - c.sold - c.returned)
+  if (!apply) {
+    return `${label} — would deliver ${c.delivered}→${newDelivered} (received=${c.received}), shelf ${c.inventory}→${targetInv}`
+  }
+
+  const { rows: newRun } = await client.query<{ id: string }>(
+    `INSERT INTO delivery_runs (supermarket_id, delivery_date, total_transport_cost, notes, source, destination_type)
+     VALUES ($1::uuid, CURRENT_DATE, NULL, $2, 'HISTORICAL_MIGRATION', 'BRANCH')
+     RETURNING id`,
+    [spintexId, `${correctionRef}:add-to-delivered`]
+  )
+  await client.query(
+    `INSERT INTO delivery_run_items (delivery_run_id, product_id, quantity_delivered)
+     VALUES ($1::uuid, $2::uuid, $3)`,
+    [newRun[0].id, action.product.product_id, action.addQty]
+  )
+  await confirmHistoricalDeliveryRun(client, {
+    deliveryRunId: newRun[0].id,
+    supermarketId: spintexId,
+  })
+
+  const { rows: inv } = await client.query<{ id: string }>(
+    `SELECT id FROM supermarket_inventory WHERE supermarket_id = $1::uuid AND product_id = $2::uuid FOR UPDATE`,
+    [spintexId, action.product.product_id]
+  )
+  if (inv[0]) {
+    await client.query(`UPDATE supermarket_inventory SET quantity = $2, updated_at = now() WHERE id = $1::uuid`, [
+      inv[0].id,
+      targetInv,
+    ])
+  } else if (targetInv > 0) {
+    await client.query(
+      `INSERT INTO supermarket_inventory (supermarket_id, product_id, quantity) VALUES ($1::uuid, $2::uuid, $3)`,
+      [spintexId, action.product.product_id, targetInv]
+    )
+  }
+
+  return `${label} — applied delivered ${c.delivered}→${newDelivered}, shelf→${targetInv}`
 }
 
 async function findIntakesByDateQty(
@@ -272,6 +377,18 @@ async function main() {
           skipped.push(`${label} — no matching intake (may already be deleted)`)
           continue
         }
+        // Safety guard: don't delete an intake if doing so would push delivered above
+        // the remaining received total — that would recreate a phantom over-delivery
+        // that a prior auto-fix already resolved.
+        const chain = await getStockChain(client, action.product.product_id, spintexId)
+        const qtyBeingRemoved = matches.reduce((sum, m) => sum + m.quantity_received, 0)
+        const receivedAfter = chain.received - qtyBeingRemoved
+        if (receivedAfter < chain.delivered) {
+          skipped.push(
+            `${label} — SKIPPED: would over-deliver (received ${chain.received}→${receivedAfter}, delivered=${chain.delivered}). This intake matches a prior over-delivery auto-fix; deleting it would re-open that gap.`
+          )
+          continue
+        }
         if (APPLY) {
           for (const m of matches) {
             await client.query(
@@ -382,6 +499,11 @@ async function main() {
 
       if (action.kind === 'delivery_target') {
         applied.push(await applyDeliveryTarget(client, action, spintexId, APPLY, correctionRef))
+        continue
+      }
+
+      if (action.kind === 'add_to_delivered') {
+        applied.push(await applyAddToDelivered(client, action, spintexId, APPLY, correctionRef))
         continue
       }
 

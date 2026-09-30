@@ -21,8 +21,10 @@ export const SYSTEM_CORRECT_FILE_4 = resolve(
 )
 export const SYSTEM_CORRECT_REF = 'admin-correction:system-correct-farmer-torks-2'
 export const SYSTEM_CORRECT_REF_4 = 'admin-correction:system-correct-farmer-torks-4'
+export const SYSTEM_CORRECT_REF_5 = 'admin-correction:system-correct-farmer-torks-5'
 
 export function systemCorrectRefForPath(filePath: string): string {
+  if (/FARMER TORKS 5/i.test(filePath)) return SYSTEM_CORRECT_REF_5
   if (/FARMER TORKS 4/i.test(filePath)) return SYSTEM_CORRECT_REF_4
   if (/FARMER TORKS 2/i.test(filePath)) return SYSTEM_CORRECT_REF
   return 'admin-correction:system-correct-workbook'
@@ -104,6 +106,13 @@ export type SystemCorrectAction =
       onDate: string
       fromQty: number
       toQty: number
+    }
+  | {
+      /** "add onhand quantity N to delivered" — increments delivered by N (relative, resolved against live data at apply time). */
+      kind: 'add_to_delivered'
+      sourceRows: number[]
+      product: ResolvedProduct
+      addQty: number
     }
 
 function cellVal(v: ExcelJS.CellValue): string {
@@ -277,6 +286,17 @@ export function parseSystemCorrectRowActions(
     return out
   }
 
+  if (/delete\s+date\s+and\s+quantity/i.test(actionRaw) && fromDate && colQty) {
+    push({
+      kind: 'delete',
+      sourceRows: [row.rowNum],
+      product,
+      onDate: fromDate,
+      matchQty: colQty,
+    })
+    return out
+  }
+
   const deleteQtyPhrase = actionRaw.match(/delete\s+quantity\s+of\s+(\d+)/i)
   if (deleteQtyPhrase && fromDate) {
     push({
@@ -341,6 +361,17 @@ export function parseSystemCorrectRowActions(
         onDate: fromDate,
       })
     }
+    return out
+  }
+
+  const addOnhandToDelivered = actionRaw.match(/add\s+onhand\s+quantity\s+(\d+)\s+to\s+delivered/i)
+  if (addOnhandToDelivered) {
+    push({
+      kind: 'add_to_delivered',
+      sourceRows: [row.rowNum],
+      product,
+      addQty: Number(addOnhandToDelivered[1]),
+    })
     return out
   }
 
@@ -488,6 +519,7 @@ const ACTION_KIND_ORDER: Record<SystemCorrectAction['kind'], number> = {
   update_delivery_qty: 3,
   insert: 4,
   delivery_target: 5,
+  add_to_delivered: 5,
 }
 
 export function sortSystemCorrectActions(actions: SystemCorrectAction[]): SystemCorrectAction[] {

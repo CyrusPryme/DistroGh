@@ -2,8 +2,13 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { Building2, ShoppingCart, RotateCcw, Truck, Loader2, AlertCircle, Plus, Edit2 } from 'lucide-react'
-import { supermarketService, type SupermarketSummary } from '@/services/supermarket.service'
+import {
+  supermarketService,
+  type SupermarketSummary,
+  type SupermarketSettlementsResponse,
+} from '@/services/supermarket.service'
 import { SupermarketModal } from '@/components/supermarkets/SupermarketModal'
+import { SettlementsTab } from '@/components/supermarkets/SettlementsTab'
 import { useSession } from '@/hooks/useSession'
 import { formatGHS, formatNumber } from '@/lib/utils'
 import { formatSupermarketLabel } from '@/lib/supermarket-display'
@@ -15,6 +20,7 @@ import { SearchInput } from '@/components/shared/SearchInput'
 import { ListToolbar, DataTableShell } from '@/components/shared/DataTableShell'
 import { IconAction } from '@/components/shared/IconAction'
 import { KPICard } from '@/components/dashboard/KPICard'
+import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
 import type { Supermarket } from '@/types'
@@ -23,6 +29,7 @@ import type { SupermarketFormValues } from '@/lib/validations'
 export default function SupermarketsPage() {
   const { role } = useSession({ redirectVendorFromAdmin: true })
   const isAdmin = role === 'admin'
+  const [activeTab, setActiveTab] = useState<'outlets' | 'settlements'>('outlets')
   const [list, setList] = useState<SupermarketSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +40,12 @@ export default function SupermarketsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [search, setSearch] = useState('')
   const { toast, showToast, dismissToast } = useToast(3000)
+
+  const [settlements, setSettlements] = useState<SupermarketSettlementsResponse | null>(null)
+  const [settlementsLoading, setSettlementsLoading] = useState(true)
+  const [settlementsError, setSettlementsError] = useState<string | null>(null)
+  const [settlementsPage, setSettlementsPage] = useState(1)
+  const [settlementsPageSize, setSettlementsPageSize] = usePageSize('supermarkets-settlements', DEFAULT_PAGE_SIZE)
 
   const load = async () => {
     try {
@@ -45,8 +58,20 @@ export default function SupermarketsPage() {
     }
   }
 
+  const loadSettlements = async () => {
+    try {
+      const data = await supermarketService.getSettlements()
+      setSettlements(data)
+    } catch (e: unknown) {
+      setSettlementsError(e instanceof Error ? e.message : 'Failed to load settlements')
+    } finally {
+      setSettlementsLoading(false)
+    }
+  }
+
   useEffect(() => {
     load()
+    loadSettlements()
   }, [])
 
   const filtered = useMemo(() => {
@@ -112,6 +137,23 @@ export default function SupermarketsPage() {
         description="Retailer outlets you distribute to. Add a branch for chains with multiple locations."
       />
 
+      <SegmentedControl
+        aria-label="Supermarket views"
+        value={activeTab}
+        onChange={setActiveTab}
+        options={[
+          { value: 'outlets', label: 'Outlets', count: list.length },
+          {
+            value: 'settlements',
+            label: 'Settlements',
+            count: settlements?.overall.unsettled_count,
+            accent: (settlements?.overall.unsettled_count ?? 0) > 0,
+          },
+        ]}
+      />
+
+      {activeTab === 'outlets' && (
+        <>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KPICard compact title="Outlets" value={list.length} icon={Building2} iconBg="bg-blue-50" iconColor="text-blue-600" />
         <KPICard compact title="Total sales" value={totalSales} icon={ShoppingCart} iconBg="bg-emerald-50" iconColor="text-emerald-600" isCurrency />
@@ -242,6 +284,20 @@ export default function SupermarketsPage() {
       <p className="text-xs text-slate-400">
         Sales imports match spreadsheet BRANCH and store columns to these records. Single-location shops can leave branch blank.
       </p>
+        </>
+      )}
+
+      {activeTab === 'settlements' && (
+        <SettlementsTab
+          data={settlements}
+          loading={settlementsLoading}
+          error={settlementsError}
+          page={settlementsPage}
+          pageSize={settlementsPageSize}
+          onPageChange={setSettlementsPage}
+          onPageSizeChange={setSettlementsPageSize}
+        />
+      )}
 
       <SupermarketModal
         open={modalOpen}
