@@ -26,3 +26,24 @@ Add an entry whenever work is deferred; move to "Done" (or delete) once shipped.
      days, consistent with existing checks (over-delivery, orphan sales, etc.).
 - **Why deferred:** Not urgent while the vendor roster is stable; higher priority once actively
   screening/onboarding new vendors, when cert-expiry hygiene matters more.
+
+---
+
+## Accepted risk (not a to-do — documented so it isn't re-flagged without context)
+
+### `exceljs` → `uuid@8.3.2` audit warning (GHSA-w5hq-g745-h8pq, moderate)
+- **Identified:** 2026-09-30, during `npm audit` triage.
+- **Decision:** Leave as-is. Do not downgrade `exceljs` to 3.4.0 (the only "fix" npm offers) —
+  that's a major-version regression to a heavily-used runtime dependency (migration engine,
+  sales import parsing, template generation, report exports).
+- **Why it's safe to leave:** The vulnerability requires a caller to pass a pre-allocated `buf`
+  argument to uuid's `v3`/`v5`/`v6` functions. Checked `node_modules/exceljs/lib` directly —
+  the only `uuid` usage in the entire package is
+  `const { v4: uuidv4 } = require('uuid')` in `cf-rule-ext-xform.js` (conditional-formatting
+  extension rules), calling plain `uuid.v4()` with no buffer argument. The vulnerable code path
+  is never reached by exceljs. `npm audit` flags this because it can't see how the dependency is
+  actually *used*, only that a vulnerable version exists in the tree.
+- **Revisit if:** exceljs ships a release that bumps its own `uuid` dependency past `^8.x`
+  (check `npm view exceljs@latest dependencies` periodically), or if exceljs's uuid usage ever
+  changes to pass a buffer argument (re-check `node_modules/exceljs/lib/**/*.js` for `uuid`
+  imports if upgrading exceljs for any other reason).
