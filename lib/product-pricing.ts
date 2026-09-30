@@ -133,9 +133,14 @@ export function computeMarkupPercent(
   sellingPrice: number | string | null | undefined,
   costPrice: number | string | null | undefined
 ): number | null {
+  // Check raw inputs before parseMoney(), which defaults invalid/non-finite values to 0 —
+  // that fallback would otherwise mask a NaN selling/cost price as a valid 0, producing a
+  // bogus -100%/large markup instead of correctly reporting "unknown" (null).
+  if (sellingPrice == null || costPrice == null) return null
+  if (!Number.isFinite(Number(sellingPrice)) || !Number.isFinite(Number(costPrice))) return null
   const selling = parseMoney(sellingPrice)
   const cost = parseMoney(costPrice)
-  if (!Number.isFinite(selling) || !Number.isFinite(cost) || cost <= 0) return null
+  if (cost <= 0) return null
   return roundMoney(((selling - cost) / cost) * 100)
 }
 

@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { computeMarkupPercent, formatMarkupPercentLabel } from '@/lib/product-pricing'
 
 describe('computeMarkupPercent', () => {
-  it('returns (selling − cost) / cost × 100', () => {
-    expect(computeMarkupPercent(35, 30)).toBeCloseTo((5 / 30) * 100, 8)
+  it('returns (selling − cost) / cost × 100, rounded to money precision', () => {
+    expect(computeMarkupPercent(35, 30)).toBeCloseTo((5 / 30) * 100, 2)
     expect(computeMarkupPercent(34.5, 30)).toBe(15)
   })
 
   it('accepts numeric strings from Postgres', () => {
-    expect(computeMarkupPercent('35.00', '30.00')).toBeCloseTo((5 / 30) * 100, 8)
+    expect(computeMarkupPercent('35.00', '30.00')).toBeCloseTo((5 / 30) * 100, 2)
   })
 
   it('returns null when cost is missing, zero, or non-finite', () => {
