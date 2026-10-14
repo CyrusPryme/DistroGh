@@ -8,21 +8,18 @@ import { VENDOR_LIST_SELECT, stripVendorSecrets } from '@/lib/vendors/api-select
 export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params
-    const session = await requireVendorSelfOrAdmin(id)
+    await requireVendorSelfOrAdmin(id)
     const pool = getDbPool()
     await enforceVendorServiceCharge(pool, id)
-    const select =
-      session.role === 'admin'
-        ? `${VENDOR_LIST_SELECT}, initial_password`
-        : VENDOR_LIST_SELECT
     const { rows } = await pool.query(
-      `select ${select} from public.vendors where id = $1::uuid and deleted_at is null limit 1`,
+      `select ${VENDOR_LIST_SELECT} from public.vendors where id = $1::uuid and deleted_at is null limit 1`,
       [id]
     )
     if (!rows[0]) return NextResponse.json({ success: true, data: null })
-    const data =
-      session.role === 'admin' ? rows[0] : stripVendorSecrets(rows[0] as Record<string, unknown>)
-    return NextResponse.json({ success: true, data })
+    return NextResponse.json({
+      success: true,
+      data: stripVendorSecrets(rows[0] as Record<string, unknown>),
+    })
   } catch (e) {
     return apiError(e, 'Failed to load vendor')
   }
@@ -64,12 +61,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     update public.vendors
     set ${fields.join(', ')}, updated_at = now()
     where id = $${i}::uuid and deleted_at is null
-    returning ${VENDOR_LIST_SELECT}, initial_password
+    returning ${VENDOR_LIST_SELECT}
     `,
     values
   )
   if (!rows[0]) return NextResponse.json({ success: false, error: 'Vendor not found.' }, { status: 404 })
-  return NextResponse.json({ success: true, data: rows[0] })
+  return NextResponse.json({
+    success: true,
+    data: stripVendorSecrets(rows[0] as Record<string, unknown>),
+  })
 }
 
 export async function DELETE(_: Request, ctx: { params: Promise<{ id: string }> }) {

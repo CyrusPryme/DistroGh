@@ -146,8 +146,7 @@ async function writeRow(
              momo_network = COALESCE(NULLIF($5,''), momo_network),
              description = COALESCE(NULLIF($6,''), description),
              report_delivery_notes = COALESCE(NULLIF($7,''), report_delivery_notes),
-             login_email = NULL,
-             initial_password = NULL
+             login_email = NULL
            WHERE id = $1`,
           [existing.rows[0].id, contactPerson, contactPhone, momoNumber, momoNetwork, description, reportNotes]
         )
@@ -156,9 +155,8 @@ async function writeRow(
       const ins = await client.query(
         `INSERT INTO public.vendors
           (name, momo_number, momo_network, default_commission, status,
-           contact_phone, description, access_mode, contact_person_name, report_delivery_notes,
-           login_email, initial_password)
-         VALUES ($1,$2,$3,$4,'active',$5,$6,'admin_managed',$7,$8,NULL,NULL)
+           contact_phone, description, access_mode, contact_person_name, report_delivery_notes)
+         VALUES ($1,$2,$3,$4,'active',$5,$6,'admin_managed',$7,$8)
          RETURNING id`,
         [
           name,

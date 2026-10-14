@@ -3,6 +3,7 @@ import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
 import { recordVendorServiceChargePayment } from '@/lib/vendor-service-charge-enforce'
+import { stripVendorSecrets } from '@/lib/vendors/api-select'
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -31,7 +32,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     const { rows } = await pool.query(`select * from public.vendors where id = $1::uuid`, [id])
-    return NextResponse.json({ success: true, data: rows[0] ?? null })
+    return NextResponse.json({
+      success: true,
+      data: rows[0] ? stripVendorSecrets(rows[0] as Record<string, unknown>) : null,
+    })
   } catch (e) {
     return apiError(e, 'Failed to record service charge payment')
   }

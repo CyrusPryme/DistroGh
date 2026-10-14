@@ -6,6 +6,7 @@ import { getDbPool } from '@/lib/db'
 import { requireAdmin, getVendorBalanceAmount } from '@/lib/auth/require'
 import { writeAuditLog } from '@/lib/rbac/audit'
 import { recordVendorServiceChargePayment } from '@/lib/vendor-service-charge-enforce'
+import { stripVendorSecrets } from '@/lib/vendors/api-select'
 import type { Vendor } from '@/types'
 import type { VendorFormValues } from '@/lib/validations'
 
@@ -49,10 +50,10 @@ export async function createVendorAdmin(
     `
     insert into public.vendors (
       name, momo_number, momo_network, default_commission, facility_expiry_date,
-      contact_phone, description, login_email, initial_password, status,
+      contact_phone, description, login_email, status,
       access_mode, contact_person_name, report_delivery_notes
     )
-    values ($1, $2, $3, $4, $5, $6, $7, null, null, 'active', $8, $9, $10)
+    values ($1, $2, $3, $4, $5, $6, $7, null, 'active', $8, $9, $10)
     returning *
     `,
     [
@@ -68,7 +69,7 @@ export async function createVendorAdmin(
       report_delivery_notes,
     ]
   )
-  return { vendor: rows[0] as Vendor }
+  return { vendor: stripVendorSecrets(rows[0] as Record<string, unknown>) as unknown as Vendor }
 }
 
 export async function updateVendorAdmin(
@@ -151,7 +152,7 @@ export async function updateVendorAdmin(
     values
   )
   if (!rows[0]) return { error: 'Vendor not found' }
-  return { vendor: rows[0] as Vendor }
+  return { vendor: stripVendorSecrets(rows[0] as Record<string, unknown>) as unknown as Vendor }
 }
 
 export async function createDeductionAdmin(
@@ -258,7 +259,7 @@ export async function recordVendorServiceChargePaymentAdmin(
   }
 
   const { rows } = await pool.query(`select * from public.vendors where id = $1::uuid`, [vendorId])
-  return { vendor: rows[0] as Vendor }
+  return { vendor: stripVendorSecrets(rows[0] as Record<string, unknown>) as unknown as Vendor }
 }
 
 export async function requestVerificationChanges(vendorId: string, message: string): Promise<{ success: true }> {
@@ -304,10 +305,6 @@ export async function resetVendorPassword(vendorId: string, newPassword: string)
 
   const password_hash = await bcrypt.hash(trimmed, 10)
   await pool.query(`update public.users set password_hash = $2 where id = $1::uuid`, [userId, password_hash])
-  await pool.query(
-    `update public.vendors set initial_password = $2, updated_at = now() where id = $1::uuid`,
-    [vendorId, trimmed]
-  )
   return { success: true }
 }
 
