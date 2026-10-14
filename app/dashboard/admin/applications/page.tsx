@@ -210,7 +210,9 @@ export default function VendorApplicationsPage() {
             <CheckCircle className="w-4 h-4" />
             Account created for {approvedCreds.storeName}
           </div>
-          <p className="text-xs text-slate-600">Share these credentials with the vendor.</p>
+          <p className="text-xs text-slate-600">
+            Share these credentials with the vendor now. The password is shown only this once and is not stored.
+          </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="flex gap-1.5 items-center">
               <label className="text-xs font-medium text-slate-500 w-20 shrink-0">Login email</label>

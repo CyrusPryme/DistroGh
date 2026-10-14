@@ -1,4 +1,4 @@
-/** Columns safe to return from list endpoints (never expose plaintext initial_password). */
+/** Columns safe to return from vendor endpoints. Plaintext passwords are not stored. */
 export const VENDOR_LIST_SELECT = `
   id,
   name,
@@ -21,6 +21,7 @@ export const VENDOR_LIST_SELECT = `
   list_cleared_at
 `.replace(/\s+/g, ' ').trim()
 
+/** Drop a legacy plaintext password if a row still carries one (pre-migration). */
 export function stripVendorSecrets<T extends Record<string, unknown>>(row: T): Omit<T, 'initial_password'> {
   const { initial_password: _ignored, ...rest } = row
   return rest
