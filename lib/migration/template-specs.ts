@@ -56,14 +56,19 @@ export const CANONICAL_MIGRATION_TEMPLATE_SPECS: TemplateColumnSpec[] = [
   {
     entity_type: 'sales',
     required_columns: ['description', 'code', 'qty', 'store_name', 'TCostEx', 'report_month'],
+    // Mirrors db/migrations/035_sales_migration_template_dropdowns.sql's optional_columns exactly —
+    // keep this list in sync whenever that template row is updated.
     optional_columns: [
       'product_name',
       'branch',
+      'vendor',
       'paid',
+      'supermarket_paid',
       'month',
       'report_year',
       'store',
       'barcode',
+      'unit_price',
       'week_start',
       'week_end',
     ],
@@ -135,6 +140,7 @@ export function expectedDropdownExpectation(entityType: string, column: string):
       'status',
       'reason',
       'paid',
+      'supermarket_paid',
       'month',
       'destination_type',
     ].includes(column)

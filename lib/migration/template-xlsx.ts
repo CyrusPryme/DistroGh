@@ -136,6 +136,11 @@ const ENTITY_FIELD_OVERRIDES: Partial<Record<string, Record<string, ColumnValida
   },
   sales: {
     paid: { kind: 'list', options: ['Yes', 'No'] },
+    // Same semantics as `paid` (see db/migrations/035_sales_migration_template_dropdowns.sql) —
+    // Yes = supermarket settled with DistroGH; blank/No = awaiting payment. Kept as its own entry
+    // rather than aliased to `paid` since FIELD_VALIDATIONS/ENTITY_FIELD_OVERRIDES key off exact
+    // column name.
+    supermarket_paid: { kind: 'list', options: ['Yes', 'No'] },
     report_month: { kind: 'date' },
     month: { kind: 'list', options: MONTH_NAME_OPTIONS },
   },

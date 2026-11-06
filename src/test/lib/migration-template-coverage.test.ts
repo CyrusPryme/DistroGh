@@ -124,7 +124,9 @@ describe('migration template column coverage', () => {
       'branch',
       'product_name',
       'barcode',
+      'vendor',
       'paid',
+      'supermarket_paid',
       'month',
     ] as const
     for (const col of listCols) {
@@ -135,9 +137,7 @@ describe('migration template column coverage', () => {
     expect(sheet.getCell(3, columns.indexOf('code') + 1).dataValidation?.type).not.toBe('list')
     expect(sheet.getCell(3, columns.indexOf('report_month') + 1).dataValidation?.type).toBe('custom')
     expect(sheet.getCell(3, columns.indexOf('report_year') + 1).dataValidation?.type).toBe('whole')
-    expect(columns).not.toContain('unit_price')
-    expect(columns).not.toContain('vendor')
-    expect(columns).not.toContain('supermarket_paid')
+    expect(sheet.getCell(3, columns.indexOf('unit_price') + 1).dataValidation?.type).toBe('decimal')
   })
 
   it('deliveries template includes destination_type static dropdown', async () => {
