@@ -124,9 +124,7 @@ describe('migration template column coverage', () => {
       'branch',
       'product_name',
       'barcode',
-      'vendor',
       'paid',
-      'supermarket_paid',
       'month',
     ] as const
     for (const col of listCols) {
@@ -137,7 +135,9 @@ describe('migration template column coverage', () => {
     expect(sheet.getCell(3, columns.indexOf('code') + 1).dataValidation?.type).not.toBe('list')
     expect(sheet.getCell(3, columns.indexOf('report_month') + 1).dataValidation?.type).toBe('custom')
     expect(sheet.getCell(3, columns.indexOf('report_year') + 1).dataValidation?.type).toBe('whole')
-    expect(sheet.getCell(3, columns.indexOf('unit_price') + 1).dataValidation?.type).toBe('decimal')
+    expect(columns).not.toContain('unit_price')
+    expect(columns).not.toContain('vendor')
+    expect(columns).not.toContain('supermarket_paid')
   })
 
   it('deliveries template includes destination_type static dropdown', async () => {
@@ -149,6 +149,32 @@ describe('migration template column coverage', () => {
     const columns = [...spec.required_columns, ...spec.optional_columns]
     const validation = sheet.getCell(3, columns.indexOf('destination_type') + 1).dataValidation
     expect(validation?.type).toBe('list')
+  })
+
+  it('payouts template status dropdown includes processing (matches live PAYOUT_STATUSES)', async () => {
+    const spec = CANONICAL_MIGRATION_TEMPLATE_SPECS.find((s) => s.entity_type === 'payouts')!
+    const buf = await buildMigrationTemplateWorkbook(specToTemplate(spec), LIVE_OPTIONS)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const sheet = wb.getWorksheet('_lists')!
+    // Status options are registered as a named list on the _lists sheet; find the column whose
+    // values include 'processing' to confirm it's offered (not just completed/pending/failed).
+    const statusCol = [...Array(sheet.columnCount + 1).keys()]
+      .slice(1)
+      .find((c) => sheet.getCell(1, c).value === 'pending' || sheet.getCell(2, c).value === 'pending')
+    expect(statusCol, '_lists sheet should contain a pending/processing/completed/failed column').toBeTruthy()
+    const values = [1, 2, 3, 4].map((r) => sheet.getCell(r, statusCol!).value)
+    expect(values).toContain('processing')
+  })
+
+  it('deductions template reason column is free text, not the returns-only enum', async () => {
+    const spec = CANONICAL_MIGRATION_TEMPLATE_SPECS.find((s) => s.entity_type === 'deductions')!
+    const buf = await buildMigrationTemplateWorkbook(specToTemplate(spec), LIVE_OPTIONS)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const sheet = wb.getWorksheet('Data')!
+    const columns = [...spec.required_columns, ...spec.optional_columns]
+    expect(sheet.getCell(3, columns.indexOf('reason') + 1).dataValidation?.type).not.toBe('list')
   })
 
   it('products template category column gets live category dropdown', async () => {

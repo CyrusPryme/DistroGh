@@ -83,7 +83,12 @@ type ColumnValidation = ListValidation | DecimalValidation | WholeValidation | D
 const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
   momo_network: { kind: 'list', options: ['MTN', 'Vodafone', 'AirtelTigo'] },
   status: { kind: 'list', options: ['active', 'pending_verification', 'suspended'] },
-  reason: { kind: 'list', options: ['expired', 'defective_product', 'defective_packaging', 'other'] },
+  // NOTE: no generic `reason` entry here — the only canonical reason enum is the product-return
+  // one (expired/defective_product/defective_packaging/other), declared explicitly under
+  // ENTITY_FIELD_OVERRIDES.returns below. A generic fallback here previously leaked that
+  // returns-specific enum onto vendor_deductions.reason (a free-text field in the live app —
+  // see app/api/deductions/route.ts — with totally different semantics, e.g. "transport cost",
+  // "late delivery penalty"), incorrectly blocking any deduction reason outside the returns list.
   quantity: { kind: 'whole', min: 1 },
   qty: { kind: 'whole', min: 1 },
   vendor_price: { kind: 'decimal', min: 0 },
@@ -129,18 +134,16 @@ const ENTITY_FIELD_OVERRIDES: Partial<Record<string, Record<string, ColumnValida
     },
   },
   payouts: {
-    status: { kind: 'list', options: ['completed', 'pending', 'failed'] },
+    // Mirrors the live PAYOUT_STATUSES enum in app/api/payouts/[id]/route.ts — was missing
+    // 'processing', so a historical/manual row in that real-world state had no valid dropdown
+    // option.
+    status: { kind: 'list', options: ['pending', 'processing', 'completed', 'failed'] },
   },
   returns: {
     reason: { kind: 'list', options: ['expired', 'defective_product', 'defective_packaging', 'other'] },
   },
   sales: {
     paid: { kind: 'list', options: ['Yes', 'No'] },
-    // Same semantics as `paid` (see db/migrations/035_sales_migration_template_dropdowns.sql) —
-    // Yes = supermarket settled with DistroGH; blank/No = awaiting payment. Kept as its own entry
-    // rather than aliased to `paid` since FIELD_VALIDATIONS/ENTITY_FIELD_OVERRIDES key off exact
-    // column name.
-    supermarket_paid: { kind: 'list', options: ['Yes', 'No'] },
     report_month: { kind: 'date' },
     month: { kind: 'list', options: MONTH_NAME_OPTIONS },
   },

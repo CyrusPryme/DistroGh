@@ -56,19 +56,20 @@ export const CANONICAL_MIGRATION_TEMPLATE_SPECS: TemplateColumnSpec[] = [
   {
     entity_type: 'sales',
     required_columns: ['description', 'code', 'qty', 'store_name', 'TCostEx', 'report_month'],
-    // Mirrors db/migrations/035_sales_migration_template_dropdowns.sql's optional_columns exactly —
-    // keep this list in sync whenever that template row is updated.
+    // Mirrors the *latest* db/migrations/0NN_sales_template_*.sql update to migration_templates —
+    // several migrations touched this row (035-038); 038 is currently last and intentionally
+    // dropped vendor/unit_price/supermarket_paid (vendor resolved from matched product, unit price
+    // derived from TCostEx/qty, settlement consolidated into the single `paid` column). Always
+    // verify against the live `migration_templates` DB row, not just the newest-numbered file,
+    // since later migrations can supersede earlier ones' column lists.
     optional_columns: [
       'product_name',
       'branch',
-      'vendor',
       'paid',
-      'supermarket_paid',
       'month',
       'report_year',
       'store',
       'barcode',
-      'unit_price',
       'week_start',
       'week_end',
     ],
@@ -134,13 +135,17 @@ export function expectedDropdownExpectation(entityType: string, column: string):
   if (entityType !== 'products' && column === 'barcode') return 'live_barcode'
   if (entityType === 'products' && column === 'category') return 'live_category'
 
+  // 'reason' is only a static dropdown on the returns template (product-return enum). Other
+  // entities with a 'reason' column (e.g. deductions) are free text in the live app — see
+  // ENTITY_FIELD_OVERRIDES.returns / the FIELD_VALIDATIONS note in template-xlsx.ts.
+  if (entityType === 'returns' && column === 'reason') return 'static_list'
+  if (column === 'reason') return 'none'
+
   if (
     [
       'momo_network',
       'status',
-      'reason',
       'paid',
-      'supermarket_paid',
       'month',
       'destination_type',
     ].includes(column)
