@@ -123,7 +123,7 @@ describe('migration template column coverage', () => {
       'store_name',
       'branch',
       'product_name',
-      'barcode',
+      'code',
       'paid',
       'month',
     ] as const
@@ -132,12 +132,15 @@ describe('migration template column coverage', () => {
     }
 
     expect(sheet.getCell(3, columns.indexOf('description') + 1).dataValidation?.type).not.toBe('list')
-    expect(sheet.getCell(3, columns.indexOf('code') + 1).dataValidation?.type).not.toBe('list')
     expect(sheet.getCell(3, columns.indexOf('report_month') + 1).dataValidation?.type).toBe('custom')
     expect(sheet.getCell(3, columns.indexOf('report_year') + 1).dataValidation?.type).toBe('whole')
     expect(columns).not.toContain('unit_price')
     expect(columns).not.toContain('vendor')
     expect(columns).not.toContain('supermarket_paid')
+    // 'barcode' was removed as a separate column — it duplicated 'code' (same product match,
+    // same live dropdown). 'code' now carries that dropdown alone, displayed as "barcode".
+    expect(columns).not.toContain('barcode')
+    expect(sheet.getCell(1, columns.indexOf('code') + 1).value).toBe('barcode *')
   })
 
   it('deliveries template includes destination_type static dropdown', async () => {
@@ -149,6 +152,31 @@ describe('migration template column coverage', () => {
     const columns = [...spec.required_columns, ...spec.optional_columns]
     const validation = sheet.getCell(3, columns.indexOf('destination_type') + 1).dataValidation
     expect(validation?.type).toBe('list')
+  })
+
+  it('sales template code dropdown warns (does not hard-block) since product_name/description can still resolve a mismatch', async () => {
+    const spec = CANONICAL_MIGRATION_TEMPLATE_SPECS.find((s) => s.entity_type === 'sales')!
+    const template = specToTemplate(spec)
+    const buf = await buildMigrationTemplateWorkbook(template, LIVE_OPTIONS)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const sheet = wb.getWorksheet('Data')!
+    const columns = getMigrationTemplateColumnOrder(template)
+    const codeValidation = sheet.getCell(3, columns.indexOf('code') + 1).dataValidation
+    expect(codeValidation?.type).toBe('list')
+    expect(codeValidation?.errorStyle).toBe('warning')
+
+    // 'barcode' stays a hard error on entities where it's optional (a blank is always a valid
+    // escape hatch there) — confirmed on intakes, where it hasn't been consolidated like sales.code.
+    const intakesSpec = CANONICAL_MIGRATION_TEMPLATE_SPECS.find((s) => s.entity_type === 'intakes')!
+    const intakesTemplate = specToTemplate(intakesSpec)
+    const intakesBuf = await buildMigrationTemplateWorkbook(intakesTemplate, LIVE_OPTIONS)
+    const intakesWb = new ExcelJS.Workbook()
+    await intakesWb.xlsx.load(intakesBuf as any)
+    const intakesSheet = intakesWb.getWorksheet('Data')!
+    const intakesColumns = getMigrationTemplateColumnOrder(intakesTemplate)
+    const intakesBarcodeValidation = intakesSheet.getCell(3, intakesColumns.indexOf('barcode') + 1).dataValidation
+    expect(intakesBarcodeValidation?.errorStyle).toBe('error')
   })
 
   it('payouts template status dropdown includes processing (matches live PAYOUT_STATUSES)', async () => {

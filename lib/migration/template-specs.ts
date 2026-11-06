@@ -57,11 +57,14 @@ export const CANONICAL_MIGRATION_TEMPLATE_SPECS: TemplateColumnSpec[] = [
     entity_type: 'sales',
     required_columns: ['description', 'code', 'qty', 'store_name', 'TCostEx', 'report_month'],
     // Mirrors the *latest* db/migrations/0NN_sales_template_*.sql update to migration_templates —
-    // several migrations touched this row (035-038); 038 is currently last and intentionally
-    // dropped vendor/unit_price/supermarket_paid (vendor resolved from matched product, unit price
-    // derived from TCostEx/qty, settlement consolidated into the single `paid` column). Always
-    // verify against the live `migration_templates` DB row, not just the newest-numbered file,
-    // since later migrations can supersede earlier ones' column lists.
+    // several migrations touched this row (035-038, 044); 044 is currently last and removed the
+    // optional 'barcode' column — it duplicated the required 'code' column (both resolved to the
+    // same product match field, see sales-fields.ts pickSalesField(data, 'code', 'barcode', ...))
+    // and showed up as two visually-identical barcode dropdowns. 'code' is now displayed as
+    // "barcode" in the generated Excel header (see displayColumnName in template-xlsx.ts) while
+    // keeping its internal key as 'code'. Always verify against the live `migration_templates` DB
+    // row, not just the newest-numbered file, since later migrations can supersede earlier ones'
+    // column lists.
     optional_columns: [
       'product_name',
       'branch',
@@ -69,7 +72,6 @@ export const CANONICAL_MIGRATION_TEMPLATE_SPECS: TemplateColumnSpec[] = [
       'month',
       'report_year',
       'store',
-      'barcode',
       'week_start',
       'week_end',
     ],
@@ -132,7 +134,9 @@ export function expectedDropdownExpectation(entityType: string, column: string):
   if (column === 'supermarket_name') return 'live_supermarket_chain'
   if (column === 'store_name' || column === 'branch') return 'live_supermarket_branch'
   if (entityType !== 'products' && (column === 'product_name' || column === 'product')) return 'live_product'
-  if (entityType !== 'products' && column === 'barcode') return 'live_barcode'
+  // 'code' (sales) is treated as interchangeable with 'barcode' for product matching — see
+  // PRODUCT_BARCODE_COLUMNS in template-xlsx.ts.
+  if (entityType !== 'products' && (column === 'barcode' || column === 'code')) return 'live_barcode'
   if (entityType === 'products' && column === 'category') return 'live_category'
 
   // 'reason' is only a static dropdown on the returns template (product-return enum). Other

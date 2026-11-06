@@ -32,10 +32,14 @@ const CATEGORY_COLUMNS = new Set(['category'])
 /** Master-data templates define NEW outlets — never constrain name/branch to existing records. */
 const SUPERMARKET_DROPDOWN_ENTITY_EXCLUSIONS = new Set(['supermarkets', 'supermarket_chains'])
 // Deliberately excludes 'name' (the Products template's own new-product name field) and the
-// free-text Palace-style sales identifiers (description/code/barcode) — those aren't a lookup
-// against the existing catalogue, so forcing them into a dropdown would block legitimate values.
+// free-text Palace-style sales identifier 'description' — these aren't a lookup against the
+// existing catalogue, so forcing them into a dropdown would block legitimate values.
 const PRODUCT_NAME_COLUMNS = new Set(['product_name', 'product'])
-const PRODUCT_BARCODE_COLUMNS = new Set(['barcode'])
+// 'code' is the sales template's Palace-style required product identifier — validate.ts treats it
+// as interchangeable with 'barcode' (`str(data.barcode || data.code)`) when matching a product, so
+// it gets the same live barcode dropdown. Still a soft (warning) dropdown, not hard-blocking — see
+// getValidation() below for why.
+const PRODUCT_BARCODE_COLUMNS = new Set(['barcode', 'code'])
 const PHONE_COLUMNS = new Set(['momo_number', 'contact_phone', 'phone'])
 
 const MONTH_NAME_OPTIONS = [
@@ -71,7 +75,7 @@ const SAMPLE_ROW = 2
 const FIRST_EDITABLE_ROW = 2
 const LAST_DATA_ROW = DATA_ROW_COUNT + 1
 
-type ListValidation = { kind: 'list'; options: string[] }
+type ListValidation = { kind: 'list'; options: string[]; errorStyle?: 'error' | 'warning' }
 type DecimalValidation = { kind: 'decimal'; min?: number }
 type WholeValidation = { kind: 'whole'; min?: number }
 type DateValidation = { kind: 'date' }
@@ -232,6 +236,13 @@ function getValidation(
       options: barcodes.length
         ? barcodes
         : ['(No product barcodes in system — add barcodes on products first)'],
+      // 'code' (sales) is required and has a documented fallback: validate.ts still matches the
+      // product via product_name/description when the code/barcode doesn't line up (common for
+      // historical rows using a stale/legacy Palace code). A hard error would block that
+      // legitimate case entirely since 'code' can't be left blank — a warning still guides users
+      // to the right value without locking out the fallback. 'barcode' stays a hard error since
+      // it's optional (a user can just leave it blank and rely on product_name/description).
+      errorStyle: column === 'code' ? 'warning' : 'error',
     }
   }
   return ENTITY_FIELD_OVERRIDES[entityType]?.[column] ?? FIELD_VALIDATIONS[column] ?? null
@@ -276,14 +287,18 @@ function buildCellValidation(
   columnLetter: string
 ): ExcelJS.DataValidation | null {
   if (validation.kind === 'list' && listRange) {
+    const errorStyle = validation.errorStyle ?? 'error'
     return {
       type: 'list',
       allowBlank: !required,
       formulae: [listRange],
       showErrorMessage: true,
-      errorStyle: 'error',
+      errorStyle,
       errorTitle: 'Invalid value',
-      error: 'Choose a value from the dropdown list.',
+      error:
+        errorStyle === 'warning'
+          ? 'This value isn\u2019t in the current product list. Continue only if you\u2019re sure it\u2019s correct (e.g. a legacy code) \u2014 the system can still match by product name.'
+          : 'Choose a value from the dropdown list.',
       showInputMessage: true,
       promptTitle: humanizeColumn(columnLetter),
       prompt: 'Select from the dropdown',
@@ -433,6 +448,21 @@ function templateHasColumn(template: MigrationTemplateRecord, columns: Set<strin
   return templateColumns(template).some((c) => columns.has(c))
 }
 
+/**
+ * Display override for a column's header text — lets the Excel label shown to the user differ
+ * from the internal column key used for required/optional membership + validation lookup.
+ * Sales 'code' and 'barcode' used to be two separate columns resolving to the exact same product
+ * match (sales-fields.ts pickSalesField(data, 'code', 'barcode', 'Code')) — a visible duplicate
+ * dropdown. The optional 'barcode' column was removed (db/migrations/044_*) and 'code' is now
+ * labeled "barcode" here for clarity, while the underlying key stays 'code' so parsing (parse.ts
+ * reads headers literally, then sales-fields.ts already treats a 'barcode' header as an alias of
+ * 'code') keeps working for both old and new downloads without any other code changes.
+ */
+function displayColumnName(entityType: string, key: string): string {
+  if (entityType === 'sales' && key === 'code') return 'barcode'
+  return key
+}
+
 function buildInstructionsSheet(
   workbook: ExcelJS.Workbook,
   template: MigrationTemplateRecord,
@@ -440,8 +470,10 @@ function buildInstructionsSheet(
 ) {
   const sheet = workbook.addWorksheet('Instructions')
   sheet.columns = [{ width: 90 }]
-  const required = (template.required_columns || []).join(', ') || '—'
-  const optional = (template.optional_columns || []).join(', ') || '—'
+  const required =
+    (template.required_columns || []).map((c) => displayColumnName(template.entity_type, c)).join(', ') || '—'
+  const optional =
+    (template.optional_columns || []).map((c) => displayColumnName(template.entity_type, c)).join(', ') || '—'
 
   const lines = [
     [`${template.label} — Migration Template`],
@@ -480,7 +512,7 @@ function buildInstructionsSheet(
       ? [
           ['For Palace exports: upload the supermarket file as-is, or use this template for manual historical rows.'],
           ['Aggregated upload: one row per sale line — set report_month (or month + report_year) on every row.'],
-          ['description + code (free text) match products by name/barcode — vendor comes from the matched product, not a column here.'],
+          ['description (free text) + barcode (dropdown, warns on mismatch) match products by name/barcode — vendor comes from the matched product, not a column here.'],
           ['qty + TCostEx only: TCostEx is DistroGH\'s price to the supermarket (Palace supplier cost). Per-unit = TCostEx ÷ qty.'],
           ['Vendor due and Distro markup are split from the matched product (catalog vendor_price + distrogh_markup). Palace never sees vendor pricing.'],
           ['Each row keeps its own TCostEx — past Distro-to-Palace prices stay on the sale.'],
@@ -540,7 +572,8 @@ function populateTemplateSheets(
   const headerRow = dataSheet.getRow(HEADER_ROW)
   columns.forEach((key, idx) => {
     const cell = headerRow.getCell(idx + 1)
-    cell.value = requiredSet.has(key) ? `${key} *` : key
+    const label = displayColumnName(template.entity_type, key)
+    cell.value = requiredSet.has(key) ? `${label} *` : label
     cell.font = { bold: true, color: { argb: requiredSet.has(key) ? 'FF9A3412' : 'FF1E293B' } }
     cell.fill = {
       type: 'pattern',

@@ -39,7 +39,17 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="font-sans antialiased bg-slate-50 text-slate-900 subpixel-antialiased min-h-screen">
+      <body
+        className="font-sans antialiased bg-slate-50 text-slate-900 subpixel-antialiased min-h-screen"
+        // A browser extension (not this app) injects extra attributes onto <body> after the
+        // server HTML is sent (e.g. a stray `location="localhost"` attribute seen in dev) —
+        // React correctly flags that as a hydration mismatch even though it's harmless and
+        // outside our control. suppressHydrationWarning on this one element tells React to
+        // ignore attribute-only mismatches here without disabling hydration-mismatch detection
+        // anywhere else in the tree. See https://react.dev/link/hydration-mismatch.
+        suppressHydrationWarning
+      >
+
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
