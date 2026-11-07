@@ -4,7 +4,7 @@ import { requireAdminSession } from '@/lib/auth/require'
 import type { VendorApplication } from '@/types/vendor-application'
 import { parseDatabaseError, logError } from '@/utils/error-handler'
 
-function toVendorApplication(row: any): VendorApplication {
+function toVendorApplication(row: unknown): VendorApplication {
   return row as VendorApplication
 }
 
@@ -36,9 +36,9 @@ export async function POST(req: Request) {
     )
 
     return NextResponse.json({ success: true, data: toVendorApplication(rows[0]) }, { status: 201 })
-  } catch (e: any) {
+  } catch (e: unknown) {
     logError(e, 'api.vendor-applications.POST')
-    if (e?.code === '23505') {
+    if ((e as { code?: string })?.code === '23505') {
       return NextResponse.json(
         { success: false, error: 'An application with this email already exists.' },
         { status: 409 }

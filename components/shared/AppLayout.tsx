@@ -193,6 +193,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const stored = localStorage.getItem('distrogh-sidebar-collapsed')
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time sync read of localStorage (browser-only API) on mount; no external-system subscription here.
       if (stored === 'true') setSidebarCollapsed(true)
     } catch {
       /* ignore */
@@ -215,6 +216,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const vendorId = sessionData?.role === 'vendor' ? sessionData.vendor_id : null
     if (!vendorId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- derived-state reset (no vendor on this session), not a fetch; the fetch below already uses a cancelled guard.
       setVendorInfo(null)
       return
     }

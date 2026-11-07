@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Crown, BadgeDollarSign, Scale, ClipboardList,
   HeartPulse, ArchiveRestore, ShieldAlert, Database, SlidersHorizontal, ShieldCheck,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatGHS } from '@/lib/utils'
 import { PageHeader } from '@/components/shared/PageHeader'
 
 type PlatformStats = {
@@ -76,8 +76,7 @@ export default function PlatformDashboardPage() {
     loadAll()
   }, [])
 
-  const fmtCurrency = (n?: number | null) =>
-    n != null ? `GHS ${Number(n).toLocaleString('en-GH', { minimumFractionDigits: 2 })}` : '—'
+  const fmtCurrency = (n?: number | null) => (n != null ? formatGHS(Number(n)) : '—')
 
   const statusColor = (s: string) =>
     s === 'balanced' ? 'text-brand-600 bg-brand-50' :

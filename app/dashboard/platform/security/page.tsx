@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useAsync } from '@/hooks/useAsync'
 
 type SecurityEvent = {
   id: string
@@ -52,20 +53,14 @@ const ACTION_COLORS: Record<string, string> = {
 }
 
 export default function SecurityCenterPage() {
-  const [data, setData] = useState<SecurityData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [hours, setHours] = useState(72)
 
-  const load = async (h = hours) => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/developer/security?hours=${h}`)
-      const json = await res.json()
-      if (json.success) setData(json.data)
-    } catch { /* ignore */ } finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [])
+  const { data, loading, reload: load } = useAsync(async () => {
+    const res = await fetch(`/api/developer/security?hours=${hours}`)
+    const json = await res.json()
+    if (!json.success) throw new Error(json.error || 'Failed to load security data')
+    return json.data as SecurityData
+  }, [hours])
 
   const fmtDate = (d: string) => new Date(d).toLocaleString()
   const maxEvents = data?.ip_activity.reduce((m, e) => Math.max(m, e.event_count), 1) ?? 1
@@ -78,7 +73,7 @@ export default function SecurityCenterPage() {
           <p className="text-sm text-slate-500 mt-0.5">Login monitoring, IP activity and threat detection</p>
         </div>
         <div className="flex gap-2 items-center">
-          <select value={hours} onChange={e => { setHours(Number(e.target.value)); load(Number(e.target.value)) }} className="input-base text-sm">
+          <select value={hours} onChange={e => setHours(Number(e.target.value))} className="input-base text-sm">
             <option value={24}>Last 24h</option>
             <option value={72}>Last 72h</option>
             <option value={168}>Last 7 days</option>

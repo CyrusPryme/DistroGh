@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSession } from '@/hooks/useSession'
+import { useAsync } from '@/hooks/useAsync'
 import { vendorService } from '@/services/vendor.service'
 import { ArrowLeft, CreditCard, Loader2, AlertCircle, Wallet, FileText } from 'lucide-react'
 import { formatGHS, formatDate, cn } from '@/lib/utils'
@@ -22,31 +22,23 @@ export default function VendorPayoutsPage() {
     requireAuth: true,
     ensureVendorProfile: true,
   })
-  const [balance, setBalance] = useState<number | null>(null)
-  const [payouts, setPayouts] = useState<PayoutRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (sessionLoading) return
-    if (!vendorId) {
-      setLoading(false)
-      setError('No vendor linked to your account.')
-      return
-    }
-    Promise.all([
-      vendorService.getVendorBalance(vendorId),
-      vendorService.getVendorPayoutHistory(vendorId),
-    ])
-      .then(([bal, history]) => {
-        setBalance(bal)
-        setPayouts((history ?? []) as PayoutRow[])
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Failed to load payout history')
-      })
-      .finally(() => setLoading(false))
-  }, [sessionLoading, vendorId])
+  const hasVendor = !sessionLoading && !!vendorId
+  const { data, loading: fetchLoading, error: fetchError } = useAsync(
+    async () => {
+      const [bal, history] = await Promise.all([
+        vendorService.getVendorBalance(vendorId!),
+        vendorService.getVendorPayoutHistory(vendorId!),
+      ])
+      return { balance: bal, payouts: (history ?? []) as PayoutRow[] }
+    },
+    [vendorId],
+    { enabled: hasVendor }
+  )
+  const balance = data?.balance ?? null
+  const payouts = data?.payouts ?? []
+  const noVendorError = !sessionLoading && !vendorId ? 'No vendor linked to your account.' : null
+  const error = fetchError || noVendorError
+  const loading = sessionLoading || (hasVendor && fetchLoading)
 
   if (loading) {
     return (

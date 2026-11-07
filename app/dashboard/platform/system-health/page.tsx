@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, formatNumber } from '@/lib/utils'
 
 type HealthData = {
   pg_version?: string
@@ -77,7 +77,7 @@ export default function SystemHealthPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {Object.entries(data.platform_stats).map(([key, val]) => (
                   <div key={key} className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
-                    <p className="text-xl font-bold text-slate-800">{Number(val).toLocaleString()}</p>
+                    <p className="text-xl font-bold text-slate-800">{formatNumber(Number(val))}</p>
                     <p className="text-xs text-slate-500 mt-1">{statLabels[key] ?? key}</p>
                   </div>
                 ))}
@@ -114,7 +114,7 @@ export default function SystemHealthPage() {
                     {data.tables.map(t => (
                       <tr key={t.table_name} className="hover:bg-slate-50">
                         <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{t.table_name}</td>
-                        <td className="px-4 py-2.5 text-slate-600">{Number(t.row_count).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{formatNumber(Number(t.row_count))}</td>
                         <td className="px-4 py-2.5 text-slate-500">{t.total_size}</td>
                       </tr>
                     ))}

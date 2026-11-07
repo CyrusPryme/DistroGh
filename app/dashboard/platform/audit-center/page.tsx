@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, formatNumber } from '@/lib/utils'
 import { usePageSize } from '@/hooks/usePageSize'
 
 const LIMIT_OPTIONS = [50, 100, 200]
@@ -132,7 +132,7 @@ export default function AuditCenterPage() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-slate-500">{total.toLocaleString()} events</p>
+        <p className="text-sm text-slate-500">{formatNumber(total)} events</p>
         <label className="flex items-center gap-1.5 text-sm text-slate-500">
           <span>Rows per page</span>
           <select

@@ -21,8 +21,6 @@ export type TemplateBuildOptions = {
   supermarketBranchLabels?: string[]
   /** Product category names (products template). */
   categoryNames?: string[]
-  /** Product barcodes (sales/intakes optional barcode column). */
-  productBarcodes?: string[]
 }
 
 const VENDOR_NAME_COLUMNS = new Set(['vendor_name', 'vendor'])
@@ -34,12 +32,13 @@ const SUPERMARKET_DROPDOWN_ENTITY_EXCLUSIONS = new Set(['supermarkets', 'superma
 // Deliberately excludes 'name' (the Products template's own new-product name field) and the
 // free-text Palace-style sales identifier 'description' — these aren't a lookup against the
 // existing catalogue, so forcing them into a dropdown would block legitimate values.
+// 'code'/'barcode' lookup columns (sales, intakes, deliveries, returns) were removed from every
+// template's column list (db/migrations/046_*) in favor of 'product_name' everywhere — product
+// names are easier to read/verify by eye than a barcode digit string. validate.ts still falls
+// back to a 'barcode'/'code' header value for product matching if a user manually adds one to
+// their upload (parsing is header-text-driven, not restricted to the generated template's own
+// column list — see sales-fields.ts/validate.ts), so this is purely a template-generation change.
 const PRODUCT_NAME_COLUMNS = new Set(['product_name', 'product'])
-// 'code' is the sales template's Palace-style required product identifier — validate.ts treats it
-// as interchangeable with 'barcode' (`str(data.barcode || data.code)`) when matching a product, so
-// it gets the same live barcode dropdown. Still a soft (warning) dropdown, not hard-blocking — see
-// getValidation() below for why.
-const PRODUCT_BARCODE_COLUMNS = new Set(['barcode', 'code'])
 const PHONE_COLUMNS = new Set(['momo_number', 'contact_phone', 'phone'])
 
 const MONTH_NAME_OPTIONS = [
@@ -227,22 +226,6 @@ function getValidation(
       options: names.length
         ? names
         : ['(No products in system — add products first)'],
-    }
-  }
-  if (entityType !== 'products' && PRODUCT_BARCODE_COLUMNS.has(column)) {
-    const barcodes = options?.productBarcodes ?? []
-    return {
-      kind: 'list',
-      options: barcodes.length
-        ? barcodes
-        : ['(No product barcodes in system — add barcodes on products first)'],
-      // 'code' (sales) is required and has a documented fallback: validate.ts still matches the
-      // product via product_name/description when the code/barcode doesn't line up (common for
-      // historical rows using a stale/legacy Palace code). A hard error would block that
-      // legitimate case entirely since 'code' can't be left blank — a warning still guides users
-      // to the right value without locking out the fallback. 'barcode' stays a hard error since
-      // it's optional (a user can just leave it blank and rely on product_name/description).
-      errorStyle: column === 'code' ? 'warning' : 'error',
     }
   }
   return ENTITY_FIELD_OVERRIDES[entityType]?.[column] ?? FIELD_VALIDATIONS[column] ?? null
@@ -448,21 +431,6 @@ function templateHasColumn(template: MigrationTemplateRecord, columns: Set<strin
   return templateColumns(template).some((c) => columns.has(c))
 }
 
-/**
- * Display override for a column's header text — lets the Excel label shown to the user differ
- * from the internal column key used for required/optional membership + validation lookup.
- * Sales 'code' and 'barcode' used to be two separate columns resolving to the exact same product
- * match (sales-fields.ts pickSalesField(data, 'code', 'barcode', 'Code')) — a visible duplicate
- * dropdown. The optional 'barcode' column was removed (db/migrations/044_*) and 'code' is now
- * labeled "barcode" here for clarity, while the underlying key stays 'code' so parsing (parse.ts
- * reads headers literally, then sales-fields.ts already treats a 'barcode' header as an alias of
- * 'code') keeps working for both old and new downloads without any other code changes.
- */
-function displayColumnName(entityType: string, key: string): string {
-  if (entityType === 'sales' && key === 'code') return 'barcode'
-  return key
-}
-
 function buildInstructionsSheet(
   workbook: ExcelJS.Workbook,
   template: MigrationTemplateRecord,
@@ -470,10 +438,8 @@ function buildInstructionsSheet(
 ) {
   const sheet = workbook.addWorksheet('Instructions')
   sheet.columns = [{ width: 90 }]
-  const required =
-    (template.required_columns || []).map((c) => displayColumnName(template.entity_type, c)).join(', ') || '—'
-  const optional =
-    (template.optional_columns || []).map((c) => displayColumnName(template.entity_type, c)).join(', ') || '—'
+  const required = (template.required_columns || []).join(', ') || '—'
+  const optional = (template.optional_columns || []).join(', ') || '—'
 
   const lines = [
     [`${template.label} — Migration Template`],
@@ -496,9 +462,6 @@ function buildInstructionsSheet(
     ...(templateHasColumn(template, PRODUCT_NAME_COLUMNS)
       ? [[`Product dropdown lists ${options?.productNames?.length ?? 0} product(s) from the system at download time — re-download after changes.`]]
       : []),
-    ...(templateHasColumn(template, PRODUCT_BARCODE_COLUMNS)
-      ? [[`Barcode dropdown lists ${options?.productBarcodes?.length ?? 0} barcode(s) at download time.`]]
-      : []),
     ...(template.entity_type === 'products' && templateHasColumn(template, CATEGORY_COLUMNS)
       ? [[`Category dropdown lists ${options?.categoryNames?.length ?? 0} categor(ies) at download time.`]]
       : []),
@@ -512,11 +475,11 @@ function buildInstructionsSheet(
       ? [
           ['For Palace exports: upload the supermarket file as-is, or use this template for manual historical rows.'],
           ['Aggregated upload: one row per sale line — set report_month (or month + report_year) on every row.'],
-          ['description (free text) + barcode (dropdown, warns on mismatch) match products by name/barcode — vendor comes from the matched product, not a column here.'],
+          ['description (free text, optional context) + product_name (dropdown, exact match) identify the product — vendor comes from the matched product, not a column here.'],
           ['qty + TCostEx only: TCostEx is DistroGH\'s price to the supermarket (Palace supplier cost). Per-unit = TCostEx ÷ qty.'],
           ['Vendor due and Distro markup are split from the matched product (catalog vendor_price + distrogh_markup). Palace never sees vendor pricing.'],
           ['Each row keeps its own TCostEx — past Distro-to-Palace prices stay on the sale.'],
-          ['store_name / branch = supermarket outlet (dropdown). TCostEx = PAYMENT TO SUPPLIER on Palace exports (paid to DistroGH).'],
+          ['store_name = supermarket outlet (dropdown). TCostEx = PAYMENT TO SUPPLIER on Palace exports (paid to DistroGH).'],
           ['report_month: first day of sales month (e.g. 2024-06-01). Legacy MONTH-only rows: use month + report_year columns.'],
           ['paid: Yes or PAID = supermarket settled with DistroGH; blank or No = awaiting payment (excluded from vendor balance).'],
         ]
@@ -572,8 +535,7 @@ function populateTemplateSheets(
   const headerRow = dataSheet.getRow(HEADER_ROW)
   columns.forEach((key, idx) => {
     const cell = headerRow.getCell(idx + 1)
-    const label = displayColumnName(template.entity_type, key)
-    cell.value = requiredSet.has(key) ? `${label} *` : label
+    cell.value = requiredSet.has(key) ? `${key} *` : key
     cell.font = { bold: true, color: { argb: requiredSet.has(key) ? 'FF9A3412' : 'FF1E293B' } }
     cell.fill = {
       type: 'pattern',
@@ -620,14 +582,6 @@ function populateTemplateSheets(
         cell.value = options.productNames.includes(String(val))
           ? String(val)
           : options.productNames[0]
-      } else if (
-        template.entity_type !== 'products' &&
-        PRODUCT_BARCODE_COLUMNS.has(key) &&
-        options?.productBarcodes?.length
-      ) {
-        cell.value = options.productBarcodes.includes(String(val))
-          ? String(val)
-          : options.productBarcodes[0]
       } else if (FIELD_VALIDATIONS[key]?.kind === 'date') {
         // Store as a real date (not the raw "2024-01-15" string) so it renders through the
         // yyyy-mm-dd numFmt applied below exactly like a value the user would enter themselves.
@@ -655,11 +609,9 @@ function populateTemplateSheets(
             ? 'live:supermarket_branches'
             : template.entity_type === 'products' && CATEGORY_COLUMNS.has(key)
               ? 'live:categories'
-              : PRODUCT_BARCODE_COLUMNS.has(key)
-                ? 'live:product_barcodes'
-                : PRODUCT_NAME_COLUMNS.has(key)
-                  ? 'live:products'
-                  : `${template.entity_type}:${key}`
+              : PRODUCT_NAME_COLUMNS.has(key)
+                ? 'live:products'
+                : `${template.entity_type}:${key}`
       listRange = registerList(
         listsSheet,
         listCol,

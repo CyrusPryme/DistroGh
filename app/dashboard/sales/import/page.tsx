@@ -232,8 +232,8 @@ export default function SalesImportPage() {
       setPreview(result)
       setPreviewPage(1)
       setStep('preview')
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to parse Excel file')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to parse Excel file')
     } finally {
       setParsing(false)
     }
@@ -293,8 +293,8 @@ export default function SalesImportPage() {
       setImportedCount(importableRows.length)
       setStep('done')
       setResumedSession(false)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to import sales')
     } finally {
       setImporting(false)
     }

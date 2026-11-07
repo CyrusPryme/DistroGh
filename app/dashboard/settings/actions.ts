@@ -26,9 +26,9 @@ export async function createCategory(name: string): Promise<{ id: string } | { e
       [trimmed]
     )
     return { id: rows[0].id }
-  } catch (e: any) {
-    if (e?.code === '23505') return { error: 'A category with this name already exists' }
-    return { error: e?.message ?? 'Failed to create category' }
+  } catch (e: unknown) {
+    if ((e as { code?: string })?.code === '23505') return { error: 'A category with this name already exists' }
+    return { error: e instanceof Error ? e.message : 'Failed to create category' }
   }
 }
 
@@ -71,9 +71,9 @@ export async function updateCategory(id: string, newName: string): Promise<{ ok:
     }
 
     return { ok: true }
-  } catch (e: any) {
-    if (e?.code === '23505') return { error: 'A category with this name already exists' }
-    return { error: e?.message ?? 'Failed to update category' }
+  } catch (e: unknown) {
+    if ((e as { code?: string })?.code === '23505') return { error: 'A category with this name already exists' }
+    return { error: e instanceof Error ? e.message : 'Failed to update category' }
   }
 }
 
@@ -100,8 +100,8 @@ export async function deleteCategory(id: string): Promise<{ ok: true } | { error
     )
     await pool.query(`delete from public.categories where id = $1::uuid`, [id])
     return { ok: true }
-  } catch (e: any) {
-    return { error: e?.message ?? 'Failed to delete category' }
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : 'Failed to delete category' }
   }
 }
 
@@ -126,7 +126,7 @@ export async function updateSystemSetting(
       [key, value]
     )
     return { ok: true }
-  } catch (e: any) {
-    return { error: e?.message ?? 'Failed to update setting' }
+  } catch (e: unknown) {
+    return { error: e instanceof Error ? e.message : 'Failed to update setting' }
   }
 }

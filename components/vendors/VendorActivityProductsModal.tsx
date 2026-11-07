@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import { FormModal } from '@/components/shared/FormModal'
 import { DashboardSortableTable, type DashboardColumn } from '@/components/dashboard/DashboardSortableTable'
+import { useAsync } from '@/hooks/useAsync'
 import { formatNumber, cn } from '@/lib/utils'
 import { vendorActivityService } from '@/services/vendor-activity.service'
 import type { VendorActivityProductRow } from '@/lib/vendor-activity'
@@ -30,23 +31,12 @@ export function VendorActivityProductsModal({
   to,
   showVendorProfileLink = true,
 }: VendorActivityProductsModalProps) {
-  const [products, setProducts] = useState<VendorActivityProductRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open || !vendorId) return
-    setLoading(true)
-    setError(null)
-    vendorActivityService
-      .getProducts({ vendorId, from, to })
-      .then((res) => setProducts(res.products))
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : 'Failed to load products')
-        setProducts([])
-      })
-      .finally(() => setLoading(false))
-  }, [open, vendorId, from, to])
+  const { data, loading, error } = useAsync(
+    () => vendorActivityService.getProducts({ vendorId, from, to }),
+    [open, vendorId, from, to],
+    { enabled: open && !!vendorId }
+  )
+  const products = data?.products ?? []
 
   const columns: DashboardColumn<VendorActivityProductRow>[] = useMemo(
     () => [

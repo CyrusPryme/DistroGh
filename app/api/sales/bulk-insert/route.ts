@@ -283,7 +283,7 @@ export async function POST(req: Request) {
 
     await client.query('commit')
     return NextResponse.json({ success: true })
-  } catch (e: any) {
+  } catch (e: unknown) {
     try {
       await client.query('rollback')
     } catch {
@@ -292,7 +292,8 @@ export async function POST(req: Request) {
     // Previously this failure was only ever visible to the client — log server-side too so
     // failed imports are debuggable from ops without needing to reproduce the client request.
     console.error('[API Error] Failed to import sales:', e)
-    return NextResponse.json({ success: false, error: e?.message ?? 'Failed to import sales' }, { status: 500 })
+    const message = e instanceof Error ? e.message : 'Failed to import sales'
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   } finally {
     client.release()
   }

@@ -20,6 +20,7 @@ import { formatDisplayName } from '@/lib/format-display-name'
 import { useToast } from '@/hooks/useToast'
 import { useSession } from '@/hooks/useSession'
 import { usePageSize } from '@/hooks/usePageSize'
+import { useAsync } from '@/hooks/useAsync'
 import type { Sale, Vendor, Supermarket, Product } from '@/types'
 import {
   getSaleRecordedAmounts,
@@ -32,12 +33,6 @@ type SortKey = 'product' | 'supermarket' | 'month' | 'qty' | 'unit_price' | 'tot
 
 function SalesContent() {
   const searchParams = useSearchParams()
-  const [sales, setSales] = useState<Sale[]>([])
-  const [vendors, setVendors] = useState<Vendor[]>([])
-  const [supermarkets, setSupermarkets] = useState<Supermarket[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [filterVendor, setFilterVendor] = useState('')
   const [filterProduct, setFilterProduct] = useState('')
   const [filterSupermarket, setFilterSupermarket] = useState(searchParams?.get('supermarket_id') ?? '')
@@ -56,9 +51,15 @@ function SalesContent() {
   const isVendor = role === 'vendor'
   const vendorDueLabel = role === 'admin' ? 'Vendor Due' : 'Your amount'
 
-  const load = async () => {
-    setLoading(true)
-    try {
+  // Only load after we know role; vendors must have vendorId so we only fetch their sales
+  const canLoad = !sessionLoading && role !== null && (role !== 'vendor' || vendorId != null)
+  const {
+    data: loadedData,
+    loading,
+    error,
+    reload: load,
+  } = useAsync(
+    async () => {
       const isVendor = role === 'vendor' && vendorId
       const monthRange = filterMonth ? reportMonthToRange(filterMonth) : null
       const supermarketPaidFilter =
@@ -76,24 +77,20 @@ function SalesContent() {
         supermarketService.getAll(),
         isVendor && vendorId ? productService.getByVendor(vendorId) : productService.getAll(),
       ])
-      
-      setSales(Array.isArray(s) ? s : [])
-      setVendors(Array.isArray(v) ? v : [])
-      setSupermarkets(Array.isArray(sm) ? sm : [])
-      setProducts(Array.isArray(pr) ? pr : [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Only load after we know role; vendors must have vendorId so we only fetch their sales
-  const canLoad = !sessionLoading && role !== null && (role !== 'vendor' || vendorId != null)
-  useEffect(() => {
-    if (!canLoad) return
-    load()
-  }, [canLoad, sessionLoading, filterMonth, filterSupermarket, filterProduct, filterVendor, filterSettlement, role, vendorId])
+      return {
+        sales: Array.isArray(s) ? s : [],
+        vendors: Array.isArray(v) ? (v as Vendor[]) : [],
+        supermarkets: Array.isArray(sm) ? sm : [],
+        products: Array.isArray(pr) ? pr : [],
+      }
+    },
+    [filterMonth, filterSupermarket, filterProduct, filterVendor, filterSettlement, role, vendorId],
+    { enabled: canLoad }
+  )
+  const sales = useMemo(() => loadedData?.sales ?? [], [loadedData])
+  const vendors = useMemo(() => loadedData?.vendors ?? [], [loadedData])
+  const supermarkets = useMemo(() => loadedData?.supermarkets ?? [], [loadedData])
+  const products = useMemo(() => loadedData?.products ?? [], [loadedData])
 
   // Client-side filtering (vendor/product/supermarket/week already applied in load; search is client-side)
   const filtered = useMemo(() => {

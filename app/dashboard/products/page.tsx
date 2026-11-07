@@ -41,6 +41,7 @@ import { formatDisplayName } from '@/lib/format-display-name'
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
+import { useAsync } from '@/hooks/useAsync'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,10 +88,6 @@ function ProductThumbnail({ product }: { product: Product }) {
 
 function ProductsContent() {
   const searchParams = useSearchParams()
-  const [products, setProducts] = useState<Product[]>([])
-  const [vendors, setVendors] = useState<Vendor[]>([])
-  const [stockByProduct, setStockByProduct] = useState<Map<string, number>>(new Map())
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterVendor, setFilterVendor] = useState(searchParams?.get('vendor_id') ?? '')
   const [filterCategory, setFilterCategory] = useState('')
@@ -100,11 +97,8 @@ function ProductsContent() {
   const [detailProduct, setDetailProduct] = useState<Product | null>(null)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const { toast, showToast, dismissToast } = useToast(3500)
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
-  const [returnsList, setReturnsList] = useState<ProductReturn[]>([])
-  const [categories, setCategories] = useState<string[]>([])
   const [productPage, setProductPage] = useState(1)
   const [productPageSize, setProductPageSize] = usePageSize('products', DEFAULT_PAGE_SIZE)
   const [returnsPage, setReturnsPage] = useState(1)
@@ -115,10 +109,15 @@ function ProductsContent() {
   const [productViewReady, setProductViewReady] = useState(false)
 
   const isAdmin = role === 'admin'
+  const canLoad = !sessionLoading && role !== null && (role !== 'vendor' || vendorId != null)
 
-  const load = async () => {
-    setLoading(true)
-    try {
+  const {
+    data: loadedData,
+    loading,
+    error: loadError,
+    reload: load,
+  } = useAsync(
+    async () => {
       const isVendor = role === 'vendor' && vendorId
       const vendorFilter = isVendor ? vendorId! : undefined
       const [ps, vs, returnsData, catsResult, stockRows] = await Promise.all([
@@ -134,24 +133,24 @@ function ProductsContent() {
         intakeService.getStockByProduct(vendorFilter).catch(() => [] as StockRow[]),
       ])
       const productList = Array.isArray(ps) ? ps : []
-      setProducts(productList)
-      setVendors(Array.isArray(vs) ? vs : [])
-      setReturnsList(returnsData)
-      setStockByProduct(new Map((stockRows as StockRow[]).map((s) => [s.product_id, s.on_hand])))
       const fromProducts = [...new Set(productList.map((p) => p.category).filter((c): c is string => !!c))]
-      setCategories(mergeCategoryOptions(catsResult, fromProducts))
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load products')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const canLoad = !sessionLoading && role !== null && (role !== 'vendor' || vendorId != null)
-  useEffect(() => {
-    if (!canLoad) return
-    load()
-  }, [canLoad, role, vendorId, sessionLoading])
+      return {
+        products: productList,
+        vendors: Array.isArray(vs) ? (vs as Vendor[]) : [],
+        returnsList: returnsData as ProductReturn[],
+        stockByProduct: new Map((stockRows as StockRow[]).map((s) => [s.product_id, s.on_hand])),
+        categories: mergeCategoryOptions(catsResult, fromProducts),
+      }
+    },
+    [role, vendorId],
+    { enabled: canLoad }
+  )
+  const products = useMemo(() => loadedData?.products ?? [], [loadedData])
+  const vendors = useMemo(() => loadedData?.vendors ?? [], [loadedData])
+  const returnsList = useMemo(() => loadedData?.returnsList ?? [], [loadedData])
+  const stockByProduct = useMemo(() => loadedData?.stockByProduct ?? new Map<string, number>(), [loadedData])
+  const categories = useMemo(() => loadedData?.categories ?? [], [loadedData])
+  const error = loadError
 
   useEffect(() => {
     try {

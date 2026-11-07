@@ -10,6 +10,7 @@ import { History, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MIGRATION_STAGES, type MigrationStatus } from '@/lib/migration/types'
 import { canDeleteMigration } from '@/lib/migration/lifecycle'
+import { useAsync } from '@/hooks/useAsync'
 
 type Migration = {
   id: string
@@ -46,8 +47,6 @@ function MigrationsList() {
   const statusFilter = searchParams.get('status') || ''
   const wantNew = searchParams.get('new') === '1'
 
-  const [items, setItems] = useState<Migration[]>([])
-  const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(wantNew)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -56,19 +55,15 @@ function MigrationsList() {
   const [deleteTarget, setDeleteTarget] = useState<Migration | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : ''
-      const res = await fetch(`/api/migrations${qs}`)
-      const j = await res.json()
-      if (j.success) setItems(j.data)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data, loading, reload: load } = useAsync(async () => {
+    const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : ''
+    const res = await fetch(`/api/migrations${qs}`)
+    const j = await res.json()
+    if (!j.success) throw new Error(j.error || 'Failed to load migrations')
+    return j.data as Migration[]
+  }, [statusFilter])
+  const items = data ?? []
 
-  useEffect(() => { load() }, [statusFilter])
   useEffect(() => { if (wantNew) setModal(true) }, [wantNew])
 
   const create = async () => {

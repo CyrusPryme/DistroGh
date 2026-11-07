@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useAsync } from '@/hooks/useAsync'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import {
   Bar,
@@ -47,30 +48,19 @@ export function VendorPortalReport({
 }: VendorPortalReportProps) {
   const [from, setFrom] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [to, setTo] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'))
-  const [statement, setStatement] = useState<{
-    sales: { vendor_due: number }[]
-    returns: { quantity_returned: number; vendor_price: number }[]
-    payouts: { amount_paid: number }[]
-  } | null>(null)
-  const [salesRows, setSalesRows] = useState<SaleRow[]>([])
-  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      vendorService.getVendorStatement(vendorId, from, to),
-      vendorService.getVendorSales(vendorId),
-    ])
-      .then(([stmt, sales]) => {
-        setStatement(stmt)
-        setSalesRows((sales ?? []) as SaleRow[])
-      })
-      .catch(() => {
-        setStatement(null)
-        setSalesRows([])
-      })
-      .finally(() => setLoading(false))
-  }, [vendorId, from, to])
+  const { data: reportData, loading } = useAsync(
+    async () => {
+      const [stmt, sales] = await Promise.all([
+        vendorService.getVendorStatement(vendorId, from, to),
+        vendorService.getVendorSales(vendorId),
+      ])
+      return { statement: stmt, salesRows: (sales ?? []) as SaleRow[] }
+    },
+    [vendorId, from, to]
+  )
+  const statement = reportData?.statement ?? null
+  const salesRows = useMemo(() => reportData?.salesRows ?? [], [reportData])
 
   const earningsFromSales = statement
     ? statement.sales.reduce((s, r) => s + Number(r.vendor_due ?? 0), 0)

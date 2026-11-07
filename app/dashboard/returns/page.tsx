@@ -30,6 +30,7 @@ import { FormModal, FormModalBody, FormModalFooter } from '@/components/shared/F
 import { useSession } from '@/hooks/useSession'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
+import { useAsync } from '@/hooks/useAsync'
 import type { ProductReturn, ReturnReason, Product, Supermarket } from '@/types'
 
 const REASON_LABELS: Record<ReturnReason, string> = {
@@ -41,11 +42,6 @@ const REASON_LABELS: Record<ReturnReason, string> = {
 
 function ReturnsContent() {
   const searchParams = useSearchParams()
-  const [returns, setReturns] = useState<ProductReturn[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [supermarkets, setSupermarkets] = useState<Supermarket[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const { role, vendorId, loading: sessionLoading } = useSession({ requireAuth: true })
@@ -67,35 +63,35 @@ function ReturnsContent() {
     return_date: new Date().toISOString().slice(0, 10),
   })
 
-  const load = async () => {
-    try {
+  const canLoad = !sessionLoading && role !== null && (role !== 'vendor' || vendorId != null)
+  const {
+    data: loadedData,
+    loading,
+    error,
+    reload: load,
+  } = useAsync(
+    async () => {
+      const isVendor = vendorId && role === 'vendor'
       const filters: Parameters<typeof returnsService.getAll>[0] = {
         product_id: filterProduct || undefined,
         supermarket_id: filterSupermarket || undefined,
+        vendor_id: isVendor ? vendorId : undefined,
         from: filterFrom || undefined,
         to: filterTo || undefined,
       }
-      if (vendorId && role === 'vendor') (filters as any).vendor_id = vendorId
       const [r, p, s] = await Promise.all([
         returnsService.getAll(filters),
-        (vendorId && role === 'vendor') ? productService.getByVendor(vendorId) : productService.getAll(),
+        isVendor ? productService.getByVendor(vendorId) : productService.getAll(),
         supermarketService.getAll(),
       ])
-      setReturns(r)
-      setProducts(p)
-      setSupermarkets(s)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load returns')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const canLoad = !sessionLoading && role !== null && (role !== 'vendor' || vendorId != null)
-  useEffect(() => {
-    if (!canLoad) return
-    load()
-  }, [canLoad, vendorId, role, sessionLoading, filterProduct, filterSupermarket, filterFrom, filterTo])
+      return { returns: r, products: p, supermarkets: s }
+    },
+    [vendorId, role, filterProduct, filterSupermarket, filterFrom, filterTo],
+    { enabled: canLoad }
+  )
+  const returns = useMemo(() => loadedData?.returns ?? [], [loadedData])
+  const products = useMemo(() => loadedData?.products ?? [], [loadedData])
+  const supermarkets = useMemo(() => loadedData?.supermarkets ?? [], [loadedData])
 
   useEffect(() => {
     setReturnsPage(1)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, formatNumber } from '@/lib/utils'
 
 type IntegrityIssue = {
   severity: 'error' | 'warn' | 'info'
@@ -138,7 +138,7 @@ export default function DataIntegrityPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {(Object.keys(COUNT_LABELS) as Array<keyof IntegrityCounts>).map((key) => (
               <div key={key} className="bg-white rounded-xl border border-slate-200 p-3 text-center shadow-sm">
-                <p className="text-xl font-bold text-slate-800">{Number(data.counts[key] ?? 0).toLocaleString()}</p>
+                <p className="text-xl font-bold text-slate-800">{formatNumber(Number(data.counts[key] ?? 0))}</p>
                 <p className="text-xs text-slate-500 mt-1">{COUNT_LABELS[key]}</p>
               </div>
             ))}
@@ -160,7 +160,7 @@ export default function DataIntegrityPage() {
                     <span>{issue.message}</span>
                   </div>
                   {issue.count != null ? (
-                    <span className="shrink-0 font-semibold">{issue.count.toLocaleString()}</span>
+                    <span className="shrink-0 font-semibold">{formatNumber(issue.count)}</span>
                   ) : null}
                 </div>
               ))}

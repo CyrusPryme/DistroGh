@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { HelpCircle, AlertCircle } from 'lucide-react'
 import { useSession } from '@/hooks/useSession'
+import { useAsync } from '@/hooks/useAsync'
 import { vendorService } from '@/services/vendor.service'
 import { ContactSupportPanel, type SupportContext } from '@/components/support/ContactSupportPanel'
 
@@ -11,50 +11,45 @@ export default function DashboardSupportPage() {
     requireAuth: true,
     ensureVendorProfile: true,
   })
-  const [context, setContext] = useState<SupportContext | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (sessionLoading) return
+  const { data: context, loading: dataLoading, error } = useAsync<SupportContext | null>(
+    async () => {
+      if (isAdmin && session) {
+        return {
+          label: 'Admin account',
+          name: 'DistroGH Admin',
+          email: session.email,
+          roleLabel: 'Administrator',
+        }
+      }
 
-    if (isAdmin && session) {
-      setContext({
-        label: 'Admin account',
-        name: 'DistroGH Admin',
-        email: session.email,
-        roleLabel: 'Administrator',
-      })
-      setLoading(false)
-      return
-    }
+      if (isVendor && vendorId) {
+        let v
+        try {
+          v = await vendorService.getById(vendorId)
+        } catch {
+          throw new Error('Failed to load vendor details')
+        }
+        if (!v) throw new Error('Vendor profile not found.')
+        return {
+          label: 'Vendor details',
+          name: v.name,
+          email: (v as { login_email?: string }).login_email ?? email ?? session?.email ?? '',
+          phone: (v as { contact_phone?: string | null }).contact_phone ?? null,
+          roleLabel: 'Vendor',
+        }
+      }
 
-    if (isVendor && vendorId) {
-      vendorService
-        .getById(vendorId)
-        .then((v) => {
-          if (!v) {
-            setError('Vendor profile not found.')
-            return
-          }
-          setContext({
-            label: 'Vendor details',
-            name: v.name,
-            email: (v as { login_email?: string }).login_email ?? email ?? session?.email ?? '',
-            phone: (v as { contact_phone?: string | null }).contact_phone ?? null,
-            roleLabel: 'Vendor',
-          })
-        })
-        .catch(() => setError('Failed to load vendor details'))
-        .finally(() => setLoading(false))
-      return
-    }
+      if (isVendor && !vendorId) {
+        throw new Error('No vendor linked to your account.')
+      }
 
-    if (isVendor && !vendorId) {
-      setError('No vendor linked to your account.')
-    }
-    setLoading(false)
-  }, [sessionLoading, isAdmin, isVendor, vendorId, email, session])
+      return null
+    },
+    [isAdmin, isVendor, vendorId, email, session],
+    { enabled: !sessionLoading }
+  )
+  const loading = dataLoading || sessionLoading
 
   return (
     <div className="page-container max-w-4xl space-y-6">

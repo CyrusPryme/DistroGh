@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, formatGHS } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
 
@@ -85,7 +85,7 @@ export default function ReconciliationPage() {
     } catch { showToast('error', 'Network error') } finally { setRunning(false) }
   }
 
-  const fmt = (n?: number | null) => n != null ? `GHS ${Number(n).toLocaleString('en-GH', { minimumFractionDigits: 2 })}` : '—'
+  const fmt = (n?: number | null) => (n != null ? formatGHS(Number(n)) : '—')
   const fmtDate = (d: string) => new Date(d).toLocaleDateString()
 
   // Quick shortcut: set period to current month

@@ -1,18 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
+import { useAsync } from '@/hooks/useAsync'
 
 type DeletedRecord = { id: string; label: string; deleted_at: string }
 type TableMeta = { key: string; label: string }
 
 export default function DataRecoveryPage() {
-  const [tables, setTables] = useState<TableMeta[]>([])
   const [activeTable, setActiveTable] = useState('vendors')
-  const [records, setRecords] = useState<DeletedRecord[]>([])
-  const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<string | null>(null)
   const { toast, showToast: showToastMsgFirst, dismissToast } = useToast(4000)
   const showToast = useCallback(
@@ -20,19 +18,17 @@ export default function DataRecoveryPage() {
     [showToastMsgFirst]
   )
 
-  const load = async (table = activeTable) => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/developer/data-recovery?table=${table}`)
-      const data = await res.json()
-      if (data.success) {
-        setRecords(data.data)
-        if (data.available_tables) setTables(data.available_tables)
-      }
-    } catch { /* ignore */ } finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() }, [])
+  const { data, loading, setData } = useAsync(async () => {
+    const res = await fetch(`/api/developer/data-recovery?table=${activeTable}`)
+    const json = await res.json()
+    if (!json.success) return { records: [] as DeletedRecord[], tables: [] as TableMeta[] }
+    return {
+      records: json.data as DeletedRecord[],
+      tables: (json.available_tables ?? []) as TableMeta[],
+    }
+  }, [activeTable])
+  const records = data?.records ?? []
+  const tables = data?.tables ?? []
 
   const handleRestore = async (id: string) => {
     setRestoring(id)
@@ -44,7 +40,7 @@ export default function DataRecoveryPage() {
       const data = await res.json()
       if (!data.success) { showToast('error', data.error ?? 'Failed to restore'); return }
       showToast('success', 'Record restored successfully.')
-      setRecords(prev => prev.filter(r => r.id !== id))
+      setData(prev => (prev ? { ...prev, records: prev.records.filter(r => r.id !== id) } : prev))
     } catch { showToast('error', 'Network error') } finally { setRestoring(null) }
   }
 
@@ -69,7 +65,7 @@ export default function DataRecoveryPage() {
         {tables.map(t => (
           <button
             key={t.key}
-            onClick={() => { setActiveTable(t.key); load(t.key) }}
+            onClick={() => setActiveTable(t.key)}
             className={cn('px-4 py-2 rounded-lg text-sm font-medium border transition',
               activeTable === t.key
                 ? 'bg-violet-600 text-white border-violet-600'

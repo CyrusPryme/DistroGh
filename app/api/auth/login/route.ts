@@ -178,7 +178,8 @@ export async function POST(req: Request) {
     })
 
     return NextResponse.json({ success: true, role, admin_role, vendor_id: row.vendor_id ?? null })
-  } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message ?? 'Login failed.' }, { status: 500 })
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Login failed.'
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

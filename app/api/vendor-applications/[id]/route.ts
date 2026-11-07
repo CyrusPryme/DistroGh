@@ -165,10 +165,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       initialPassword,
       loginEmail,
     })
-  } catch (e: any) {
+  } catch (e: unknown) {
     await client.query('rollback')
     logError(e, 'api.vendor-applications.PATCH')
-    if (e?.code === '23505') {
+    if ((e as { code?: string })?.code === '23505') {
       return NextResponse.json(
         { success: false, error: 'A user with this email already exists. Use a different email or reset password.' },
         { status: 409 }

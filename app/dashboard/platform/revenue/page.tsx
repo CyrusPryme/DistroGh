@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, formatGHS, formatNumber } from '@/lib/utils'
 import { PageToast } from '@/components/shared/PageToast'
 import { useToast } from '@/hooks/useToast'
 
@@ -118,7 +118,7 @@ export default function PlatformRevenuePage() {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv])); a.download = `platform-revenue-${groupBy}.csv`; a.click()
   }
 
-  const fmt = (n?: number | null) => n != null ? `GHS ${Number(n).toLocaleString('en-GH', { minimumFractionDigits: 2 })}` : '—'
+  const fmt = (n?: number | null) => (n != null ? formatGHS(Number(n)) : '—')
 
   const scopeLabel = (cfg: FeeConfig) =>
     cfg.scope === 'global' ? 'Global' :
@@ -204,7 +204,7 @@ export default function PlatformRevenuePage() {
                 <td className="px-4 py-3 text-blue-700">{fmt(r.vendor_due)}</td>
                 <td className="px-4 py-3 font-semibold text-violet-700">{fmt(r.developer_revenue)}</td>
                 <td className="px-4 py-3 text-emerald-700">{fmt(r.distrogh_revenue)}</td>
-                <td className="px-4 py-3 text-slate-500">{Number(r.total_qty ?? 0).toLocaleString()}</td>
+                <td className="px-4 py-3 text-slate-500">{formatNumber(Number(r.total_qty ?? 0))}</td>
               </tr>
             ))}
           </tbody>

@@ -101,14 +101,15 @@ export default function VendorApplicationsPage() {
     try {
       await vendorApplicationService.deleteApplication(application.id)
       setApplications((prev) => prev.filter((a) => a.id !== application.id))
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error rejecting application:', e)
+      const message = e instanceof Error ? e.message : 'Unknown error'
       console.error('Error details:', {
-        message: e.message,
-        stack: e.stack,
-        code: e.code
+        message,
+        stack: e instanceof Error ? e.stack : undefined,
+        code: (e as { code?: string })?.code,
       })
-      setActionError(`Failed to reject application: ${e.message}`)
+      setActionError(`Failed to reject application: ${message}`)
     } finally {
       setProcessing(null)
     }

@@ -17,12 +17,11 @@ import { SegmentedControl } from '@/components/shared/SegmentedControl'
 import { formatDisplayName } from '@/lib/format-display-name'
 import { useToast } from '@/hooks/useToast'
 import { usePageSize } from '@/hooks/usePageSize'
+import { useAsync } from '@/hooks/useAsync'
 
 type Request = Awaited<ReturnType<typeof getDeactivationRequests>>[number]
 
 export default function DeactivationRequestsPage() {
-  const [requests, setRequests] = useState<Request[]>([])
-  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
   const [acting, setActing] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<{ id: string; kind: 'approve' | 'reject'; name: string } | null>(null)
@@ -30,20 +29,15 @@ export default function DeactivationRequestsPage() {
   const [reqPage, setReqPage] = useState(1)
   const [reqPageSize, setReqPageSize] = usePageSize('deactivation-requests', DEFAULT_PAGE_SIZE)
 
-  const load = async () => {
-    setLoading(true)
+  const { data, loading, reload: load } = useAsync(async () => {
+    const status = filter === 'all' ? undefined : filter
     try {
-      const status = filter === 'all' ? undefined : filter
-      const data = await getDeactivationRequests(status)
-      setRequests(data)
+      return await getDeactivationRequests(status)
     } catch {
-      setRequests([])
-    } finally {
-      setLoading(false)
+      return [] as Request[]
     }
-  }
-
-  useEffect(() => { load() }, [filter])
+  }, [filter])
+  const requests = useMemo(() => data ?? [], [data])
 
   useEffect(() => {
     setReqPage(1)

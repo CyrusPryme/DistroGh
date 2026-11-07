@@ -71,8 +71,8 @@ export default function SettingsPage() {
       setCompanyName(opts.company_name ?? 'DistroGH')
       setDefaultMoq(opts.default_moq ?? 1)
       setExpiryReminderDays(opts.expiry_reminder_days ?? 30)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load settings')
     } finally {
       setLoading(false)
     }
@@ -96,8 +96,8 @@ export default function SettingsPage() {
       setCategoryAddName('')
       setCategoryPage(1)
       load()
-    } catch (e: any) {
-      showToast(e.message, 'error')
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to add category', 'error')
     } finally {
       setCategorySubmitting(false)
     }
@@ -117,8 +117,8 @@ export default function SettingsPage() {
       showToast('Category updated')
       setCategoryEditingId(null)
       load()
-    } catch (e: any) {
-      showToast(e.message, 'error')
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to update category', 'error')
     } finally {
       setCategorySubmitting(false)
     }
@@ -154,8 +154,8 @@ export default function SettingsPage() {
       ])
       showToast('Settings saved')
       load()
-    } catch (e: any) {
-      showToast(e.message, 'error')
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Failed to save settings', 'error')
     } finally {
       setSettingsSubmitting(false)
     }

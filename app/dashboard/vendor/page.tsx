@@ -95,8 +95,8 @@ export default function VendorDashboardPage() {
         setRecentSales(vendorSales.slice(0, 8))
         setWeeklyRevenue([...vendorWeeklyRevenue].reverse())
         setTopProducts(vendorTopProducts)
-      } catch (e: any) {
-        setError(e.message)
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to load vendor dashboard')
       } finally {
         setLoading(false)
       }

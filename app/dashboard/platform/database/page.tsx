@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatNumber } from '@/lib/utils'
 
 type DBData = {
   database?: { db_size: string; db_name: string }
@@ -70,11 +71,11 @@ export default function DatabaseMonitoringPage() {
                 {(data?.tables ?? []).map(t => (
                   <tr key={t.table_name} className="hover:bg-slate-50">
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-700">{t.table_name}</td>
-                    <td className="px-3 py-2.5 text-slate-600">{Number(t.live_rows).toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-orange-600">{Number(t.dead_rows).toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-slate-600">{formatNumber(Number(t.live_rows))}</td>
+                    <td className="px-3 py-2.5 text-orange-600">{formatNumber(Number(t.dead_rows))}</td>
                     <td className="px-3 py-2.5 text-slate-500">{t.total_size}</td>
-                    <td className="px-3 py-2.5 text-slate-500">{Number(t.seq_scan).toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-slate-500">{Number(t.idx_scan).toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-slate-500">{formatNumber(Number(t.seq_scan))}</td>
+                    <td className="px-3 py-2.5 text-slate-500">{formatNumber(Number(t.idx_scan))}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-400">{fmtDate(t.last_autovacuum)}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-400">{fmtDate(t.last_autoanalyze)}</td>
                   </tr>
@@ -95,7 +96,7 @@ export default function DatabaseMonitoringPage() {
                   <tr key={idx.index_name} className="hover:bg-slate-50">
                     <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{idx.index_name}</td>
                     <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{idx.table_name}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{Number(idx.idx_scan).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{formatNumber(Number(idx.idx_scan))}</td>
                     <td className="px-4 py-2.5 text-slate-500">{idx.index_size}</td>
                   </tr>
                 ))}

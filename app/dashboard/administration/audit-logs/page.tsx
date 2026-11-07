@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { FileText, Search, RefreshCw, Download, ChevronLeft, ChevronRight, Filter } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatNumber } from '@/lib/utils'
 import { format } from 'date-fns'
 import { usePageSize } from '@/hooks/usePageSize'
+import { useAsync } from '@/hooks/useAsync'
 
 const LIMIT_OPTIONS = [50, 100, 200]
 
@@ -50,11 +51,6 @@ function actionBadge(action: string) {
 }
 
 export default function AuditLogsPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
-  const [filters, setFilters] = useState<{ modules: string[]; actions: string[] }>({ modules: [], actions: [] })
-  const [loading, setLoading] = useState(true)
-
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [module, setModule] = useState('')
@@ -71,10 +67,12 @@ export default function AuditLogsPage() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  // Reset to page 1 whenever filters change (prevents stale-page bug)
+  // Reset to page 1 whenever filters change (prevents stale-page bug). This is a derived-state
+  // reset, not a data fetch, so it's intentionally outside useAsync below.
   const isMount = useRef(true)
   useEffect(() => {
     if (isMount.current) { isMount.current = false; return }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: resets pagination in response to filter changes, not a fetch-driven state update.
     setPage(1)
   }, [search, module, action, dateFrom, dateTo, limit])
 
@@ -82,31 +80,29 @@ export default function AuditLogsPage() {
   const [refreshTick, setRefreshTick] = useState(0)
   const load = () => setRefreshTick(t => t + 1)
 
-  // Single fetch effect — AbortController ensures only the latest request wins
-  useEffect(() => {
-    const ctrl = new AbortController()
-    setLoading(true)
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
-    if (search) params.set('search', search)
-    if (module) params.set('module', module)
-    if (action) params.set('action', action)
-    if (dateFrom) params.set('date_from', dateFrom)
-    if (dateTo) params.set('date_to', dateTo)
-
-    fetch(`/api/admin/audit-logs?${params}`, { signal: ctrl.signal })
-      .then(r => r.json())
-      .then(json => {
-        if (json.success) {
-          setLogs(json.data)
-          setMeta(json.meta)
-          setFilters(json.filters)
-        }
-      })
-      .catch(e => { if ((e as Error).name !== 'AbortError') console.error(e) })
-      .finally(() => setLoading(false))
-
-    return () => ctrl.abort()
-  }, [page, limit, search, module, action, dateFrom, dateTo, refreshTick])
+  // useAsync's internal cancelled-flag guard ensures only the latest request's result is applied
+  const { data, loading } = useAsync(
+    async () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+      if (search) params.set('search', search)
+      if (module) params.set('module', module)
+      if (action) params.set('action', action)
+      if (dateFrom) params.set('date_from', dateFrom)
+      if (dateTo) params.set('date_to', dateTo)
+      const res = await fetch(`/api/admin/audit-logs?${params}`)
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || 'Failed to load audit logs')
+      return {
+        logs: json.data as AuditLog[],
+        meta: json.meta as Meta,
+        filters: json.filters as { modules: string[]; actions: string[] },
+      }
+    },
+    [page, limit, search, module, action, dateFrom, dateTo, refreshTick]
+  )
+  const logs = data?.logs ?? []
+  const meta = data?.meta ?? { total: 0, page: 1, limit: 50, pages: 0 }
+  const filters = data?.filters ?? { modules: [], actions: [] }
 
   function exportCsv() {
     const headers = ['Date', 'Actor', 'Action', 'Module', 'Target', 'IP']
@@ -181,7 +177,7 @@ export default function AuditLogsPage() {
 
       {/* Stats */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-        <span>{meta.total.toLocaleString()} total entries · Page {meta.page} of {meta.pages || 1}</span>
+        <span>{formatNumber(meta.total)} total entries · Page {meta.page} of {meta.pages || 1}</span>
         <label className="flex items-center gap-1.5">
           <span>Rows per page</span>
           <select

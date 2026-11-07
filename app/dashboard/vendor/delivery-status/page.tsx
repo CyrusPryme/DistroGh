@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useSession } from '@/hooks/useSession'
+import { useAsync } from '@/hooks/useAsync'
 import { deliveryService } from '@/services/delivery.service'
 import { supermarketService } from '@/services/supermarket.service'
 import { Truck, Package, Loader2, AlertCircle, CheckCircle2, Filter } from 'lucide-react'
@@ -16,19 +17,14 @@ export default function VendorDeliveryStatusPage() {
     requireAuth: true,
     ensureVendorProfile: true,
   })
-  const [deliveries, setDeliveries] = useState<
-    {
-      run_id: string
-      delivery_date: string
-      confirmed_at: string
-      supermarket_id: string
-      supermarket_name: string
-      items: { product_id: string; product_name: string; quantity_delivered: number }[]
-    }[]
-  >([])
-  const [supermarkets, setSupermarkets] = useState<Supermarket[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  type DeliveryRow = {
+    run_id: string
+    delivery_date: string
+    confirmed_at: string
+    supermarket_id: string
+    supermarket_name: string
+    items: { product_id: string; product_name: string; quantity_delivered: number }[]
+  }
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
   const [filterSupermarket, setFilterSupermarket] = useState('')
@@ -36,34 +32,34 @@ export default function VendorDeliveryStatusPage() {
   const [delPageSize, setDelPageSize] = usePageSize('vendor-delivery-status', DEFAULT_PAGE_SIZE)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- derived-state reset (pagination) in response to filter changes, not a fetch.
     setDelPage(1)
   }, [filterFrom, filterTo, filterSupermarket])
 
-  useEffect(() => {
-    if (sessionLoading) return
-    if (!vendorId) {
-      setLoading(false)
-      setError('No vendor linked to your account.')
-      return
-    }
-    setLoading(true)
-    Promise.all([
-      deliveryService.getConfirmedDeliveriesForVendor(vendorId, {
-        from: filterFrom || undefined,
-        to: filterTo || undefined,
-        supermarket_id: filterSupermarket || undefined,
-      }),
-      supermarketService.getAll(),
-    ])
-      .then(([dels, sm]) => {
-        setDeliveries(Array.isArray(dels) ? dels : [])
-        setSupermarkets(Array.isArray(sm) ? sm : [])
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Failed to load delivery status')
-      })
-      .finally(() => setLoading(false))
-  }, [sessionLoading, vendorId, filterFrom, filterTo, filterSupermarket])
+  const hasVendor = !sessionLoading && !!vendorId
+  const { data, loading: fetchLoading, error: fetchError } = useAsync(
+    async () => {
+      const [dels, sm] = await Promise.all([
+        deliveryService.getConfirmedDeliveriesForVendor(vendorId!, {
+          from: filterFrom || undefined,
+          to: filterTo || undefined,
+          supermarket_id: filterSupermarket || undefined,
+        }),
+        supermarketService.getAll(),
+      ])
+      return {
+        deliveries: (Array.isArray(dels) ? dels : []) as DeliveryRow[],
+        supermarkets: (Array.isArray(sm) ? sm : []) as Supermarket[],
+      }
+    },
+    [vendorId, filterFrom, filterTo, filterSupermarket],
+    { enabled: hasVendor }
+  )
+  const deliveries = useMemo(() => data?.deliveries ?? [], [data])
+  const supermarkets = useMemo(() => data?.supermarkets ?? [], [data])
+  const noVendorError = !sessionLoading && !vendorId ? 'No vendor linked to your account.' : null
+  const error = fetchError || noVendorError
+  const loading = sessionLoading || (hasVendor && fetchLoading)
 
   const paginatedDeliveries = useMemo(
     () => getPageSlice(deliveries, delPage, delPageSize),

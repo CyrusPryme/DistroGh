@@ -35,11 +35,12 @@ export async function POST(req: Request) {
       [name]
     )
     return NextResponse.json({ success: true, data: rows[0] }, { status: 201 })
-  } catch (e: any) {
-    if (e?.code === '23505') {
+  } catch (e: unknown) {
+    if ((e as { code?: string })?.code === '23505') {
       return NextResponse.json({ success: false, error: 'A category with this name already exists' }, { status: 409 })
     }
-    return NextResponse.json({ success: false, error: e?.message ?? 'Failed to create category' }, { status: 500 })
+    const message = e instanceof Error ? e.message : 'Failed to create category'
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }
 
