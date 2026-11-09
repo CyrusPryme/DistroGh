@@ -96,25 +96,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         `
         update public.vendors
         set status = 'pending_verification',
-            initial_password = $2,
-            login_email = $3,
-            contact_phone = coalesce(nullif($4, ''), contact_phone),
-            description = coalesce($5, description),
+            login_email = $2,
+            contact_phone = coalesce(nullif($3, ''), contact_phone),
+            description = coalesce($4, description),
             updated_at = now()
         where id = $1
         `,
-        [vendorId, initialPassword, loginEmail, String(application.contact_phone ?? ''), application.description ?? null]
+        [vendorId, loginEmail, String(application.contact_phone ?? ''), application.description ?? null]
       )
     } else {
       const createdVendor = await client.query(
         `
         insert into public.vendors
-          (name, momo_number, momo_network, default_commission, status, initial_password, login_email, contact_phone, description)
+          (name, momo_number, momo_network, default_commission, status, login_email, contact_phone, description)
         values
-          ($1, '0000000000', 'MTN', 0, 'pending_verification', $2, $3, nullif($4, ''), $5)
+          ($1, '0000000000', 'MTN', 0, 'pending_verification', $2, nullif($3, ''), $4)
         returning id
         `,
-        [storeName, initialPassword, loginEmail, String(application.contact_phone ?? ''), application.description ?? null]
+        [storeName, loginEmail, String(application.contact_phone ?? ''), application.description ?? null]
       )
       vendorId = createdVendor.rows[0].id
     }
@@ -158,6 +157,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     )
 
     await client.query('commit')
+    // Shown once in the admin UI. Only the bcrypt hash is stored on public.users.
     return NextResponse.json({
       success: true,
       data: updatedApps[0],

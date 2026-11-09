@@ -210,8 +210,8 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
   const [customEnd, setCustomEnd] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [actionError, setActionError] = useState<string | null>(null)
   const [verifying, setVerifying] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
   const [showResetPassword, setShowResetPassword] = useState(false)
+  const [issuedPassword, setIssuedPassword] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [resettingPassword, setResettingPassword] = useState(false)
@@ -241,7 +241,10 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     let cancelled = false
     params.then((p) => {
-      if (!cancelled) setId(p.id)
+      if (!cancelled) {
+        setId(p.id)
+        setIssuedPassword(null)
+      }
     })
     return () => { cancelled = true }
   }, [params])
@@ -491,10 +494,12 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
     setActionError(null)
     setResettingPassword(true)
     try {
-      await resetVendorPassword(id, newPassword.trim())
+      const issued = newPassword.trim()
+      await resetVendorPassword(id, issued)
       setNewPassword('')
       setConfirmPassword('')
       setShowResetPassword(false)
+      setIssuedPassword(issued)
       await load()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to reset password')
@@ -898,32 +903,28 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                   <span>Facility expiry date ({vendor?.facility_expiry_date && formatDate(vendor.facility_expiry_date)}) has passed. Consider suspending the account until the vendor renews.</span>
                 </div>
               )}
-              {(vendor?.login_email != null || vendor?.initial_password != null) &&
-                vendor.access_mode !== 'admin_managed' && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {vendor?.login_email && (
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1">Login email</p>
-                      <p className="font-mono text-sm text-slate-800">{vendor.login_email}</p>
-                    </div>
-                  )}
-                  {vendor?.initial_password != null && vendor.initial_password !== '' && (
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1">Initial password</p>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 rounded-lg bg-slate-100 px-3 py-2 text-sm font-mono">
-                          {showPassword ? vendor.initial_password : '••••••••••••'}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((p) => !p)}
-                          className="text-xs font-medium text-slate-600 hover:text-slate-900"
-                        >
-                          {showPassword ? 'Hide' : 'Show'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+              {vendor?.login_email && vendor.access_mode !== 'admin_managed' && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">Login email</p>
+                  <p className="font-mono text-sm text-slate-800">{vendor.login_email}</p>
+                </div>
+              )}
+              {issuedPassword && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 space-y-1">
+                  <p className="font-medium">Password updated. This is the only time it will be shown.</p>
+                  <code className="block rounded bg-white border border-emerald-200 px-3 py-2 font-mono text-sm break-all">
+                    {issuedPassword}
+                  </code>
+                  <p className="text-xs text-emerald-800">
+                    Only a hash is stored. Copy this password now and share it with the vendor.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIssuedPassword(null)}
+                    className="text-xs font-medium text-emerald-800 underline"
+                  >
+                    Dismiss
+                  </button>
                 </div>
               )}
               {vendor?.login_email && vendor.access_mode !== 'admin_managed' && (
@@ -934,7 +935,7 @@ export default function VendorDetailPage({ params }: { params: Promise<{ id: str
                       onClick={() => setShowResetPassword(true)}
                       className="text-sm font-medium text-amber-600 hover:text-amber-700"
                     >
-                      Reset login password (e.g. for test accounts)
+                      Reset login password
                     </button>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2 max-w-md">

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDbPool } from '@/lib/db'
 import { requireAdminSession } from '@/lib/auth/require'
 import { apiError } from '@/lib/api/respond'
+import { stripVendorSecrets } from '@/lib/vendors/api-select'
 
 export async function POST(_: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -20,7 +21,10 @@ export async function POST(_: Request, ctx: { params: Promise<{ id: string }> })
     if (!rows[0]) {
       return NextResponse.json({ success: false, error: 'Vendor not found or not deleted.' }, { status: 404 })
     }
-    return NextResponse.json({ success: true, data: rows[0] })
+    return NextResponse.json({
+      success: true,
+      data: stripVendorSecrets(rows[0] as Record<string, unknown>),
+    })
   } catch (e) {
     return apiError(e, 'Failed to restore vendor')
   }

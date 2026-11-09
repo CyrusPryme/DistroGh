@@ -27,8 +27,6 @@ export interface Vendor {
   deleted_at: string | null
   /** After migration: pending_verification | active | suspended */
   status?: VendorStatus
-  /** System-generated login password; admin-only; clear after first login if desired */
-  initial_password?: string | null
   /** Auth email for this vendor */
   login_email?: string | null
   /** @deprecated Legacy local path; new uploads use Google Drive */
