@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import { ENTITY_LABELS } from '@/lib/migration/entities'
 import type { MigrationEntityType } from '@/lib/migration/types'
+import { parseFlexibleDate } from '@/lib/utils'
 
 export type MigrationTemplateRecord = {
   entity_type: string
@@ -122,9 +123,11 @@ const FIELD_VALIDATIONS: Record<string, ColumnValidation> = {
   expires_at: { kind: 'date' },
   week_start: { kind: 'date' },
   week_end: { kind: 'date' },
-  // report_month is a "YYYY-MM" month key, not a full date — real Excel date validation/picker
-  // needs a day component, so it's left unvalidated here (documented in the Instructions sheet)
-  // rather than forced through a validator built for full dates.
+  // report_month is NOT listed here — sales.report_month gets its own { kind: 'date' } entry
+  // under ENTITY_FIELD_OVERRIDES.sales below, kept entity-scoped rather than generic because
+  // 'report_month' isn't a meaningful date column on any other entity. It gets the full date
+  // picker/validation like every other date column; the day picked within the month is
+  // discarded — validate.ts snaps it to that calendar month's bounds via normalizeSaleMonthPeriod.
   fda_certificate_acquired_date: { kind: 'date' },
   fda_certificate_expiry_date: { kind: 'date' },
 }
@@ -370,24 +373,34 @@ function applyDateColumnValidation(
     cell.dataValidation = {
       type: 'custom',
       allowBlank: !required,
-      // Excel's own "did the user type a date" auto-recognition is locale-dependent and can be
-      // inconsistent for single-digit day/month values (e.g. "3-12-2026" fails to auto-convert to
-      // a real date on some regional settings while "12-10-2026" succeeds) — when auto-conversion
-      // doesn't happen, the cell keeps the raw text, and Excel's native `type: 'date'` validation
-      // rejects it outright because it never even gets a number to compare. This custom formula
-      // accepts either: (a) a value Excel already turned into a real date, or (b) text that
-      // DATEVALUE() can still interpret as a date — a second, independent parse path that covers
-      // exactly the case where (a) fails. IFERROR guards DATEVALUE() for non-date text/blanks.
+      // Excel's own "did the user type a date" auto-recognition — and DATEVALUE() below — are
+      // both locale-dependent: whether typed text like "15/01/2024" gets recognized as a date
+      // at all (and whether it's read as day-first or month-first) depends on the installed
+      // Excel/Windows regional date settings, not on what the user actually meant. A real admin
+      // report: dates typed in the day-first convention used in Ghana (and most of the world
+      // outside the US) were rejected no matter how the parts were reordered while
+      // troubleshooting, because the installed Excel assumed month-first for any ambiguous
+      // slash/dash text. This formula still accepts either: (a) a value Excel already turned
+      // into a real date, or (b) text that DATEVALUE() can still interpret as a date — but
+      // errorStyle is 'warning' (not 'error') below specifically because this check can be
+      // wrong in either direction depending on locale; the actual authoritative parse happens
+      // server-side at import via parseFlexibleDate()/toSqlDate() (lib/utils.ts), which always
+      // treats unambiguous DD/MM/YYYY or DD-MM-YYYY text as day-first regardless of this
+      // machine's Excel locale, so a value this check can't recognize may still import correctly
+      // — a hard block here would wrongly prevent that. IFERROR guards DATEVALUE() for
+      // non-date text/blanks.
       formulae: [
         `=OR(AND(ISNUMBER(${ref}),${ref}>=DATE(${minYear},1,1),${ref}<=DATE(${maxYear},12,31)),AND(IFERROR(DATEVALUE(${ref}),0)>=DATE(${minYear},1,1),IFERROR(DATEVALUE(${ref}),0)<=DATE(${maxYear},12,31)))`,
       ],
       showErrorMessage: true,
-      errorStyle: 'error',
-      errorTitle: 'Invalid date',
-      error: `Enter a valid date between ${minYear} and ${maxYear} (e.g. 2024-01-15). Any past date is fine.`,
+      errorStyle: 'warning',
+      errorTitle: 'Check this date',
+      error:
+        `This machine's Excel didn't recognize this as a date between ${minYear} and ${maxYear} — ` +
+        `it may still import fine. Use YYYY-MM-DD (e.g. 2024-01-15) or DD/MM/YYYY (e.g. 15/01/2024) to be safe.`,
       showInputMessage: true,
       promptTitle: 'Date',
-      prompt: 'Click the cell for the date picker, or type a date (e.g. 2024-01-15). Any past date is fine.',
+      prompt: 'Click the cell for the date picker, or type YYYY-MM-DD (e.g. 2024-01-15) or DD/MM/YYYY (e.g. 15/01/2024). Any past date is fine.',
     }
   }
 }
@@ -452,7 +465,7 @@ function buildInstructionsSheet(
     ['How to use:'],
     ['1. Fill rows on the "Data" sheet (row 2 is an example — replace or add below).'],
     ['2. Use dropdowns where provided (momo_network, status, vendor_name, product_name, reason, etc.).'],
-    ['3. Date columns accept any past date — click the cell for Excel\'s date picker, or type YYYY-MM-DD.'],
+    ['3. Date columns accept any past date — click the cell for Excel\'s date picker, or type YYYY-MM-DD or DD/MM/YYYY.'],
     ['4. Ghana phones: exactly 10 digits starting with 0 (e.g. 0243222222).'],
     ['5. Required columns are marked with * in the header.'],
     ['6. Save as .xlsx and upload in Data Management → Historical Migrations.'],
@@ -582,11 +595,16 @@ function populateTemplateSheets(
         cell.value = options.productNames.includes(String(val))
           ? String(val)
           : options.productNames[0]
-      } else if (FIELD_VALIDATIONS[key]?.kind === 'date') {
+      } else if (getValidation(template.entity_type, key, options)?.kind === 'date') {
+        // Checks getValidation() (not just the generic FIELD_VALIDATIONS dict) so entity-specific
+        // date overrides — e.g. sales.report_month — get the same real-Date sample formatting as
+        // every other date column, not a bare, inconsistent-looking text string.
         // Store as a real date (not the raw "2024-01-15" string) so it renders through the
         // yyyy-mm-dd numFmt applied below exactly like a value the user would enter themselves.
-        const parsed = new Date(String(val))
-        cell.value = Number.isNaN(parsed.getTime()) ? (val as string | number) : parsed
+        // parseFlexibleDate (not the native Date constructor) so a day-first sample value is
+        // never misread the same way an admin's typed DD/MM/YYYY entry could be.
+        const parsed = parseFlexibleDate(String(val))
+        cell.value = parsed ?? (val as string | number)
         cell.numFmt = 'yyyy-mm-dd'
       } else {
         cell.value = val as string | number

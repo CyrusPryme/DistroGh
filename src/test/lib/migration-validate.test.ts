@@ -32,6 +32,31 @@ describe('validateRow — date accuracy (never silently default a historical dat
     expect(errors).toEqual([])
   })
 
+  // Real admin report: dates typed in the day-first convention used in Ghana (e.g. "15/01/2024")
+  // were being rejected regardless of how the parts were reordered. Root cause: the native Date
+  // constructor assumes US-style month-first for ambiguous slash/dash text, so a day > 12 (which
+  // can never be a valid month) fails no matter what. parseDate() now delegates to lib/utils.ts's
+  // parseFlexibleDate(), which treats DD/MM/YYYY and DD-MM-YYYY as day-first explicitly.
+  it('intakes: a day-first DD/MM/YYYY received_date (day > 12, so month-first parsing would reject it) passes clean', () => {
+    const { errors } = validateRow('intakes', {
+      vendor_name: 'Acme Foods',
+      product_name: 'Palm Oil 1L',
+      quantity: 10,
+      received_date: '15/01/2024',
+    })
+    expect(errors).toEqual([])
+  })
+
+  it('intakes: a day-first DD-MM-YYYY received_date is also accepted', () => {
+    const { errors } = validateRow('intakes', {
+      vendor_name: 'Acme Foods',
+      product_name: 'Palm Oil 1L',
+      quantity: 10,
+      received_date: '15-01-2024',
+    })
+    expect(errors).toEqual([])
+  })
+
   it('deliveries: missing delivery_date is a hard error', () => {
     const { errors } = validateRow('deliveries', {
       product_name: 'Palm Oil 1L',

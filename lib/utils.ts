@@ -51,6 +51,57 @@ export function formatDateTime(dateStr: string): string {
   }
 }
 
+/** Builds a UTC date from explicit numeric year/month/day and rejects anything that doesn't
+ *  round-trip (e.g. month=13 or day=32 would otherwise silently roll over into a different,
+ *  wrong-but-valid-looking date via JS Date's native overflow behavior — round-tripping catches
+ *  that as invalid instead of importing/saving a corrupted date). */
+function buildUtcDate(year: number, month: number, day: number): Date | null {
+  if (![year, month, day].every(Number.isFinite)) return null
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  const d = new Date(Date.UTC(year, month - 1, day))
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null
+  return d
+}
+
+/**
+ * Parses a date string that may be ISO (YYYY-MM-DD / a "YYYY-MM" month key), a slash/dash
+ * day-first date (DD/MM/YYYY or DD-MM-YYYY — the convention used in Ghana, and most of the
+ * world outside the US), or any other Date-parseable text (e.g. "January 15, 2024"). Returns
+ * null if nothing matches. Exported so callers that need a Date (not just a "YYYY-MM-DD"
+ * string) — e.g. validate.ts's own date-required checks — can share this exact logic rather
+ * than re-implementing an equivalent parser that could silently drift out of sync.
+ *
+ * Deliberately does NOT hand ambiguous slash/dash-separated text to the native Date
+ * constructor: `new Date('15/01/2024')` assumes US-style MM/DD/YYYY, which either silently
+ * swaps day and month (when day <= 12 — the wrong date gets saved with no error at all) or
+ * rejects the string outright (when day > 12, since there's no 15th month). Real admin report:
+ * dates typed in the Ghanaian day-first convention were rejected no matter how the parts were
+ * reordered while troubleshooting, because every native-Date interpretation path assumed
+ * month-first.
+ */
+export function parseFlexibleDate(value: string): Date | null {
+  const raw = value.trim()
+  if (!raw) return null
+
+  // "YYYY-MM" month-only key (e.g. a legacy MONTH column) — normalize to the 1st of that month.
+  if (/^\d{4}-\d{2}$/.test(raw)) return parseFlexibleDate(`${raw}-01`)
+
+  // Full ISO date (YYYY-MM-DD), including a leading ISO timestamp — unambiguous, always
+  // year-month-day.
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw)
+  if (iso) return buildUtcDate(Number(iso[1]), Number(iso[2]), Number(iso[3]))
+
+  // DD/MM/YYYY or DD-MM-YYYY — day-first, matching how dates are actually typed here.
+  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(raw)
+  if (dmy) return buildUtcDate(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]))
+
+  // Anything else Date-parseable (e.g. "January 15, 2024"). Safe to hand to the native
+  // constructor here — month-name text isn't day/month-order-ambiguous the way all-numeric
+  // slash/dash dates are.
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 /** Normalize Date / ISO / pg values to YYYY-MM-DD for SQL date columns. */
 export function toSqlDate(value: string | Date | null | undefined): string {
   if (value == null || value === '') {
@@ -63,16 +114,12 @@ export function toSqlDate(value: string | Date | null | undefined): string {
   const s = String(value).trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10)
-  try {
-    const parsed = new Date(s)
-    if (!Number.isNaN(parsed.getTime())) {
-      const y = parsed.getUTCFullYear()
-      const m = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-      const d = String(parsed.getUTCDate()).padStart(2, '0')
-      return `${y}-${m}-${d}`
-    }
-  } catch {
-    /* fall through */
+  const parsed = parseFlexibleDate(s)
+  if (parsed) {
+    const y = parsed.getUTCFullYear()
+    const m = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(parsed.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
   try {
     return format(parseISO(s), 'yyyy-MM-dd')

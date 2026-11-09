@@ -13,7 +13,7 @@ import { updateMigrationProject } from '@/lib/migration/projects'
 import { migrationProgressForStage } from '@/lib/migration/lifecycle'
 import { normalizeCategoryName } from '@/lib/migration/category'
 import { resolveDeliveryDestination } from '@/lib/migration/delivery-destination'
-import { toSqlDate, normalizeSaleMonthPeriod, roundMoney } from '@/lib/utils'
+import { toSqlDate, parseFlexibleDate, normalizeSaleMonthPeriod, roundMoney } from '@/lib/utils'
 import { resolveProductPricing } from '@/lib/product-pricing'
 
 function str(v: unknown): string {
@@ -26,15 +26,18 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** Parses a historical date field flexibly (ISO date, "YYYY-MM" month key, or any Date-parseable
- *  string) without ever silently substituting "today" — returns null on anything unparseable so
- *  callers can raise MISSING_DATE/INVALID_DATE instead of importing a fabricated date. */
+/** Parses a historical date field flexibly (ISO date, "YYYY-MM" month key, day-first DD/MM/YYYY,
+ *  or any other Date-parseable string) without ever silently substituting "today" — returns null
+ *  on anything unparseable so callers can raise MISSING_DATE/INVALID_DATE instead of importing a
+ *  fabricated date. Delegates to lib/utils.ts's parseFlexibleDate() so the "is this a valid date"
+ *  check here always agrees with what toSqlDate() will actually resolve it to at write time
+ *  (writers.ts calls toSqlDate() directly on the raw string, not this function) — two independent
+ *  date parsers that could silently disagree on an ambiguous format is exactly how a row could
+ *  pass validation with one interpretation and get written with another. */
 function parseDate(v: unknown): Date | null {
   const raw = str(v)
   if (!raw) return null
-  const normalized = /^\d{4}-\d{2}$/.test(raw) ? `${raw}-01` : raw
-  const d = new Date(normalized)
-  return Number.isNaN(d.getTime()) ? null : d
+  return parseFlexibleDate(raw)
 }
 
 type Issue = { code: string; message: string }

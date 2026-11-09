@@ -125,6 +125,38 @@ describe('template-xlsx — date columns accept genuine past dates', () => {
     // The pre-filled sample row itself is a real Date, not the raw "2024-01-15" string.
     expect(dataSheet.getCell(2, colIndex).value).toBeInstanceOf(Date)
   })
+
+  // sales.report_month only has a 'date' kind via ENTITY_FIELD_OVERRIDES, not the generic
+  // FIELD_VALIDATIONS dict used by every other date column — a prior check here only looked at
+  // FIELD_VALIDATIONS, so report_month's sample row silently fell through to plain text instead
+  // of a real formatted date like every other date column on every other template.
+  it('an entity-specific date override (sales.report_month) also gets a real-Date sample row, not plain text', async () => {
+    const salesTemplate: MigrationTemplateRecord = {
+      entity_type: 'sales',
+      label: 'Sales',
+      description: 'Monthly sales import',
+      required_columns: ['description', 'product_name', 'qty', 'store_name', 'TCostEx', 'report_month'],
+      optional_columns: ['paid', 'month', 'report_year'],
+      sample_rows: [{
+        description: 'Palm Oil 1L',
+        product_name: 'Palm Oil 1L',
+        qty: 5,
+        store_name: 'Accra Mall',
+        TCostEx: 150,
+        report_month: '2024-06-01',
+      }],
+    }
+    const buf = await buildMigrationTemplateWorkbook(salesTemplate, {
+      productNames: ['Palm Oil 1L'],
+      supermarketBranchLabels: ['Accra Mall'],
+    })
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf as any)
+    const dataSheet = wb.getWorksheet('Data')!
+    const colIndex = salesTemplate.required_columns.indexOf('report_month') + 1
+    expect(dataSheet.getCell(2, colIndex).numFmt).toBe('yyyy-mm-dd')
+    expect(dataSheet.getCell(2, colIndex).value).toBeInstanceOf(Date)
+  })
 })
 
 describe('template-xlsx — product dropdown (same pattern as the existing vendor dropdown)', () => {

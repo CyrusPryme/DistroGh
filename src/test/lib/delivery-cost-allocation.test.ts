@@ -4,7 +4,7 @@ import {
   sumAllocationAmounts,
   validateDeliveryChargeAllocation,
 } from '@/lib/delivery-cost-allocation'
-import { toSqlDate } from '@/lib/utils'
+import { toSqlDate, parseFlexibleDate } from '@/lib/utils'
 
 describe('delivery-cost-allocation', () => {
   it('splits transport cost by quantity', () => {
@@ -45,5 +45,29 @@ describe('toSqlDate', () => {
     const d = new Date('2026-06-15T00:00:00.000Z')
     expect(toSqlDate(d)).toBe('2026-06-15')
     expect(toSqlDate(d)).not.toMatch(/GMT/)
+  })
+
+  // Real admin report: dates typed day-first (e.g. "15/01/2026", the convention used in Ghana
+  // and most of the world outside the US) were rejected/misread regardless of how the parts were
+  // reordered. Root cause: the native Date constructor (and Excel's own DATEVALUE()) assume
+  // US-style month-first for ambiguous slash/dash text — day > 12 fails outright (no 15th
+  // month), and day <= 12 is worse: it silently swaps day and month with no error at all.
+  it('treats DD/MM/YYYY as day-first even when day > 12 (would be rejected under month-first parsing)', () => {
+    expect(toSqlDate('15/01/2026')).toBe('2026-01-15')
+  })
+
+  it('treats DD-MM-YYYY (dash separator) as day-first too', () => {
+    expect(toSqlDate('15-01-2026')).toBe('2026-01-15')
+  })
+
+  it('does not silently swap day/month for an ambiguous day <= 12 case (the dangerous silent-corruption case)', () => {
+    // "03/04/2026" must resolve to 3 April 2026 (day-first), never 4 March 2026
+    // (month-first) — the input is ambiguous to a human, but our parser has one fixed rule.
+    expect(toSqlDate('03/04/2026')).toBe('2026-04-03')
+  })
+
+  it('rejects an out-of-range day-first date rather than letting it roll over to a different date', () => {
+    // 32nd day of any month doesn't exist — must not silently roll into the next month.
+    expect(parseFlexibleDate('32/01/2026')).toBeNull()
   })
 })
